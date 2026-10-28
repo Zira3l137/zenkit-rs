@@ -9,7 +9,7 @@
 //! version: u16 | content length: u32 | content...
 //! sub-mesh count: u8 | positions (offset, count) | normals (offset, count)
 //! per sub-mesh: ten (offset, count) pairs, see SubMesh
-//! materials (binary archive) | alpha test: u8, Gothic 2 only | Aabb | Obb | 16 unknown bytes
+//! materials (binary archive) | alpha test: u8, after Gothic 1 | Aabb | Obb | 16 unknown bytes
 //! ```
 
 use zerocopy::little_endian::{F32, U16, U32};
@@ -25,8 +25,9 @@ const FORMAT: &str = "multi-resolution mesh";
 
 const VERSION_G1: u16 = 0x305;
 const VERSION_G2: u16 = 0x905;
-/// A Gothic 2 variant that some tools write.
-const VERSION_G2_OTHER: u16 = 0x805;
+/// Versions from Gothic 2's development. A few models compiled with them still ship with the
+/// game, such as `FIREPLACE_HIGH2.MDM` (0x705).
+const VERSION_G2_EARLY: [u16; 2] = [0x705, 0x805];
 
 const CHUNK_MESH: u16 = 0xB100;
 const CHUNK_END: u16 = 0xB1FF;
@@ -149,12 +150,18 @@ impl MultiResolutionMesh {
 
         let game = match version {
             VERSION_G1 => Some(GameVersion::Gothic1),
-            VERSION_G2 | VERSION_G2_OTHER => Some(GameVersion::Gothic2),
-            _ => None,
+            v if v == VERSION_G2 || VERSION_G2_EARLY.contains(&v) => Some(GameVersion::Gothic2),
+            v => {
+                log::warn!("{FORMAT}: unknown version {v:#06x}, reading it like Gothic 2's");
+                None
+            }
         };
-        let alpha_test = match game {
-            Some(GameVersion::Gothic2) => r.u8()? != 0,
-            _ => true,
+        // ZenKit reads this flag for 0x805 and 0x905 only, so it misreads everything after it in
+        // 0x705 meshes by one byte. Every version after Gothic 1's has it.
+        let alpha_test = if version > VERSION_G1 {
+            r.u8()? != 0
+        } else {
+            true
         };
         let bbox = Aabb::read(r)?;
         let obb = Obb::read(r)?;
@@ -270,5 +277,37 @@ mod tests {
         assert_eq!(size_of::<SubMeshSections>(), 80);
         assert_eq!(size_of::<RawWedge>(), 24);
         assert_eq!(size_of::<RawPlane>(), 16);
+    }
+
+    /// An empty mesh section: no arrays, no materials, then the trailer.
+    fn empty_section(version: u16) -> Vec<u8> {
+        let mut data = version.to_le_bytes().to_vec();
+        data.extend(0u32.to_le_bytes());
+        data.push(0);
+        data.extend([0; 16]);
+        data.extend(
+            b"ZenGin Archive\nver 1\nzCArchiverGeneric\nBINARY\nsaveGame 0\nEND\nobjects 0        \nEND\n\n",
+        );
+        data.push(0);
+        for v in [-1.0f32, -2.0, -3.0, 1.0, 2.0, 3.0] {
+            data.extend(v.to_le_bytes());
+        }
+        data.extend([0; 62]);
+        data.extend([0; 16]);
+        data
+    }
+
+    #[test]
+    fn early_gothic_2_meshes_have_the_alpha_flag() {
+        for version in [0x705, 0x805, 0x905] {
+            let data = empty_section(version);
+            let mut r = Reader::new(&data);
+            let mesh = MultiResolutionMesh::read_section(&mut r).unwrap();
+            assert_eq!(mesh.game, Some(GameVersion::Gothic2));
+            assert!(!mesh.alpha_test);
+            assert_eq!(mesh.bbox.min, Vec3::new(-1.0, -2.0, -3.0));
+            assert_eq!(mesh.bbox.max, Vec3::new(1.0, 2.0, 3.0));
+            assert!(r.is_eof());
+        }
     }
 }
