@@ -1,7 +1,7 @@
 use zerocopy::little_endian::F32;
 use zerocopy::{FromBytes, Immutable, KnownLayout, Unaligned};
 
-use crate::math::{Vec2, Vec3};
+use crate::math::{Mat4, Vec2, Vec3};
 use crate::{Error, Result};
 
 /// A fixed-layout record that can be viewed straight from bytes. Derive it on `#[repr(C)]` structs
@@ -9,6 +9,9 @@ use crate::{Error, Result};
 pub trait Record: FromBytes + KnownLayout + Immutable + Unaligned {}
 
 impl<T: FromBytes + KnownLayout + Immutable + Unaligned> Record for T {}
+
+/// The characters C's `isspace` accepts, which the engine skips after many lines of text.
+pub const WHITESPACE: &[u8] = b" \t\r\n\x0B\x0C";
 
 /// One section of a chunked file. Meshes, models and animations are made of these.
 #[derive(Debug, Clone)]
@@ -190,6 +193,12 @@ impl<'a> Reader<'a> {
     pub fn vec3(&mut self) -> Result<Vec3> {
         let [x, y, z] = *self.record::<[F32; 3]>()?;
         Ok(Vec3::new(x.get(), y.get(), z.get()))
+    }
+
+    /// A 4×4 matrix. The engine stores matrices row by row; glam's are column-major.
+    pub fn mat4(&mut self) -> Result<Mat4> {
+        let rows = self.record::<[F32; 16]>()?.map(|v| v.get());
+        Ok(Mat4::from_cols_array(&rows).transpose())
     }
 
     pub fn vec3s(&mut self, count: usize) -> Result<Vec<Vec3>> {

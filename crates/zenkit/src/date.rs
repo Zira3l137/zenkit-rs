@@ -13,9 +13,9 @@ pub struct Date {
     pub second: u16,
 }
 
-#[cfg_attr(not(feature = "mesh"), allow(dead_code))]
 impl Date {
-    pub(crate) fn read(r: &mut Reader) -> Result<Self> {
+    /// Reads the engine's 16-byte date: year, then five `u16` fields and two bytes of padding.
+    pub fn read(r: &mut Reader) -> Result<Self> {
         let date = Self {
             year: r.u32()?,
             month: r.u16()?,

@@ -3,7 +3,7 @@
 //! Vectors and matrices come from [`glam`], which is re-exported so that your code and this crate
 //! always agree on its version.
 
-pub use glam::{self, Mat3, Mat4, Vec2, Vec3, Vec4};
+pub use glam::{self, Mat3, Mat4, Quat, Vec2, Vec3, Vec4};
 
 use crate::io::Reader;
 use crate::{Error, Result};
@@ -29,9 +29,9 @@ pub struct Aabb {
     pub max: Vec3,
 }
 
-#[cfg_attr(not(any(feature = "mesh", feature = "mrm")), allow(dead_code))]
 impl Aabb {
-    pub(crate) fn read(r: &mut Reader) -> Result<Self> {
+    /// Reads `min` then `max`.
+    pub fn read(r: &mut Reader) -> Result<Self> {
         Ok(Self {
             min: r.vec3()?,
             max: r.vec3()?,
@@ -49,7 +49,6 @@ pub struct Obb {
     pub children: Vec<Obb>,
 }
 
-#[cfg_attr(not(any(feature = "mesh", feature = "mrm")), allow(dead_code))]
 impl Obb {
     const MAX_DEPTH: usize = 64;
 
@@ -74,7 +73,8 @@ impl Obb {
         aabb
     }
 
-    pub(crate) fn read(r: &mut Reader) -> Result<Self> {
+    /// Reads a box and, recursively, its children.
+    pub fn read(r: &mut Reader) -> Result<Self> {
         Self::read_nested(r, 0)
     }
 

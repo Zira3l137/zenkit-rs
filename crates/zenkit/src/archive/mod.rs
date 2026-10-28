@@ -35,14 +35,11 @@ mod binsafe;
 use std::borrow::Cow;
 use std::fmt;
 
-use crate::io::Reader;
+use crate::io::{Reader, WHITESPACE};
 use crate::math::{Aabb, Color, Mat3, Vec2, Vec3};
 use crate::{Error, Result, text};
 
 const FORMAT: &str = "ZenGin archive";
-
-/// The characters C's `isspace` accepts, which the engine skips between lines.
-const WHITESPACE: &[u8] = b" \t\r\n\x0B\x0C";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Format {
