@@ -13,7 +13,7 @@ repository.workspace = true
 name = "zenkit"
 
 [features]
-default = ["vfs", "archive", "material", "texture", "mesh", "mrm", "model", "morph", "parallel"]
+default = ["vfs", "archive", "material", "texture", "mesh", "mrm", "model", "morph", "animation", "parallel"]
 vfs = ["dep:time"]
 mmap = ["vfs", "dep:memmap2"]
 archive = ["dep:hex"]
@@ -23,6 +23,7 @@ mesh = ["material", "texture"]
 mrm = ["material"]
 model = ["mrm"]
 morph = ["mrm"]
+animation = []
 parallel = ["dep:rayon", "texpresso?/rayon"]
 
 [dependencies]

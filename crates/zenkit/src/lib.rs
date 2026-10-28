@@ -5,13 +5,18 @@
 
 #![deny(unsafe_code)]
 
+#[cfg(feature = "animation")]
+pub mod animation;
 #[cfg(feature = "archive")]
 pub mod archive;
 mod asset;
 mod date;
 mod error;
 pub mod io;
-#[cfg_attr(not(feature = "material"), allow(unused_macros, unused_imports))]
+#[cfg_attr(
+    not(any(feature = "material", feature = "animation")),
+    allow(unused_macros, unused_imports)
+)]
 mod macros;
 #[cfg(feature = "material")]
 pub mod material;
