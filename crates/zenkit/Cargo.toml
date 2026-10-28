@@ -13,10 +13,11 @@ repository.workspace = true
 name = "zenkit"
 
 [features]
-default = ["vfs", "archive", "parallel"]
+default = ["vfs", "archive", "material", "parallel"]
 vfs = ["dep:time"]
 mmap = ["vfs", "dep:memmap2"]
 archive = ["dep:hex"]
+material = ["archive"]
 parallel = ["dep:rayon"]
 
 [dependencies]

@@ -9,6 +9,10 @@
 pub mod archive;
 mod error;
 pub mod io;
+#[cfg_attr(not(feature = "material"), allow(unused_macros, unused_imports))]
+mod macros;
+#[cfg(feature = "material")]
+pub mod material;
 pub mod math;
 #[cfg_attr(not(feature = "vfs"), allow(dead_code))]
 mod par;

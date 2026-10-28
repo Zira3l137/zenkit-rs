@@ -16,6 +16,7 @@ Every format sits behind its own cargo feature.
 |------------|:-------:|--------------------------------------------------------------------------|
 | `vfs`      |   yes   | Reading `.VDF` archives and mounting them together with host directories |
 | `archive`  |   yes   | Reading ZenGin archives, the object format behind worlds, saves and more |
+| `material` |   yes   | Materials (`zCMaterial`), as found in meshes, worlds and `.MAT` files     |
 | `parallel` |   yes   | Spreads independent work, like reading many files, across all CPU cores  |
 | `mmap`     |         | Memory-maps archives and host files instead of reading them into memory  |
 

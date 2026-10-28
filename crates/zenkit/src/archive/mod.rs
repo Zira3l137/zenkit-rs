@@ -452,16 +452,17 @@ fn field<'a>(line: &'a [u8], key: &str) -> Option<&'a [u8]> {
 }
 
 /// Number parsing that behaves like the C functions ZenKit uses: leading whitespace is skipped,
-/// and parsing stops at the first character that cannot continue the number.
-mod parse {
-    pub(super) fn int(s: &[u8]) -> Option<i64> {
+/// and parsing stops at the first character that cannot continue the number. Objects need it too,
+/// since a few store numbers inside strings.
+pub(crate) mod parse {
+    pub(crate) fn int(s: &[u8]) -> Option<i64> {
         let s = s.trim_ascii_start();
         let sign = usize::from(matches!(s.first(), Some(b'+' | b'-')));
         let digits = s[sign..].iter().take_while(|b| b.is_ascii_digit()).count();
         std::str::from_utf8(&s[..sign + digits]).ok()?.parse().ok()
     }
 
-    pub(super) fn float(s: &[u8]) -> Option<f32> {
+    pub(crate) fn float(s: &[u8]) -> Option<f32> {
         let s = s.trim_ascii_start();
         let candidate = s
             .iter()
@@ -474,7 +475,7 @@ mod parse {
     }
 
     /// Whitespace-separated floats; missing ones read as zero, like a failed C++ stream read.
-    pub(super) fn floats<const N: usize>(s: &[u8]) -> [f32; N] {
+    pub(crate) fn floats<const N: usize>(s: &[u8]) -> [f32; N] {
         let mut parts = s.split(u8::is_ascii_whitespace).filter(|p| !p.is_empty());
         std::array::from_fn(|_| parts.next().and_then(float).unwrap_or(0.0))
     }
