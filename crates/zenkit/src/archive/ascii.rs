@@ -12,9 +12,7 @@
 
 use std::borrow::Cow;
 
-use super::{
-    Decode, Mark, ObjectHeader, WHITESPACE, le_floats, line, malformed, mat3_from_rows, parse,
-};
+use super::{Decode, Mark, ObjectHeader, WHITESPACE, le_floats, malformed, mat3_from_rows, parse};
 use crate::Result;
 use crate::io::Reader;
 use crate::math::{Aabb, Color, Mat3, Vec2, Vec3};
@@ -25,14 +23,14 @@ pub(super) struct Ascii<'a> {
 
 impl<'a> Ascii<'a> {
     pub(super) fn new(mut r: Reader<'a>) -> Result<Self> {
-        let objects = line(&mut r, WHITESPACE);
+        let objects = r.line(WHITESPACE);
         if super::field(objects, "objects")
             .and_then(parse::int)
             .is_none()
         {
             return Err(malformed(r.position(), "missing \"objects\" line"));
         }
-        if line(&mut r, WHITESPACE) != b"END" {
+        if r.line(WHITESPACE) != b"END" {
             return Err(malformed(r.position(), "missing second \"END\" line"));
         }
         Ok(Self { r })
@@ -41,7 +39,7 @@ impl<'a> Ascii<'a> {
     /// The value of the next `name=type:value` line, after checking its type.
     fn entry(&mut self, kind: &str) -> Result<&'a [u8]> {
         let position = self.r.position();
-        let line = line(&mut self.r, WHITESPACE);
+        let line = self.r.line(WHITESPACE);
         let entry = line
             .iter()
             .position(|&b| b == b'=')
@@ -102,7 +100,9 @@ impl<'a> Decode<'a> for Ascii<'a> {
 
     fn begin_object(&mut self) -> Result<Option<ObjectHeader<'a>>> {
         let mark = self.mark();
-        let found = line(&mut self.r, WHITESPACE)
+        let found = self
+            .r
+            .line(WHITESPACE)
             .strip_prefix(b"[")
             .and_then(parse_object_header);
         if found.is_none() {
@@ -116,7 +116,7 @@ impl<'a> Decode<'a> for Ascii<'a> {
             return Ok(false);
         }
         let mark = self.mark();
-        let found = line(&mut self.r, WHITESPACE).trim_ascii_start() == b"[]";
+        let found = self.r.line(WHITESPACE).trim_ascii_start() == b"[]";
         if !found {
             self.reset(mark);
         }
@@ -124,7 +124,7 @@ impl<'a> Decode<'a> for Ascii<'a> {
     }
 
     fn skip_entry(&mut self) -> Result<()> {
-        line(&mut self.r, WHITESPACE);
+        self.r.line(WHITESPACE);
         Ok(())
     }
 

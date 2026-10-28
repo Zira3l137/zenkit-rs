@@ -1,5 +1,7 @@
+use zerocopy::little_endian::F32;
 use zerocopy::{FromBytes, Immutable, KnownLayout, Unaligned};
 
+use crate::math::{Vec2, Vec3};
 use crate::{Error, Result};
 
 /// A fixed-layout record that can be viewed straight from bytes. Derive it on `#[repr(C)]` structs
@@ -7,6 +9,14 @@ use crate::{Error, Result};
 pub trait Record: FromBytes + KnownLayout + Immutable + Unaligned {}
 
 impl<T: FromBytes + KnownLayout + Immutable + Unaligned> Record for T {}
+
+/// One section of a chunked file. Meshes, models and animations are made of these.
+#[derive(Debug, Clone)]
+pub struct Chunk<'a> {
+    pub id: u16,
+    /// The chunk's contents, with offsets starting at zero.
+    pub data: Reader<'a>,
+}
 
 /// A little-endian cursor over a byte slice.
 ///
@@ -133,6 +143,63 @@ impl<'a> Reader<'a> {
         self.bytes(len).map(Reader::new)
     }
 
+    /// Reads a chunk header (`id: u16`, `len: u32`) and splits off its contents.
+    ///
+    /// ZenKit reads chunks in place and only logs when a reader overruns one. Here a chunk's
+    /// reader ends where the chunk does, so an overrun is an error and can never spill into the
+    /// next chunk.
+    pub fn chunk(&mut self) -> Result<Chunk<'a>> {
+        let id = self.u16()?;
+        let len = self.u32()? as usize;
+        Ok(Chunk {
+            id,
+            data: self.sub(len)?,
+        })
+    }
+
+    /// Reads up to the next `\0`, `\r` or `\n` and consumes that terminator. If the terminator
+    /// is not `\0`, any of the bytes in `skip` that follow are consumed too. Without a
+    /// terminator, the rest of the input is the line.
+    pub fn line(&mut self, skip: &[u8]) -> &'a [u8] {
+        let rest = self.rest();
+        let end = rest
+            .iter()
+            .position(|&b| matches!(b, 0 | b'\r' | b'\n'))
+            .unwrap_or(rest.len());
+
+        let mut consumed = end;
+        if let Some(&terminator) = rest.get(end) {
+            consumed += 1;
+            if terminator != 0 {
+                consumed += rest[consumed..]
+                    .iter()
+                    .take_while(|b| skip.contains(b))
+                    .count();
+            }
+        }
+
+        self.pos += consumed;
+        &rest[..end]
+    }
+
+    pub fn vec2(&mut self) -> Result<Vec2> {
+        let [x, y] = *self.record::<[F32; 2]>()?;
+        Ok(Vec2::new(x.get(), y.get()))
+    }
+
+    pub fn vec3(&mut self) -> Result<Vec3> {
+        let [x, y, z] = *self.record::<[F32; 3]>()?;
+        Ok(Vec3::new(x.get(), y.get(), z.get()))
+    }
+
+    pub fn vec3s(&mut self, count: usize) -> Result<Vec<Vec3>> {
+        let raw = self.records::<[F32; 3]>(count)?;
+        Ok(raw
+            .iter()
+            .map(|[x, y, z]| Vec3::new(x.get(), y.get(), z.get()))
+            .collect())
+    }
+
     read_le! {
         u8: u8,
         i8: i8,
@@ -221,6 +288,45 @@ mod tests {
         r.limit(2).unwrap();
         assert_eq!(r.rest(), &[2]);
         assert!(r.u16().is_err());
+    }
+
+    #[test]
+    fn chunks_are_bounded() {
+        let data = [0x00, 0xB0, 2, 0, 0, 0, 7, 8, 0x60, 0xB0, 9, 0, 0, 0];
+        let mut r = Reader::new(&data);
+
+        let mut first = r.chunk().unwrap();
+        assert_eq!(first.id, 0xB000);
+        assert_eq!(first.data.u16().unwrap(), 0x0807);
+        assert!(first.data.u8().is_err());
+
+        assert!(r.chunk().is_err());
+    }
+
+    #[test]
+    fn lines_stop_at_any_terminator() {
+        let mut r = Reader::new(b"one\r\n\t\ttwo\0  three\n\nfour");
+        assert_eq!(r.line(b" \t\r\n"), b"one");
+        assert_eq!(r.line(b" \t\r\n"), b"two");
+        assert_eq!(r.line(b"\n"), b"  three");
+        assert_eq!(r.line(b"\n"), b"four");
+        assert!(r.is_eof());
+        assert_eq!(r.line(b"\n"), b"");
+    }
+
+    #[test]
+    fn reads_vectors() {
+        let data: Vec<u8> = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0]
+            .iter()
+            .flat_map(|f| f.to_le_bytes())
+            .collect();
+        let mut r = Reader::new(&data);
+        assert_eq!(r.vec2().unwrap(), Vec2::new(1.0, 2.0));
+        r.seek(0).unwrap();
+        assert_eq!(
+            r.vec3s(2).unwrap(),
+            [Vec3::new(1.0, 2.0, 3.0), Vec3::new(4.0, 5.0, 6.0)]
+        );
     }
 
     #[test]

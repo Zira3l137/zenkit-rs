@@ -359,33 +359,8 @@ fn malformed(position: usize, reason: impl fmt::Display) -> Error {
     Error::malformed(FORMAT, format!("{reason} (at offset {position})"))
 }
 
-/// Reads up to the next `\0`, `\r` or `\n`, then skips any of the bytes in `skip` that follow.
-/// This is ZenKit's `read_line`, which every encoding uses for its text parts.
-fn line<'a>(r: &mut Reader<'a>, skip: &[u8]) -> &'a [u8] {
-    let rest = r.rest();
-    let end = rest
-        .iter()
-        .position(|&b| matches!(b, 0 | b'\r' | b'\n'))
-        .unwrap_or(rest.len());
-
-    let mut consumed = end;
-    if let Some(&terminator) = rest.get(end) {
-        consumed += 1;
-        if terminator != 0 {
-            consumed += rest[consumed..]
-                .iter()
-                .take_while(|b| skip.contains(b))
-                .count();
-        }
-    }
-
-    r.skip(consumed)
-        .expect("consumed bytes lie within the input");
-    &rest[..end]
-}
-
 fn read_header(r: &mut Reader) -> Result<Header> {
-    let mut next = || line(r, WHITESPACE);
+    let mut next = || r.line(WHITESPACE);
 
     if next() != b"ZenGin Archive" {
         return Err(malformed(0, "missing \"ZenGin Archive\" magic"));
@@ -522,17 +497,6 @@ fn le_floats<const N: usize>(bytes: &[u8]) -> [f32; N] {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn line_skips_the_requested_bytes_only() {
-        let mut r = Reader::new(b"one\r\n\t\ttwo\0  three\n\nfour");
-        assert_eq!(line(&mut r, WHITESPACE), b"one");
-        assert_eq!(line(&mut r, WHITESPACE), b"two");
-        assert_eq!(line(&mut r, b"\n"), b"  three");
-        assert_eq!(line(&mut r, b"\n"), b"four");
-        assert!(r.is_eof());
-        assert_eq!(line(&mut r, b"\n"), b"");
-    }
 
     #[test]
     fn header_with_optional_fields() {

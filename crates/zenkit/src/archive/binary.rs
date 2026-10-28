@@ -9,9 +9,7 @@
 
 use std::borrow::Cow;
 
-use super::{
-    Decode, Mark, ObjectHeader, WHITESPACE, le_floats, line, malformed, mat3_from_rows, parse,
-};
+use super::{Decode, Mark, ObjectHeader, WHITESPACE, le_floats, malformed, mat3_from_rows, parse};
 use crate::io::Reader;
 use crate::math::{Aabb, Color, Mat3, Vec2, Vec3};
 use crate::{Error, Result};
@@ -24,7 +22,7 @@ pub(super) struct Binary<'a> {
 
 impl<'a> Binary<'a> {
     pub(super) fn new(mut r: Reader<'a>) -> Result<Self> {
-        let objects = line(&mut r, WHITESPACE);
+        let objects = r.line(WHITESPACE);
         if super::field(objects, "objects")
             .and_then(parse::int)
             .is_none()
@@ -32,7 +30,7 @@ impl<'a> Binary<'a> {
             return Err(malformed(r.position(), "missing \"objects\" line"));
         }
         // Only newlines may follow, because the binary data starts right after them.
-        if line(&mut r, b"\n") != b"END" {
+        if r.line(b"\n") != b"END" {
             return Err(malformed(r.position(), "missing second \"END\" line"));
         }
         Ok(Self {
@@ -77,8 +75,8 @@ impl<'a> Decode<'a> for Binary<'a> {
 
         let version = self.r.u16()?;
         let index = self.r.u32()?;
-        let name = line(&mut self.r, &[]);
-        let class = line(&mut self.r, &[]);
+        let name = self.r.line(&[]);
+        let class = self.r.line(&[]);
 
         self.ends.push(end);
         Ok(Some(ObjectHeader {
@@ -119,7 +117,7 @@ impl<'a> Decode<'a> for Binary<'a> {
     }
 
     fn string(&mut self) -> Result<&'a [u8]> {
-        Ok(line(&mut self.r, &[]))
+        Ok(self.r.line(&[]))
     }
 
     fn int(&mut self) -> Result<i32> {
