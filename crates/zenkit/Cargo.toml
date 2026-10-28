@@ -12,6 +12,16 @@ repository.workspace = true
 [lib]
 name = "zenkit"
 
+[features]
+default = ["vfs", "parallel"]
+vfs = ["dep:time"]
+mmap = ["vfs", "dep:memmap2"]
+parallel = ["dep:rayon"]
+
 [dependencies]
+log = "0.4"
 thiserror = "2"
 zerocopy = { version = "0.8", features = ["derive"] }
+memmap2 = { version = "0.9", optional = true }
+rayon = { version = "1.10", optional = true }
+time = { version = "0.3", default-features = false, features = ["std"], optional = true }

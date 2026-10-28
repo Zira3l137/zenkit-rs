@@ -32,4 +32,25 @@ pub enum Error {
         format: &'static str,
         reason: String,
     },
+
+    #[error("not found: {0:?}")]
+    NotFound(String),
+
+    #[error("not a directory: {0:?}")]
+    NotADirectory(String),
+}
+
+#[cfg_attr(not(feature = "vfs"), allow(dead_code))]
+impl Error {
+    pub(crate) fn file(path: impl Into<PathBuf>) -> impl FnOnce(io::Error) -> Self {
+        let path = path.into();
+        move |source| Self::File { path, source }
+    }
+
+    pub(crate) fn malformed(format: &'static str, reason: impl Into<String>) -> Self {
+        Self::Malformed {
+            format,
+            reason: reason.into(),
+        }
+    }
 }

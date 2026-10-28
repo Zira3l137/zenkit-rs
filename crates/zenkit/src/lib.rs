@@ -7,5 +7,9 @@
 
 mod error;
 pub mod io;
+#[cfg_attr(not(feature = "vfs"), allow(dead_code))]
+mod par;
+#[cfg(feature = "vfs")]
+pub mod vfs;
 
 pub use error::{Error, Result};
