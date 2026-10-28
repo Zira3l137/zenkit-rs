@@ -22,3 +22,6 @@ rayon = { workspace = true, optional = true }
 time.workspace = true
 tracing.workspace = true
 zerocopy.workspace = true
+
+[lints]
+workspace = true

@@ -41,3 +41,20 @@ zenkit-rs-mrm = { path = "crates/zenkit-rs-mrm", version = "0.1.0" }
 # Without its default `parallel` feature, so the facade's own `parallel` decides.
 zenkit-rs-texture = { path = "crates/zenkit-rs-texture", version = "0.1.0", default-features = false }
 zenkit-rs-vfs = { path = "crates/zenkit-rs-vfs", version = "0.1.0", default-features = false }
+
+[workspace.lints.rust]
+# Only memory-mapping needs unsafe code, and allows it right there.
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+print_stdout = "warn"
+todo = "warn"
+undocumented_unsafe_blocks = "warn"
+
+# The tests read whole archives and decode textures; optimised dependencies keep them quick.
+[profile.dev.package."*"]
+opt-level = 3

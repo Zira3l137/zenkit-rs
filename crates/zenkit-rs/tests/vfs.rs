@@ -24,7 +24,7 @@ fn load_all_parses_in_order_and_reports_each_failure() {
     let tex = std::fs::read(sample("erz.tex")).unwrap();
     let mut vfs = Vfs::new();
     for (name, data) in [("A.TEX", tex.clone()), ("BROKEN.TEX", b"ZTEX".to_vec()), ("C.TEX", tex)] {
-        vfs.mount(Node::file(name, data, std::time::UNIX_EPOCH), "/", Overwrite::All).unwrap();
+        vfs.mount(Node::file(name, data, UNIX_EPOCH), "/", Overwrite::All).unwrap();
     }
 
     let results = vfs.load_all::<Texture, _>(&["c.tex", "broken.tex", "missing.tex", "a.tex"]);

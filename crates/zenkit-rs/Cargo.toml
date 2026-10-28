@@ -60,3 +60,6 @@ zenkit-rs-vfs = { workspace = true, optional = true }
 [dev-dependencies]
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+[lints]
+workspace = true

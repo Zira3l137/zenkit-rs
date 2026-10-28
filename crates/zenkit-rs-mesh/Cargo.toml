@@ -15,3 +15,6 @@ zenkit-rs-material.workspace = true
 zenkit-rs-texture.workspace = true
 tracing.workspace = true
 zerocopy.workspace = true
+
+[lints]
+workspace = true

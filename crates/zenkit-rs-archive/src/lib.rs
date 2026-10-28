@@ -196,6 +196,16 @@ pub struct Archive<'a> {
     backend: Backend<'a>,
 }
 
+// The backends hold nothing worth printing beyond where they are.
+impl fmt::Debug for Archive<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Archive")
+            .field("header", &self.header)
+            .field("position", &self.position())
+            .finish_non_exhaustive()
+    }
+}
+
 impl<'a> Archive<'a> {
     pub fn new(data: &'a [u8]) -> Result<Self> {
         Self::from_reader(Reader::new(data))
