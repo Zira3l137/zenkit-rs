@@ -1,6 +1,8 @@
 //! Morph meshes (`.MMB`): meshes animated by moving vertices directly, used for faces and for
 //! things like bows bending.
 
+use tracing::debug;
+
 use crate::Asset;
 use crate::Date;
 use crate::Result;
@@ -9,8 +11,6 @@ use crate::io::WHITESPACE;
 use crate::math::Vec3;
 use crate::mrm::MultiResolutionMesh;
 use crate::text;
-
-const FORMAT: &str = "morph mesh";
 
 const CHUNK_SOURCES: u16 = 0xE010;
 const CHUNK_HEADER: u16 = 0xE020;
@@ -94,7 +94,7 @@ impl MorphMesh {
                     morph.animations =
                         (0..count).map(|_| read_animation(c)).collect::<Result<_>>()?;
                 }
-                id => log::debug!("{FORMAT}: skipping unknown chunk {id:#06x}"),
+                id => debug!("skipping unknown chunk {id:#06x}"),
             }
         }
 

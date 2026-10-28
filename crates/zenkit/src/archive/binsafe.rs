@@ -12,6 +12,8 @@
 
 use std::borrow::Cow;
 
+use tracing::warn;
+
 use super::Decode;
 use super::Mark;
 use super::ObjectHeader;
@@ -71,13 +73,13 @@ impl<'a> Binsafe<'a> {
 
         // The key table only names entries for error messages, so a broken one is not fatal.
         let keys = read_keys(r.clone(), table_offset).unwrap_or_else(|e| {
-            log::warn!("{}: ignoring unreadable key table: {e}", super::FORMAT);
+            warn!("ignoring unreadable key table: {e}");
             Vec::new()
         });
 
         // The key table follows the objects, so the objects end where it starts.
         if table_offset > r.position() && r.limit(table_offset).is_err() {
-            log::warn!("{}: key table offset {table_offset} lies past the end", super::FORMAT);
+            warn!("key table offset {table_offset} lies past the end");
         }
 
         Ok(Self { r, keys })

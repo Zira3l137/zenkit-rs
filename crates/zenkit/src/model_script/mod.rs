@@ -10,6 +10,8 @@ mod source;
 
 use bitflags::bitflags;
 
+use tracing::warn;
+
 use crate::Asset;
 use crate::Result;
 
@@ -134,7 +136,7 @@ impl EventType {
             .find(|(n, _)| n.eq_ignore_ascii_case(name))
             .map(|&(_, kind)| kind)
             .unwrap_or_else(|| {
-                log::warn!("{FORMAT}: unknown event type {name:?}");
+                warn!("unknown event type {name:?}");
                 Self::Unknown
             })
     }

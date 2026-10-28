@@ -6,6 +6,8 @@
 //! quotes, parentheses and braces that the engine shrugs off, so this parser follows ZenKit's in
 //! accepting them.
 
+use tracing::warn;
+
 use super::Animation;
 use super::AnimationAlias;
 use super::AnimationBlend;
@@ -109,7 +111,7 @@ impl<'a> Lexer<'a> {
                 c if WHITESPACE.contains(&c) || matches!(c, b'(' | b')' | b';') => {}
                 b'/' => {
                     if self.peek_byte() != Some(b'/') {
-                        log::warn!("{FORMAT}: {}: comment with a single slash", self.at(start));
+                        warn!("{}: comment with a single slash", self.at(start));
                     }
                     self.eat_while(|c| c != b'\n');
                 }
@@ -130,7 +132,7 @@ impl<'a> Lexer<'a> {
                 b'}' => return token(self, Kind::RBrace),
                 b':' => return token(self, Kind::Colon),
                 _ => {
-                    log::warn!("{FORMAT}: {}: illegal character {:?}", self.at(start), c as char);
+                    warn!("{}: illegal character {:?}", self.at(start), c as char);
                     return token(self, Kind::Illegal);
                 }
             }
@@ -149,7 +151,7 @@ impl<'a> Lexer<'a> {
         if body.get(len) == Some(&b'"') {
             self.pos = start + 1 + len + 1;
         } else {
-            log::warn!("{FORMAT}: {}: string is not closed", self.at(start));
+            warn!("{}: string is not closed", self.at(start));
             self.pos = start + 1 + len;
             text = text.trim_ascii_end();
             text = text.strip_suffix(b")").unwrap_or(text);
@@ -326,8 +328,8 @@ impl<'a> Parser<'a> {
             } else if is(t, "aniEnum") {
                 self.ani_enum(&mut script)?;
             } else {
-                log::warn!(
-                    "{FORMAT}: {}: unexpected {:?} in the Model block, ignoring the rest",
+                warn!(
+                    "{}: unexpected {:?} in the Model block, ignoring the rest",
                     self.lexer.at(t.start),
                     string(t)
                 );
@@ -356,15 +358,12 @@ impl<'a> Parser<'a> {
             } else if is(t, "modelTag") {
                 let kind = self.string()?;
                 if !kind.eq_ignore_ascii_case("DEF_HIT_LIMB") {
-                    log::warn!(
-                        "{FORMAT}: {}: unexpected model tag {kind:?}",
-                        self.lexer.at(t.start)
-                    );
+                    warn!("{}: unexpected model tag {kind:?}", self.lexer.at(t.start));
                 }
                 script.hit_limbs.push(self.string()?);
             } else {
-                log::warn!(
-                    "{FORMAT}: {}: unexpected {:?} in aniEnum, skipping the line",
+                warn!(
+                    "{}: unexpected {:?} in aniEnum, skipping the line",
                     self.lexer.at(t.start),
                     string(t)
                 );

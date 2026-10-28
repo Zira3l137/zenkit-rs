@@ -19,6 +19,8 @@ use zerocopy::KnownLayout;
 use zerocopy::Unaligned;
 use zerocopy::little_endian::U32;
 
+use tracing::warn;
+
 use super::Overwrite;
 use super::merge;
 use super::node::Children;
@@ -94,7 +96,7 @@ pub(super) fn parse(storage: Arc<Storage>, overwrite: Overwrite) -> Result<Child
                 reason: "compressed (Union ZippedStream) archives are not supported yet".into(),
             });
         }
-        flags => log::warn!("{FORMAT}: unknown volume flags {flags:#x}, assuming uncompressed"),
+        flags => warn!("unknown volume flags {flags:#x}, assuming uncompressed"),
     }
 
     match header.catalog_offset.get() {
@@ -152,7 +154,7 @@ fn read_dir(catalog: &mut Catalog, first: usize, depth: usize, out: &mut Childre
                 };
                 merge(out, node, catalog.overwrite);
             } else {
-                log::warn!("{FORMAT}: skipping {name:?}, its contents lie outside the archive");
+                warn!("skipping {name:?}, its contents lie outside the archive");
             }
         }
 
@@ -187,7 +189,7 @@ pub(super) fn dos_time(dos: u32) -> SystemTime {
     match (date, time) {
         (Ok(date), Ok(time)) => PrimitiveDateTime::new(date, time).assume_utc().into(),
         _ => {
-            log::warn!("{FORMAT}: invalid DOS timestamp {dos:#010x}");
+            warn!("invalid DOS timestamp {dos:#010x}");
             UNIX_EPOCH
         }
     }

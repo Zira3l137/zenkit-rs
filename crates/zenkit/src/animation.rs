@@ -7,6 +7,8 @@
 
 use zerocopy::little_endian::U16;
 
+use tracing::debug;
+
 use crate::Asset;
 use crate::Date;
 use crate::Result;
@@ -17,8 +19,6 @@ use crate::math::Aabb;
 use crate::math::Quat;
 use crate::math::Vec3;
 use crate::text;
-
-const FORMAT: &str = "model animation";
 
 const CHUNK_MARKER: u16 = 0xA000;
 const CHUNK_SOURCE: u16 = 0xA010;
@@ -141,7 +141,7 @@ impl ModelAnimation {
                         .map(|raw| decode_sample(raw.map(|v| v.get()), scale, min))
                         .collect();
                 }
-                id => log::debug!("{FORMAT}: skipping unknown chunk {id:#06x}"),
+                id => debug!("skipping unknown chunk {id:#06x}"),
             }
         }
 

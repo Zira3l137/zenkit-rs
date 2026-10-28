@@ -28,7 +28,7 @@ macro_rules! raw_enum {
                 match raw {
                     $($value => Self::$variant,)*
                     _ => {
-                        log::warn!(concat!("unknown ", stringify!($name), " {}, using {:?}"), raw, Self::$default);
+                        tracing::warn!(concat!("unknown ", stringify!($name), " {}, using {:?}"), raw, Self::$default);
                         Self::$default
                     }
                 }

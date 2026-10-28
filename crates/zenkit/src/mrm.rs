@@ -20,6 +20,9 @@ use zerocopy::little_endian::F32;
 use zerocopy::little_endian::U16;
 use zerocopy::little_endian::U32;
 
+use tracing::debug;
+use tracing::warn;
+
 use crate::Asset;
 use crate::Error;
 use crate::GameVersion;
@@ -137,7 +140,7 @@ impl MultiResolutionMesh {
             match chunk.id {
                 CHUNK_MESH => mesh = Some(Self::read_section(&mut chunk.data)?),
                 CHUNK_END => break,
-                id => log::debug!("{FORMAT}: skipping unknown chunk {id:#06x}"),
+                id => debug!("skipping unknown chunk {id:#06x}"),
             }
         }
         mesh.ok_or_else(|| Error::malformed(FORMAT, "no mesh chunk"))
@@ -164,7 +167,7 @@ impl MultiResolutionMesh {
             VERSION_G1 => Some(GameVersion::Gothic1),
             v if v == VERSION_G2 || VERSION_G2_EARLY.contains(&v) => Some(GameVersion::Gothic2),
             v => {
-                log::warn!("{FORMAT}: unknown version {v:#06x}, reading it like Gothic 2's");
+                warn!("unknown version {v:#06x}, reading it like Gothic 2's");
                 None
             }
         };

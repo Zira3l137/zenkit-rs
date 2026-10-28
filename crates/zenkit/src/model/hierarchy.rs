@@ -1,3 +1,6 @@
+use tracing::debug;
+use tracing::warn;
+
 use crate::Asset;
 use crate::Date;
 use crate::Error;
@@ -56,7 +59,7 @@ impl ModelHierarchy {
                 CHUNK_HIERARCHY => {
                     let version = c.u32()?;
                     if version != 3 {
-                        log::warn!("{FORMAT}: unsupported version {version}, reading anyway");
+                        warn!("unsupported version {version}, reading anyway");
                     }
 
                     let count = c.u16()? as usize;
@@ -82,7 +85,7 @@ impl ModelHierarchy {
                     hierarchy.source_path = text::latin1(c.line(&[]));
                 }
                 CHUNK_END => return Ok(hierarchy),
-                id => log::debug!("{FORMAT}: skipping unknown chunk {id:#06x}"),
+                id => debug!("skipping unknown chunk {id:#06x}"),
             }
         }
 

@@ -33,6 +33,9 @@ use node::Storage;
 use node::fold;
 use node::trim_name;
 
+use tracing::debug;
+use tracing::warn_span;
+
 use crate::Asset;
 use crate::Error;
 use crate::Result;
@@ -137,6 +140,9 @@ impl Vfs {
 
     /// [Finds](Self::find) a file by name and parses it.
     pub fn load<T: Asset>(&self, name: &str) -> Result<T> {
+        // At warning level so that the warnings a format logs while reading always say which file
+        // they are about; a span below the active level is not recorded at all.
+        let _span = warn_span!("load", file = name).entered();
         let node = self.find(name).ok_or_else(|| Error::NotFound(name.into()))?;
         let data = node.data().ok_or_else(|| Error::NotFound(name.into()))?;
         T::from_bytes(data)
@@ -190,9 +196,13 @@ impl Vfs {
     where
         P: AsRef<Path> + Sync,
     {
-        let archives = par::try_map(paths.iter().collect(), |path| {
-            let storage = host::load_file(path.as_ref())?;
-            disk::parse(Arc::new(storage), overwrite)
+        let archives = par::try_map(paths.iter().collect(), |path| -> Result<_> {
+            let path = path.as_ref();
+            let _span = warn_span!("mount", disk = %path.display()).entered();
+            let storage = host::load_file(path)?;
+            let archive = disk::parse(Arc::new(storage), overwrite)?;
+            debug!("read {} top-level entries", archive.len());
+            Ok(archive)
         })?;
 
         let root = self.root_children();
@@ -220,8 +230,11 @@ impl Vfs {
         mount_point: &str,
         overwrite: Overwrite,
     ) -> Result<()> {
+        let path = path.as_ref();
+        let _span = warn_span!("mount", host = %path.display(), mount_point).entered();
         self.dir_mut(mount_point)?;
-        let nodes = host::load_dir(path.as_ref())?;
+        let nodes = host::load_dir(path)?;
+        debug!("read {} top-level entries", nodes.len());
         merge_all(self.dir_mut(mount_point)?, nodes, overwrite);
         Ok(())
     }

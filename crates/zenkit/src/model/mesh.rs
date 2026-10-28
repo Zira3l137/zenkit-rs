@@ -5,6 +5,9 @@ use zerocopy::Unaligned;
 use zerocopy::little_endian::F32;
 use zerocopy::little_endian::U32;
 
+use tracing::debug;
+use tracing::warn;
+
 use crate::Asset;
 use crate::Date;
 use crate::Error;
@@ -92,7 +95,7 @@ impl SoftSkinMesh {
                 SKIN_CHUNK_MRM => skin.mesh = MultiResolutionMesh::read_section(c)?,
                 SKIN_CHUNK_WEIGHTS => skin.read_weights(c)?,
                 SKIN_CHUNK_END => return Ok(skin),
-                id => log::debug!("{FORMAT}: skipping unknown soft skin chunk {id:#06x}"),
+                id => debug!("skipping unknown soft skin chunk {id:#06x}"),
             }
         }
         Err(Error::malformed(FORMAT, "soft skin mesh has no end chunk"))
@@ -116,7 +119,7 @@ impl SoftSkinMesh {
             })
             .collect::<Result<_>>()?;
         if !weights.is_eof() {
-            log::warn!("{FORMAT}: {} bytes left in the weight section", weights.remaining());
+            warn!("{} bytes left in the weight section", weights.remaining());
         }
 
         let count = c.u32()? as usize;
@@ -200,7 +203,7 @@ impl ModelMesh {
                     model.attachments.push(Attachment { node, mesh });
                 }
                 CHUNK_END => break,
-                id => log::debug!("{FORMAT}: skipping unknown chunk {id:#06x}"),
+                id => debug!("skipping unknown chunk {id:#06x}"),
             }
         }
 

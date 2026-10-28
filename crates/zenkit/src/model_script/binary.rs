@@ -1,6 +1,9 @@
 //! Compiled model scripts (`.MSB`): the same statements as the source, one chunk each, in source
 //! order. Events follow the animation they belong to.
 
+use tracing::debug;
+use tracing::warn;
+
 use super::Animation;
 use super::AnimationAlias;
 use super::AnimationBlend;
@@ -9,7 +12,6 @@ use super::AnimationFlags;
 use super::CameraTremor;
 use super::Direction;
 use super::EventTag;
-use super::FORMAT;
 use super::ModelScript;
 use super::MorphAnimation;
 use super::ParticleEffect;
@@ -111,19 +113,19 @@ pub(super) fn read(data: &[u8]) -> Result<ModelScript> {
                 if !kind.eq_ignore_ascii_case("DEF_HIT_LIMB")
                     && !kind.eq_ignore_ascii_case("HIT_LIMB")
                 {
-                    log::warn!("{FORMAT}: unexpected model tag {kind:?}");
+                    warn!("unexpected model tag {kind:?}");
                 }
                 script.hit_limbs.push(string(c));
             }
             CHUNK_END => break,
             id if (CHUNK_EVENT_SFX..=CHUNK_EVENT_TREMOR).contains(&id) => {
                 let Some(animation) = script.animations.last_mut() else {
-                    log::warn!("{FORMAT}: dropping event {id:#06x} that precedes every animation");
+                    warn!("dropping event {id:#06x} that precedes every animation");
                     continue;
                 };
                 read_event(id, c, animation)?;
             }
-            id => log::debug!("{FORMAT}: skipping chunk {id:#06x}"),
+            id => debug!("skipping chunk {id:#06x}"),
         }
     }
 
@@ -175,7 +177,7 @@ fn read_event(id: u16, c: &mut Reader, animation: &mut Animation) -> Result<()> 
             frame: c.i32()?,
             values: [c.i32()?, c.i32()?, c.i32()?, c.i32()?],
         }),
-        id => log::debug!("{FORMAT}: skipping event chunk {id:#06x}"),
+        id => debug!("skipping event chunk {id:#06x}"),
     }
     Ok(())
 }

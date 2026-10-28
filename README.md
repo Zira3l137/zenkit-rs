@@ -26,6 +26,7 @@ Every format sits behind its own cargo feature.
 | `model-script` |   yes   | Model scripts, both source (`.MDS`) and compiled (`.MSB`)                |
 | `parallel`     |   yes   | Spreads independent work, like reading many files, across all CPU cores  |
 | `mmap`         |         | Memory-maps archives and host files instead of reading them into memory  |
+| `log`          |         | Emits every message as a `log` record too, for applications using `log`  |
 
 `parallel` uses [rayon](https://docs.rs/rayon). Turn it off for targets without threads, such as
 plain `wasm32`; results are the same either way.
@@ -33,6 +34,19 @@ plain `wasm32`; results are the same either way.
 `mmap` saves memory and start-up time with large archives, but if another program changes a mapped
 file while it is mounted, the data you are reading changes with it. Leave it off unless you control
 the files.
+
+## Logging
+
+The crate reports what it skips or works around, such as unknown chunks or values it replaces
+with a default, through [tracing](https://docs.rs/tracing). Nothing is printed unless the
+application installs a subscriber, for example with `tracing-subscriber`:
+
+```rust
+tracing_subscriber::fmt().with_env_filter("zenkit=warn").init();
+```
+
+Every warning raised while loading a file through a `Vfs` sits in a span naming that file. An
+application that logs through `log` instead turns on the `log` feature.
 
 ## Testing
 

@@ -11,6 +11,8 @@ use zerocopy::Unaligned;
 use zerocopy::little_endian::F32;
 use zerocopy::little_endian::U32;
 
+use tracing::debug;
+
 use crate::Asset;
 use crate::Date;
 use crate::Error;
@@ -236,7 +238,7 @@ impl Mesh {
                     read_polygons(c, &mut mesh, version == VERSION_G2, wide)?;
                 }
                 CHUNK_END => break,
-                id => log::debug!("{FORMAT}: skipping unknown chunk {id:#06x}"),
+                id => debug!("skipping unknown chunk {id:#06x}"),
             }
         }
 

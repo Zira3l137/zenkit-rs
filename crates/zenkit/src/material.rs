@@ -3,6 +3,8 @@
 //! Materials never come on their own: meshes and worlds embed them as archive objects, and the
 //! rare `.MAT` file is just a list of them.
 
+use tracing::warn;
+
 use crate::GameVersion;
 use crate::Result;
 use crate::archive::Archive;
@@ -112,7 +114,7 @@ impl Material {
 
         let material = Self::read_fields(archive, game)?;
         if !archive.end_object()? {
-            log::warn!("material {:?} has unread fields", material.name);
+            warn!("material {:?} has unread fields", material.name);
             archive.skip_object()?;
         }
         Ok(material)
