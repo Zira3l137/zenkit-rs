@@ -1,2 +1,4 @@
 /target
 /tests_local
+*.jsonl
+__pycache__/
