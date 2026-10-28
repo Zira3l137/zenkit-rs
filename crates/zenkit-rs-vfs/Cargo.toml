@@ -1,0 +1,24 @@
+[package]
+name = "zenkit-rs-vfs"
+description = "The ZenGin's virtual file system: VDF archives and host directories mounted into one tree"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = ["parallel"]
+# Reads archives, directories and many files at once on rayon's thread pool.
+parallel = ["dep:rayon"]
+# Memory-maps archives and host files instead of reading them into memory.
+mmap = ["dep:memmap2"]
+
+[dependencies]
+zenkit-rs-core.workspace = true
+memmap2 = { workspace = true, optional = true }
+rayon = { workspace = true, optional = true }
+time.workspace = true
+tracing.workspace = true
+zerocopy.workspace = true

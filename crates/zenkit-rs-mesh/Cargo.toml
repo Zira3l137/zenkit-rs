@@ -1,0 +1,17 @@
+[package]
+name = "zenkit-rs-mesh"
+description = "Reader for ZenGin static meshes (.MSH), the format of world geometry"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+zenkit-rs-archive.workspace = true
+zenkit-rs-core.workspace = true
+zenkit-rs-material.workspace = true
+zenkit-rs-texture.workspace = true
+tracing.workspace = true
+zerocopy.workspace = true

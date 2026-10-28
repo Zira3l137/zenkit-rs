@@ -1,0 +1,15 @@
+[package]
+name = "zenkit-rs-morph"
+description = "Reader for ZenGin morph meshes (.MMB), animated by moving vertices"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+zenkit-rs-core.workspace = true
+zenkit-rs-mrm.workspace = true
+tracing.workspace = true
+zerocopy.workspace = true

@@ -1,0 +1,19 @@
+[package]
+name = "zenkit-rs-core"
+description = "Shared foundations of zenkit-rs: the byte reader, errors, math types and dates"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# Also emits every message as a `log` record, for applications that log through `log`.
+log = ["tracing/log"]
+
+[dependencies]
+glam.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+zerocopy.workspace = true

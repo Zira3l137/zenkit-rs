@@ -4,7 +4,40 @@ members = ["crates/*"]
 
 [workspace.package]
 version = "0.1.0"
+authors = ["Zira3l137 <raulbairamov2002@gmail.com>"]
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
 repository = "https://github.com/Zira3l137/zenkit-rs"
+
+[workspace.dependencies]
+bitflags = { version = "2", default-features = false }
+# Glam is re-exported from zenkit-rs-core, so applications use the same version.
+glam = { version = "0.34", default-features = false, features = ["std"] }
+# ASCII archives store raw bytes as hex.
+hex = { version = "0.4", default-features = false, features = ["std"] }
+memmap2 = { version = "0.9", default-features = false }
+rayon = { version = "1.12", default-features = false }
+# DXT texture decoding. Its `rayon` feature decodes large textures on several threads.
+texpresso = { version = "2", default-features = false }
+thiserror = { version = "2", default-features = false, features = ["std"] }
+# VDF archives store DOS timestamps, which become SystemTime.
+time = { version = "0.3", default-features = false, features = ["std"] }
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+# Only for tests that check what the crates log.
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
+# Views fixed-layout records straight from the file's bytes, without copying or unsafe code.
+zerocopy = { version = "0.8", default-features = false, features = ["derive"] }
+
+zenkit-rs-animation = { path = "crates/zenkit-rs-animation", version = "0.1.0" }
+zenkit-rs-archive = { path = "crates/zenkit-rs-archive", version = "0.1.0" }
+zenkit-rs-core = { path = "crates/zenkit-rs-core", version = "0.1.0" }
+zenkit-rs-material = { path = "crates/zenkit-rs-material", version = "0.1.0" }
+zenkit-rs-mesh = { path = "crates/zenkit-rs-mesh", version = "0.1.0" }
+zenkit-rs-model = { path = "crates/zenkit-rs-model", version = "0.1.0" }
+zenkit-rs-model-script = { path = "crates/zenkit-rs-model-script", version = "0.1.0" }
+zenkit-rs-morph = { path = "crates/zenkit-rs-morph", version = "0.1.0" }
+zenkit-rs-mrm = { path = "crates/zenkit-rs-mrm", version = "0.1.0" }
+# Without its default `parallel` feature, so the facade's own `parallel` decides.
+zenkit-rs-texture = { path = "crates/zenkit-rs-texture", version = "0.1.0", default-features = false }
+zenkit-rs-vfs = { path = "crates/zenkit-rs-vfs", version = "0.1.0", default-features = false }

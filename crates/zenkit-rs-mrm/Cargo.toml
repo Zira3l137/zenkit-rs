@@ -1,0 +1,16 @@
+[package]
+name = "zenkit-rs-mrm"
+description = "Reader for ZenGin multi-resolution meshes (.MRM), the format of props, items and armour"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+zenkit-rs-archive.workspace = true
+zenkit-rs-core.workspace = true
+zenkit-rs-material.workspace = true
+tracing.workspace = true
+zerocopy.workspace = true

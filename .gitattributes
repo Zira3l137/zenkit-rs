@@ -1,2 +1,2 @@
 * text=auto eol=lf
-crates/*/tests/samples/** binary
+samples/** binary

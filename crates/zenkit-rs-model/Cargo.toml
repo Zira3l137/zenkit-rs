@@ -1,0 +1,15 @@
+[package]
+name = "zenkit-rs-model"
+description = "Reader for ZenGin skeletons (.MDH), skinned meshes (.MDM) and models (.MDL)"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+zenkit-rs-core.workspace = true
+zenkit-rs-mrm.workspace = true
+tracing.workspace = true
+zerocopy.workspace = true

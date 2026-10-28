@@ -1,0 +1,62 @@
+[package]
+name = "zenkit-rs"
+description = "Pure Rust reader for ZenGin (Gothic, Gothic II) asset formats, ported from ZenKit"
+keywords = ["gothic", "zengin", "gamedev", "parser"]
+categories = ["game-development", "parser-implementations"]
+readme = "../../README.md"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "zenkit"
+
+# Each format is its own crate; a feature here pulls it in and re-exports it under the format's
+# module name.
+[features]
+default = [
+    "vfs",
+    "archive",
+    "material",
+    "texture",
+    "mesh",
+    "mrm",
+    "model",
+    "morph",
+    "animation",
+    "model-script",
+    "parallel",
+]
+vfs = ["dep:zenkit-rs-vfs"]
+mmap = ["vfs", "zenkit-rs-vfs/mmap"]
+archive = ["dep:zenkit-rs-archive"]
+material = ["archive", "dep:zenkit-rs-material"]
+texture = ["dep:zenkit-rs-texture"]
+mesh = ["material", "texture", "dep:zenkit-rs-mesh"]
+mrm = ["material", "dep:zenkit-rs-mrm"]
+model = ["mrm", "dep:zenkit-rs-model"]
+morph = ["mrm", "dep:zenkit-rs-morph"]
+animation = ["dep:zenkit-rs-animation"]
+model-script = ["dep:zenkit-rs-model-script"]
+parallel = ["zenkit-rs-vfs?/parallel", "zenkit-rs-texture?/parallel"]
+log = ["zenkit-rs-core/log"]
+
+[dependencies]
+zenkit-rs-core.workspace = true
+zenkit-rs-animation = { workspace = true, optional = true }
+zenkit-rs-archive = { workspace = true, optional = true }
+zenkit-rs-material = { workspace = true, optional = true }
+zenkit-rs-mesh = { workspace = true, optional = true }
+zenkit-rs-model = { workspace = true, optional = true }
+zenkit-rs-model-script = { workspace = true, optional = true }
+zenkit-rs-morph = { workspace = true, optional = true }
+zenkit-rs-mrm = { workspace = true, optional = true }
+zenkit-rs-texture = { workspace = true, optional = true }
+zenkit-rs-vfs = { workspace = true, optional = true }
+
+[dev-dependencies]
+tracing.workspace = true
+tracing-subscriber.workspace = true
