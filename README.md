@@ -18,6 +18,7 @@ Every format sits behind its own cargo feature.
 | `archive`  |   yes   | Reading ZenGin archives, the object format behind worlds, saves and more |
 | `material` |   yes   | Materials (`zCMaterial`), as found in meshes, worlds and `.MAT` files     |
 | `texture`  |   yes   | Textures (`.TEX`), including decoding every pixel format to RGBA8        |
+| `mesh`     |   yes   | Static meshes (`.MSH`), the format of world geometry                      |
 | `parallel` |   yes   | Spreads independent work, like reading many files, across all CPU cores  |
 | `mmap`     |         | Memory-maps archives and host files instead of reading them into memory  |
 
