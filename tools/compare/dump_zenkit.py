@@ -57,14 +57,23 @@ def aabb(b):
     return {"min": v3(b.min), "max": v3(b.max)}
 
 
-# zenkit-rs rejects deeper box trees. ZenKit builds them from misread data, sometimes hundreds of
-# levels deep with thousands of children each, which takes hours to walk through ctypes.
+# When ZenKit misreads a mesh, it builds its box tree from garbage: hundreds of levels deep, with
+# thousands of children per box. Walking all of that through ctypes takes hours. zenkit-rs rejects
+# trees deeper than OBB_MAX_DEPTH, and no real tree comes anywhere near OBB_MAX_BOXES.
 OBB_MAX_DEPTH = 64
+OBB_MAX_BOXES = 4096
 
 
-def obb(b, depth=0):
-    if depth > OBB_MAX_DEPTH:
-        raise ValueError(f"box tree is deeper than {OBB_MAX_DEPTH} levels, so ZenKit misread it")
+def obb(b):
+    return obb_tree(b, 0, [OBB_MAX_BOXES - 1])
+
+
+def obb_tree(b, depth, budget):
+    # Each box is paid for by its parent, so the count is checked before any child is touched.
+    DLL.ZkOrientedBoundingBox_getChildCount.restype = c_size_t
+    budget[0] -= DLL.ZkOrientedBoundingBox_getChildCount(b._handle)
+    if depth > OBB_MAX_DEPTH or budget[0] < 0:
+        raise ValueError("box tree is implausibly large, so ZenKit misread it")
 
     # OrientedBoundingBox.axis forgets to pass the axis index, so call the C API directly.
     DLL.ZkOrientedBoundingBox_getAxis.restype = Vec3f
@@ -73,7 +82,7 @@ def obb(b, depth=0):
         "center": v3(b.center),
         "axes": axes,
         "half_width": v3(b.half_width),
-        "children": [obb(c, depth + 1) for c in b.children],
+        "children": [obb_tree(c, depth + 1, budget) for c in b.children],
     }
 
 
