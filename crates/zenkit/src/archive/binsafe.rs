@@ -12,10 +12,20 @@
 
 use std::borrow::Cow;
 
-use super::{Decode, Mark, ObjectHeader, le_floats, malformed, mat3_from_rows, parse};
+use super::Decode;
+use super::Mark;
+use super::ObjectHeader;
+use super::le_floats;
+use super::malformed;
+use super::mat3_from_rows;
+use super::parse;
 use crate::Result;
 use crate::io::Reader;
-use crate::math::{Aabb, Color, Mat3, Vec2, Vec3};
+use crate::math::Aabb;
+use crate::math::Color;
+use crate::math::Mat3;
+use crate::math::Vec2;
+use crate::math::Vec3;
 
 const STRING: u8 = 0x01;
 const INTEGER: u8 = 0x02;
@@ -67,10 +77,7 @@ impl<'a> Binsafe<'a> {
 
         // The key table follows the objects, so the objects end where it starts.
         if table_offset > r.position() && r.limit(table_offset).is_err() {
-            log::warn!(
-                "{}: key table offset {table_offset} lies past the end",
-                super::FORMAT
-            );
+            log::warn!("{}: key table offset {table_offset} lies past the end", super::FORMAT);
         }
 
         Ok(Self { r, keys })
@@ -86,12 +93,7 @@ impl<'a> Binsafe<'a> {
 
         let found = self.r.u8()?;
         if found != expected {
-            let key = self
-                .keys
-                .get(key)
-                .copied()
-                .unwrap_or_default()
-                .escape_ascii();
+            let key = self.keys.get(key).copied().unwrap_or_default().escape_ascii();
             let (expected, found) = (type_name(expected), type_name(found));
             return Err(malformed(
                 position,
@@ -135,10 +137,7 @@ impl<'a> Binsafe<'a> {
 
 impl<'a> Decode<'a> for Binsafe<'a> {
     fn mark(&self) -> Mark {
-        Mark {
-            pos: self.r.position(),
-            depth: 0,
-        }
+        Mark { pos: self.r.position(), depth: 0 }
     }
 
     fn reset(&mut self, mark: Mark) {
@@ -230,8 +229,7 @@ impl<'a> Decode<'a> for Binsafe<'a> {
     }
 
     fn vec2(&mut self) -> Result<Vec2> {
-        self.payload(RAW_FLOAT, 8)
-            .map(|p| Vec2::from_array(le_floats(p)))
+        self.payload(RAW_FLOAT, 8).map(|p| Vec2::from_array(le_floats(p)))
     }
 
     fn vec3(&mut self) -> Result<Vec3> {
@@ -241,10 +239,7 @@ impl<'a> Decode<'a> for Binsafe<'a> {
 
     fn aabb(&mut self) -> Result<Aabb> {
         let [x0, y0, z0, x1, y1, z1] = le_floats(self.payload(RAW_FLOAT, 24)?);
-        Ok(Aabb {
-            min: Vec3::new(x0, y0, z0),
-            max: Vec3::new(x1, y1, z1),
-        })
+        Ok(Aabb { min: Vec3::new(x0, y0, z0), max: Vec3::new(x1, y1, z1) })
     }
 
     fn mat3(&mut self) -> Result<Mat3> {
@@ -277,17 +272,10 @@ fn read_keys(mut table: Reader<'_>, offset: usize) -> Result<Vec<&[u8]>> {
 /// Parses `name class version index]`. Tokens are separated by spaces or `]`, as with C's
 /// `strtok(s, " ]")`.
 fn parse_object_header(text: &[u8]) -> Option<ObjectHeader<'_>> {
-    let mut parts = text
-        .split(|&b| b == b' ' || b == b']')
-        .filter(|p| !p.is_empty());
+    let mut parts = text.split(|&b| b == b' ' || b == b']').filter(|p| !p.is_empty());
     let name = parts.next()?;
     let class = parts.next()?;
     let version = parse::int(parts.next()?)? as u16;
     let index = parse::int(parts.next()?)? as u32;
-    Some(ObjectHeader {
-        name,
-        class,
-        version,
-        index,
-    })
+    Some(ObjectHeader { name, class, version, index })
 }

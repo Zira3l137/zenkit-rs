@@ -24,12 +24,21 @@ mod node;
 use std::collections::btree_map::Entry;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
+
+use node::Children;
+use node::Kind;
+use node::Storage;
+use node::fold;
+use node::trim_name;
+
+use crate::Asset;
+use crate::Error;
+use crate::Result;
+use crate::par;
 
 pub use node::Node;
-use node::{Children, Kind, Storage, fold, trim_name};
-
-use crate::{Asset, Error, Result, par};
 
 /// What to do when a mounted node collides with one that is already in the tree.
 ///
@@ -74,9 +83,7 @@ impl Default for Vfs {
 
 impl Vfs {
     pub fn new() -> Self {
-        Self {
-            root: Node::dir("/", UNIX_EPOCH),
-        }
+        Self { root: Node::dir("/", UNIX_EPOCH) }
     }
 
     pub fn root(&self) -> &Node {
@@ -130,9 +137,7 @@ impl Vfs {
 
     /// [Finds](Self::find) a file by name and parses it.
     pub fn load<T: Asset>(&self, name: &str) -> Result<T> {
-        let node = self
-            .find(name)
-            .ok_or_else(|| Error::NotFound(name.into()))?;
+        let node = self.find(name).ok_or_else(|| Error::NotFound(name.into()))?;
         let data = node.data().ok_or_else(|| Error::NotFound(name.into()))?;
         T::from_bytes(data)
     }
@@ -149,16 +154,10 @@ impl Vfs {
         for name in components(path) {
             let parent = dir.name.clone();
             let children = dir.entries_mut().ok_or(Error::NotADirectory(parent))?;
-            dir = children
-                .entry(fold(name))
-                .or_insert_with(|| Node::dir(name, SystemTime::now()));
+            dir = children.entry(fold(name)).or_insert_with(|| Node::dir(name, SystemTime::now()));
         }
 
-        if dir.is_dir() {
-            Ok(dir)
-        } else {
-            Err(Error::NotADirectory(dir.name.clone()))
-        }
+        if dir.is_dir() { Ok(dir) } else { Err(Error::NotADirectory(dir.name.clone())) }
     }
 
     pub fn remove(&mut self, path: &str) -> Option<Node> {
@@ -232,11 +231,8 @@ impl Vfs {
     }
 
     fn dir_mut(&mut self, path: &str) -> Result<&mut Children> {
-        let node = self
-            .resolve_mut(path)
-            .ok_or_else(|| Error::NotFound(path.into()))?;
-        node.entries_mut()
-            .ok_or_else(|| Error::NotADirectory(path.into()))
+        let node = self.resolve_mut(path).ok_or_else(|| Error::NotFound(path.into()))?;
+        node.entries_mut().ok_or_else(|| Error::NotADirectory(path.into()))
     }
 }
 
@@ -276,8 +272,9 @@ pub(super) fn merge(children: &mut Children, incoming: Node, overwrite: Overwrit
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::time::Duration;
+
+    use super::*;
 
     fn at(secs: u64) -> SystemTime {
         UNIX_EPOCH + Duration::from_secs(secs)
@@ -291,12 +288,9 @@ mod tests {
     fn files_are_listed_depth_first() {
         let mut vfs = Vfs::new();
         vfs.mkdir("b/c").unwrap();
-        vfs.mount(Node::file("a.txt", vec![], at(0)), "/", Overwrite::All)
-            .unwrap();
-        vfs.mount(Node::file("x.txt", vec![], at(0)), "b", Overwrite::All)
-            .unwrap();
-        vfs.mount(Node::file("y.txt", vec![], at(0)), "b/c", Overwrite::All)
-            .unwrap();
+        vfs.mount(Node::file("a.txt", vec![], at(0)), "/", Overwrite::All).unwrap();
+        vfs.mount(Node::file("x.txt", vec![], at(0)), "b", Overwrite::All).unwrap();
+        vfs.mount(Node::file("y.txt", vec![], at(0)), "b/c", Overwrite::All).unwrap();
 
         let names: Vec<_> = vfs.files().map(Node::name).collect();
         assert_eq!(names, ["a.txt", "y.txt", "x.txt"]);
@@ -320,14 +314,9 @@ mod tests {
         for (overwrite, expected) in cases {
             for (existing_time, expected) in [20, 10, 5].into_iter().zip(expected) {
                 let mut vfs = Vfs::new();
-                vfs.mount(
-                    Node::file("F", vec![1], at(existing_time)),
-                    "/",
-                    Overwrite::All,
-                )
-                .unwrap();
-                vfs.mount(Node::file("f", vec![2], at(10)), "/", overwrite)
+                vfs.mount(Node::file("F", vec![1], at(existing_time)), "/", Overwrite::All)
                     .unwrap();
+                vfs.mount(Node::file("f", vec![2], at(10)), "/", overwrite).unwrap();
                 assert_eq!(
                     contents(&vfs, "F"),
                     [expected],
@@ -366,9 +355,7 @@ mod tests {
     #[test]
     fn mkdir_through_a_file_fails() {
         let mut vfs = Vfs::new();
-        vfs.root_mut()
-            .insert(Node::file("f", vec![], at(0)))
-            .unwrap();
+        vfs.root_mut().insert(Node::file("f", vec![], at(0))).unwrap();
         assert!(matches!(vfs.mkdir("f/sub"), Err(Error::NotADirectory(_))));
         assert!(matches!(vfs.mkdir("f"), Err(Error::NotADirectory(_))));
     }
@@ -386,18 +373,10 @@ mod tests {
     #[test]
     fn mount_into_missing_or_file_parent_fails() {
         let mut vfs = Vfs::new();
-        vfs.root_mut()
-            .insert(Node::file("f", vec![], at(0)))
-            .unwrap();
+        vfs.root_mut().insert(Node::file("f", vec![], at(0))).unwrap();
 
         let node = || Node::dir("d", at(0));
-        assert!(matches!(
-            vfs.mount(node(), "nope", Overwrite::All),
-            Err(Error::NotFound(_))
-        ));
-        assert!(matches!(
-            vfs.mount(node(), "f", Overwrite::All),
-            Err(Error::NotADirectory(_))
-        ));
+        assert!(matches!(vfs.mount(node(), "nope", Overwrite::All), Err(Error::NotFound(_))));
+        assert!(matches!(vfs.mount(node(), "f", Overwrite::All), Err(Error::NotADirectory(_))));
     }
 }

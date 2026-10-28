@@ -45,7 +45,8 @@ pub mod vfs;
 
 pub use asset::Asset;
 pub use date::Date;
-pub use error::{Error, Result};
+pub use error::Error;
+pub use error::Result;
 
 /// The game a file was made for. Several formats store different fields for each.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -12,10 +12,21 @@
 
 use std::borrow::Cow;
 
-use super::{Decode, Mark, ObjectHeader, WHITESPACE, le_floats, malformed, mat3_from_rows, parse};
+use super::Decode;
+use super::Mark;
+use super::ObjectHeader;
+use super::WHITESPACE;
+use super::le_floats;
+use super::malformed;
+use super::mat3_from_rows;
+use super::parse;
 use crate::Result;
 use crate::io::Reader;
-use crate::math::{Aabb, Color, Mat3, Vec2, Vec3};
+use crate::math::Aabb;
+use crate::math::Color;
+use crate::math::Mat3;
+use crate::math::Vec2;
+use crate::math::Vec3;
 
 pub(super) struct Ascii<'a> {
     r: Reader<'a>,
@@ -24,10 +35,7 @@ pub(super) struct Ascii<'a> {
 impl<'a> Ascii<'a> {
     pub(super) fn new(mut r: Reader<'a>) -> Result<Self> {
         let objects = r.line(WHITESPACE);
-        if super::field(objects, "objects")
-            .and_then(parse::int)
-            .is_none()
-        {
+        if super::field(objects, "objects").and_then(parse::int).is_none() {
             return Err(malformed(r.position(), "missing \"objects\" line"));
         }
         if r.line(WHITESPACE) != b"END" {
@@ -40,10 +48,7 @@ impl<'a> Ascii<'a> {
     fn entry(&mut self, kind: &str) -> Result<&'a [u8]> {
         let position = self.r.position();
         let line = self.r.line(WHITESPACE);
-        let entry = line
-            .iter()
-            .position(|&b| b == b'=')
-            .map_or(line, |i| &line[i + 1..]);
+        let entry = line.iter().position(|&b| b == b'=').map_or(line, |i| &line[i + 1..]);
         let (found, value) = entry
             .iter()
             .position(|&b| b == b':')
@@ -51,10 +56,7 @@ impl<'a> Ascii<'a> {
 
         if found != kind.as_bytes() {
             let found = found.escape_ascii();
-            return Err(malformed(
-                position,
-                format!("expected a {kind} entry, found \"{found}\""),
-            ));
+            return Err(malformed(position, format!("expected a {kind} entry, found \"{found}\"")));
         }
         Ok(value)
     }
@@ -63,10 +65,7 @@ impl<'a> Ascii<'a> {
         let position = self.r.position();
         let value = self.entry(kind)?;
         parse::int(value).ok_or_else(|| {
-            malformed(
-                position,
-                format!("invalid {kind} \"{}\"", value.escape_ascii()),
-            )
+            malformed(position, format!("invalid {kind} \"{}\"", value.escape_ascii()))
         })
     }
 
@@ -80,10 +79,7 @@ impl<'a> Ascii<'a> {
 
 impl<'a> Decode<'a> for Ascii<'a> {
     fn mark(&self) -> Mark {
-        Mark {
-            pos: self.r.position(),
-            depth: 0,
-        }
+        Mark { pos: self.r.position(), depth: 0 }
     }
 
     fn reset(&mut self, mark: Mark) {
@@ -100,11 +96,7 @@ impl<'a> Decode<'a> for Ascii<'a> {
 
     fn begin_object(&mut self) -> Result<Option<ObjectHeader<'a>>> {
         let mark = self.mark();
-        let found = self
-            .r
-            .line(WHITESPACE)
-            .strip_prefix(b"[")
-            .and_then(parse_object_header);
+        let found = self.r.line(WHITESPACE).strip_prefix(b"[").and_then(parse_object_header);
         if found.is_none() {
             self.reset(mark);
         }
@@ -143,10 +135,7 @@ impl<'a> Decode<'a> for Ascii<'a> {
         let position = self.r.position();
         let value = self.entry("float")?;
         parse::float(value).ok_or_else(|| {
-            malformed(
-                position,
-                format!("invalid float \"{}\"", value.escape_ascii()),
-            )
+            malformed(position, format!("invalid float \"{}\"", value.escape_ascii()))
         })
     }
 
@@ -169,40 +158,30 @@ impl<'a> Decode<'a> for Ascii<'a> {
 
     fn color(&mut self) -> Result<Color> {
         let value = self.entry("color")?;
-        let mut parts = value
-            .split(u8::is_ascii_whitespace)
-            .filter(|p| !p.is_empty());
+        let mut parts = value.split(u8::is_ascii_whitespace).filter(|p| !p.is_empty());
         let [r, g, b, a] =
             std::array::from_fn(|_| parts.next().and_then(parse::int).unwrap_or(0) as u8);
         Ok(Color { r, g, b, a })
     }
 
     fn vec2(&mut self) -> Result<Vec2> {
-        self.entry("rawFloat")
-            .map(|v| Vec2::from_array(parse::floats(v)))
+        self.entry("rawFloat").map(|v| Vec2::from_array(parse::floats(v)))
     }
 
     fn vec3(&mut self) -> Result<Vec3> {
-        self.entry("vec3")
-            .map(|v| Vec3::from_array(parse::floats(v)))
+        self.entry("vec3").map(|v| Vec3::from_array(parse::floats(v)))
     }
 
     fn aabb(&mut self) -> Result<Aabb> {
         let [x0, y0, z0, x1, y1, z1] = parse::floats(self.entry("rawFloat")?);
-        Ok(Aabb {
-            min: Vec3::new(x0, y0, z0),
-            max: Vec3::new(x1, y1, z1),
-        })
+        Ok(Aabb { min: Vec3::new(x0, y0, z0), max: Vec3::new(x1, y1, z1) })
     }
 
     fn mat3(&mut self) -> Result<Mat3> {
         let position = self.r.position();
         let bytes = self.hex()?;
         if bytes.len() < 36 {
-            return Err(malformed(
-                position,
-                "raw entry is too short for a 3x3 matrix",
-            ));
+            return Err(malformed(position, "raw entry is too short for a 3x3 matrix"));
         }
         Ok(mat3_from_rows(le_floats(&bytes)))
     }
@@ -222,17 +201,10 @@ impl<'a> Decode<'a> for Ascii<'a> {
 
 /// Parses `name class version index]`, the part after the opening bracket.
 fn parse_object_header(line: &[u8]) -> Option<ObjectHeader<'_>> {
-    let mut parts = line
-        .split(u8::is_ascii_whitespace)
-        .filter(|p| !p.is_empty());
+    let mut parts = line.split(u8::is_ascii_whitespace).filter(|p| !p.is_empty());
     let name = parts.next()?;
     let class = parts.next()?;
     let version = parse::int(parts.next()?)? as u16;
     let index = parse::int(parts.next()?)? as u32;
-    Some(ObjectHeader {
-        name,
-        class,
-        version,
-        index,
-    })
+    Some(ObjectHeader { name, class, version, index })
 }

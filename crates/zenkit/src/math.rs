@@ -3,10 +3,17 @@
 //! Vectors and matrices come from [`glam`], which is re-exported so that your code and this crate
 //! always agree on its version.
 
-pub use glam::{self, Mat3, Mat4, Quat, Vec2, Vec3, Vec4};
-
+use crate::Error;
+use crate::Result;
 use crate::io::Reader;
-use crate::{Error, Result};
+
+pub use glam;
+pub use glam::Mat3;
+pub use glam::Mat4;
+pub use glam::Quat;
+pub use glam::Vec2;
+pub use glam::Vec3;
+pub use glam::Vec4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Color {
@@ -32,10 +39,7 @@ pub struct Aabb {
 impl Aabb {
     /// Reads `min` then `max`.
     pub fn read(r: &mut Reader) -> Result<Self> {
-        Ok(Self {
-            min: r.vec3()?,
-            max: r.vec3()?,
-        })
+        Ok(Self { min: r.vec3()?, max: r.vec3()? })
     }
 }
 
@@ -57,10 +61,7 @@ impl Obb {
     /// ZenKit's version starts its maximum at the smallest positive float rather than the most
     /// negative one, so boxes lying entirely below zero come out wrong there.
     pub fn to_aabb(&self) -> Aabb {
-        let mut aabb = Aabb {
-            min: Vec3::INFINITY,
-            max: Vec3::NEG_INFINITY,
-        };
+        let mut aabb = Aabb { min: Vec3::INFINITY, max: Vec3::NEG_INFINITY };
         for corner in 0..8 {
             let sign = |bit: u32| if corner & bit == 0 { -1.0 } else { 1.0 };
             let point = self.center
@@ -93,12 +94,7 @@ impl Obb {
             children.push(Self::read_nested(r, depth + 1)?);
         }
 
-        Ok(Self {
-            center,
-            axes,
-            half_width,
-            children,
-        })
+        Ok(Self { center, axes, half_width, children })
     }
 }
 

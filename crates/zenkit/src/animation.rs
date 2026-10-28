@@ -7,10 +7,16 @@
 
 use zerocopy::little_endian::U16;
 
-use crate::io::{Reader, WHITESPACE};
+use crate::Asset;
+use crate::Date;
+use crate::Result;
+use crate::io::Reader;
+use crate::io::WHITESPACE;
 use crate::macros::raw_enum;
-use crate::math::{Aabb, Quat, Vec3};
-use crate::{Asset, Date, Result, text};
+use crate::math::Aabb;
+use crate::math::Quat;
+use crate::math::Vec3;
+use crate::text;
 
 const FORMAT: &str = "model animation";
 
@@ -123,9 +129,8 @@ impl ModelAnimation {
                 // every file the engine writes.
                 CHUNK_SAMPLES => {
                     anim.checksum = c.u32()?;
-                    anim.node_indices = (0..anim.node_count)
-                        .map(|_| c.u32())
-                        .collect::<Result<_>>()?;
+                    anim.node_indices =
+                        (0..anim.node_count).map(|_| c.u32()).collect::<Result<_>>()?;
 
                     let count =
                         (anim.node_count as usize).saturating_mul(anim.frame_count as usize);
@@ -159,14 +164,7 @@ fn read_event(c: &mut Reader) -> Result<AnimationEvent> {
     for value in &mut values {
         *value = c.f32()?;
     }
-    Ok(AnimationEvent {
-        kind,
-        frame,
-        tag,
-        content,
-        values,
-        probability: c.f32()?,
-    })
+    Ok(AnimationEvent { kind, frame, tag, content, values, probability: c.f32()? })
 }
 
 /// Decodes `[rot x, rot y, rot z, pos x, pos y, pos z]` exactly the way ZenKit does.

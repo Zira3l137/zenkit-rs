@@ -15,23 +15,13 @@ pub enum Error {
     #[error(
         "unexpected end of data at offset {offset}: needed {needed} bytes, {available} available"
     )]
-    UnexpectedEof {
-        offset: usize,
-        needed: usize,
-        available: usize,
-    },
+    UnexpectedEof { offset: usize, needed: usize, available: usize },
 
     #[error("malformed {format}: {reason}")]
-    Malformed {
-        format: &'static str,
-        reason: String,
-    },
+    Malformed { format: &'static str, reason: String },
 
     #[error("unsupported {format}: {reason}")]
-    Unsupported {
-        format: &'static str,
-        reason: String,
-    },
+    Unsupported { format: &'static str, reason: String },
 
     #[error("not found: {0:?}")]
     NotFound(String),
@@ -49,9 +39,6 @@ impl Error {
     }
 
     pub(crate) fn malformed(format: &'static str, reason: impl Into<String>) -> Self {
-        Self::Malformed {
-            format,
-            reason: reason.into(),
-        }
+        Self::Malformed { format, reason: reason.into() }
     }
 }

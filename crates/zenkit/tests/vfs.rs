@@ -1,14 +1,14 @@
 #![cfg(feature = "vfs")]
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
 use zenkit::Error;
-use zenkit::vfs::{Overwrite, Vfs};
+use zenkit::vfs::Overwrite;
+use zenkit::vfs::Vfs;
 
 fn sample(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/samples")
-        .join(name)
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/samples").join(name)
 }
 
 fn check(vfs: &Vfs) {
@@ -49,16 +49,14 @@ fn check(vfs: &Vfs) {
 #[test]
 fn mount_disk() {
     let mut vfs = Vfs::new();
-    vfs.mount_disk(sample("basic.vdf"), Overwrite::Older)
-        .unwrap();
+    vfs.mount_disk(sample("basic.vdf"), Overwrite::Older).unwrap();
     check(&vfs);
 }
 
 #[test]
 fn mount_host() {
     let mut vfs = Vfs::new();
-    vfs.mount_host(sample("basic.vdf.dir"), "/", Overwrite::All)
-        .unwrap();
+    vfs.mount_host(sample("basic.vdf.dir"), "/", Overwrite::All).unwrap();
     check(&vfs);
 }
 
@@ -66,18 +64,11 @@ fn mount_host() {
 #[test]
 fn disk_and_host_contents_match() {
     let mut disk = Vfs::new();
-    disk.mount_disk(sample("basic.vdf"), Overwrite::Older)
-        .unwrap();
+    disk.mount_disk(sample("basic.vdf"), Overwrite::Older).unwrap();
     let mut host = Vfs::new();
-    host.mount_host(sample("basic.vdf.dir"), "/", Overwrite::All)
-        .unwrap();
+    host.mount_host(sample("basic.vdf.dir"), "/", Overwrite::All).unwrap();
 
-    for path in [
-        "README.md",
-        "config.yml",
-        "licenses/MIT.md",
-        "licenses/gpl/LGPL-3.0.md",
-    ] {
+    for path in ["README.md", "config.yml", "licenses/MIT.md", "licenses/gpl/LGPL-3.0.md"] {
         let a = disk.resolve(path).unwrap().data().unwrap();
         let b = host.resolve(path).unwrap().data().unwrap();
         assert_eq!(a, b, "{path}");
@@ -88,10 +79,7 @@ fn disk_and_host_contents_match() {
 fn mount_disks_resolves_collisions_in_order() {
     let original = std::fs::read(sample("basic.vdf")).unwrap();
     let mut patched = original.clone();
-    let mit = patched
-        .windows(17)
-        .position(|w| w == b"# The MIT license")
-        .unwrap();
+    let mit = patched.windows(17).position(|w| w == b"# The MIT license").unwrap();
     patched[mit..mit + 5].copy_from_slice(b"# NEW");
 
     let dir = std::env::temp_dir().join(format!("zenkit-rs-test-{}", std::process::id()));
@@ -102,23 +90,11 @@ fn mount_disks_resolves_collisions_in_order() {
 
     let mut vfs = Vfs::new();
     vfs.mount_disks(&[&a, &b], Overwrite::All).unwrap();
-    assert!(
-        vfs.find("MIT.md")
-            .unwrap()
-            .data()
-            .unwrap()
-            .starts_with(b"# NEW")
-    );
+    assert!(vfs.find("MIT.md").unwrap().data().unwrap().starts_with(b"# NEW"));
 
     let mut vfs = Vfs::new();
     vfs.mount_disks(&[&b, &a], Overwrite::All).unwrap();
-    assert!(
-        vfs.find("MIT.md")
-            .unwrap()
-            .data()
-            .unwrap()
-            .starts_with(b"# The")
-    );
+    assert!(vfs.find("MIT.md").unwrap().data().unwrap().starts_with(b"# The"));
 
     let mut vfs = Vfs::new();
     let missing = dir.join("missing.vdf");
@@ -131,9 +107,7 @@ fn mount_disks_resolves_collisions_in_order() {
 #[test]
 fn mount_disk_reports_the_path_on_io_errors() {
     let mut vfs = Vfs::new();
-    let err = vfs
-        .mount_disk(sample("missing.vdf"), Overwrite::Older)
-        .unwrap_err();
+    let err = vfs.mount_disk(sample("missing.vdf"), Overwrite::Older).unwrap_err();
     assert!(matches!(err, Error::File { ref path, .. } if path.ends_with("missing.vdf")));
 }
 
@@ -153,9 +127,7 @@ fn rejects_compressed_archives_for_now() {
     let mut bytes = std::fs::read(sample("basic.vdf")).unwrap();
     bytes[292..296].copy_from_slice(&0xA0u32.to_le_bytes());
 
-    let err = Vfs::new()
-        .mount_disk_bytes(bytes, Overwrite::Older)
-        .unwrap_err();
+    let err = Vfs::new().mount_disk_bytes(bytes, Overwrite::Older).unwrap_err();
     assert!(matches!(err, Error::Unsupported { .. }), "{err}");
 }
 
@@ -180,9 +152,7 @@ fn self_referencing_directory_is_rejected() {
     let index = ((first_dir - catalog) / 80) as u32;
     bytes[first_dir + 64..first_dir + 68].copy_from_slice(&index.to_le_bytes());
 
-    let err = Vfs::new()
-        .mount_disk_bytes(bytes, Overwrite::Older)
-        .unwrap_err();
+    let err = Vfs::new().mount_disk_bytes(bytes, Overwrite::Older).unwrap_err();
     assert!(matches!(err, Error::Malformed { .. }), "{err}");
 }
 
@@ -194,17 +164,8 @@ fn load_all_parses_in_order_and_reports_each_failure() {
 
     let tex = std::fs::read(sample("erz.tex")).unwrap();
     let mut vfs = Vfs::new();
-    for (name, data) in [
-        ("A.TEX", tex.clone()),
-        ("BROKEN.TEX", b"ZTEX".to_vec()),
-        ("C.TEX", tex),
-    ] {
-        vfs.mount(
-            Node::file(name, data, std::time::UNIX_EPOCH),
-            "/",
-            Overwrite::All,
-        )
-        .unwrap();
+    for (name, data) in [("A.TEX", tex.clone()), ("BROKEN.TEX", b"ZTEX".to_vec()), ("C.TEX", tex)] {
+        vfs.mount(Node::file(name, data, std::time::UNIX_EPOCH), "/", Overwrite::All).unwrap();
     }
 
     let results = vfs.load_all::<Texture, _>(&["c.tex", "broken.tex", "missing.tex", "a.tex"]);

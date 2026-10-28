@@ -1,8 +1,14 @@
+use zerocopy::FromBytes;
+use zerocopy::Immutable;
+use zerocopy::KnownLayout;
+use zerocopy::Unaligned;
 use zerocopy::little_endian::F32;
-use zerocopy::{FromBytes, Immutable, KnownLayout, Unaligned};
 
-use crate::math::{Mat4, Vec2, Vec3};
-use crate::{Error, Result};
+use crate::Error;
+use crate::Result;
+use crate::math::Mat4;
+use crate::math::Vec2;
+use crate::math::Vec3;
 
 /// A fixed-layout record that can be viewed straight from bytes. Derive it on `#[repr(C)]` structs
 /// built from byte arrays and `zerocopy::little_endian` integers.
@@ -74,11 +80,7 @@ impl<'a> Reader<'a> {
     /// Moves to an absolute offset. Seeking exactly to the end is allowed.
     pub fn seek(&mut self, offset: usize) -> Result<()> {
         if offset > self.data.len() {
-            return Err(Error::UnexpectedEof {
-                offset,
-                needed: 0,
-                available: 0,
-            });
+            return Err(Error::UnexpectedEof { offset, needed: 0, available: 0 });
         }
         self.pos = offset;
         Ok(())
@@ -91,10 +93,8 @@ impl<'a> Reader<'a> {
     /// Borrows the next `len` bytes straight from the underlying slice, without copying.
     pub fn bytes(&mut self, len: usize) -> Result<&'a [u8]> {
         let data = self.data;
-        let bytes = data
-            .get(self.pos..)
-            .and_then(|rest| rest.get(..len))
-            .ok_or(Error::UnexpectedEof {
+        let bytes =
+            data.get(self.pos..).and_then(|rest| rest.get(..len)).ok_or(Error::UnexpectedEof {
                 offset: self.pos,
                 needed: len,
                 available: self.remaining(),
@@ -116,13 +116,11 @@ impl<'a> Reader<'a> {
 
     /// Views the next `count` records as a slice, without copying.
     pub fn records<T: Record>(&mut self, count: usize) -> Result<&'a [T]> {
-        let len = count
-            .checked_mul(size_of::<T>())
-            .ok_or(Error::UnexpectedEof {
-                offset: self.pos,
-                needed: usize::MAX,
-                available: self.remaining(),
-            })?;
+        let len = count.checked_mul(size_of::<T>()).ok_or(Error::UnexpectedEof {
+            offset: self.pos,
+            needed: usize::MAX,
+            available: self.remaining(),
+        })?;
         let bytes = self.bytes(len)?;
         Ok(<[T]>::ref_from_bytes(bytes).expect("length matches and T has no alignment"))
     }
@@ -154,10 +152,7 @@ impl<'a> Reader<'a> {
     pub fn chunk(&mut self) -> Result<Chunk<'a>> {
         let id = self.u16()?;
         let len = self.u32()? as usize;
-        Ok(Chunk {
-            id,
-            data: self.sub(len)?,
-        })
+        Ok(Chunk { id, data: self.sub(len)? })
     }
 
     /// Reads up to the next `\0`, `\r` or `\n` and consumes that terminator. If the terminator
@@ -165,19 +160,13 @@ impl<'a> Reader<'a> {
     /// terminator, the rest of the input is the line.
     pub fn line(&mut self, skip: &[u8]) -> &'a [u8] {
         let rest = self.rest();
-        let end = rest
-            .iter()
-            .position(|&b| matches!(b, 0 | b'\r' | b'\n'))
-            .unwrap_or(rest.len());
+        let end = rest.iter().position(|&b| matches!(b, 0 | b'\r' | b'\n')).unwrap_or(rest.len());
 
         let mut consumed = end;
         if let Some(&terminator) = rest.get(end) {
             consumed += 1;
             if terminator != 0 {
-                consumed += rest[consumed..]
-                    .iter()
-                    .take_while(|b| skip.contains(b))
-                    .count();
+                consumed += rest[consumed..].iter().take_while(|b| skip.contains(b)).count();
             }
         }
 
@@ -203,10 +192,7 @@ impl<'a> Reader<'a> {
 
     pub fn vec3s(&mut self, count: usize) -> Result<Vec<Vec3>> {
         let raw = self.records::<[F32; 3]>(count)?;
-        Ok(raw
-            .iter()
-            .map(|[x, y, z]| Vec3::new(x.get(), y.get(), z.get()))
-            .collect())
+        Ok(raw.iter().map(|[x, y, z]| Vec3::new(x.get(), y.get(), z.get())).collect())
     }
 
     read_le! {
@@ -222,14 +208,16 @@ impl<'a> Reader<'a> {
 
 #[cfg(test)]
 mod tests {
+    use zerocopy::FromBytes;
+    use zerocopy::Immutable;
+    use zerocopy::KnownLayout;
+    use zerocopy::Unaligned;
+
     use super::*;
-    use zerocopy::{FromBytes, Immutable, KnownLayout, Unaligned};
 
     #[test]
     fn reads_little_endian_primitives() {
-        let data = [
-            0x01, 0x34, 0x12, 0x78, 0x56, 0x34, 0x12, 0x00, 0x00, 0x80, 0x3f, 0xff,
-        ];
+        let data = [0x01, 0x34, 0x12, 0x78, 0x56, 0x34, 0x12, 0x00, 0x00, 0x80, 0x3f, 0xff];
         let mut r = Reader::new(&data);
 
         assert_eq!(r.u8().unwrap(), 0x01);
@@ -246,14 +234,7 @@ mod tests {
         r.skip(1).unwrap();
 
         let err = r.u32().unwrap_err();
-        assert!(matches!(
-            err,
-            Error::UnexpectedEof {
-                offset: 1,
-                needed: 4,
-                available: 2
-            }
-        ));
+        assert!(matches!(err, Error::UnexpectedEof { offset: 1, needed: 4, available: 2 }));
         assert_eq!(r.position(), 1);
         assert_eq!(r.u16().unwrap(), 0x0302);
     }
@@ -325,17 +306,12 @@ mod tests {
 
     #[test]
     fn reads_vectors() {
-        let data: Vec<u8> = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0]
-            .iter()
-            .flat_map(|f| f.to_le_bytes())
-            .collect();
+        let data: Vec<u8> =
+            [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0].iter().flat_map(|f| f.to_le_bytes()).collect();
         let mut r = Reader::new(&data);
         assert_eq!(r.vec2().unwrap(), Vec2::new(1.0, 2.0));
         r.seek(0).unwrap();
-        assert_eq!(
-            r.vec3s(2).unwrap(),
-            [Vec3::new(1.0, 2.0, 3.0), Vec3::new(4.0, 5.0, 6.0)]
-        );
+        assert_eq!(r.vec3s(2).unwrap(), [Vec3::new(1.0, 2.0, 3.0), Vec3::new(4.0, 5.0, 6.0)]);
     }
 
     #[test]

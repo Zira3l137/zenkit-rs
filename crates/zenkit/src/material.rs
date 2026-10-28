@@ -3,10 +3,13 @@
 //! Materials never come on their own: meshes and worlds embed them as archive objects, and the
 //! rare `.MAT` file is just a list of them.
 
-use crate::archive::{Archive, parse};
+use crate::GameVersion;
+use crate::Result;
+use crate::archive::Archive;
+use crate::archive::parse;
 use crate::macros::raw_enum;
-use crate::math::{Color, Vec2};
-use crate::{GameVersion, Result};
+use crate::math::Color;
+use crate::math::Vec2;
 
 /// The class version Gothic 1 writes. Gothic 2 writes `0x9C03`.
 const VERSION_G1: u16 = 17408;

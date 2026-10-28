@@ -9,10 +9,22 @@
 
 use std::borrow::Cow;
 
-use super::{Decode, Mark, ObjectHeader, WHITESPACE, le_floats, malformed, mat3_from_rows, parse};
+use super::Decode;
+use super::Mark;
+use super::ObjectHeader;
+use super::WHITESPACE;
+use super::le_floats;
+use super::malformed;
+use super::mat3_from_rows;
+use super::parse;
+use crate::Error;
+use crate::Result;
 use crate::io::Reader;
-use crate::math::{Aabb, Color, Mat3, Vec2, Vec3};
-use crate::{Error, Result};
+use crate::math::Aabb;
+use crate::math::Color;
+use crate::math::Mat3;
+use crate::math::Vec2;
+use crate::math::Vec3;
 
 pub(super) struct Binary<'a> {
     r: Reader<'a>,
@@ -23,29 +35,20 @@ pub(super) struct Binary<'a> {
 impl<'a> Binary<'a> {
     pub(super) fn new(mut r: Reader<'a>) -> Result<Self> {
         let objects = r.line(WHITESPACE);
-        if super::field(objects, "objects")
-            .and_then(parse::int)
-            .is_none()
-        {
+        if super::field(objects, "objects").and_then(parse::int).is_none() {
             return Err(malformed(r.position(), "missing \"objects\" line"));
         }
         // Only newlines may follow, because the binary data starts right after them.
         if r.line(b"\n") != b"END" {
             return Err(malformed(r.position(), "missing second \"END\" line"));
         }
-        Ok(Self {
-            r,
-            ends: Vec::new(),
-        })
+        Ok(Self { r, ends: Vec::new() })
     }
 }
 
 impl<'a> Decode<'a> for Binary<'a> {
     fn mark(&self) -> Mark {
-        Mark {
-            pos: self.r.position(),
-            depth: self.ends.len(),
-        }
+        Mark { pos: self.r.position(), depth: self.ends.len() }
     }
 
     fn reset(&mut self, mark: Mark) {
@@ -79,12 +82,7 @@ impl<'a> Decode<'a> for Binary<'a> {
         let class = self.r.line(&[]);
 
         self.ends.push(end);
-        Ok(Some(ObjectHeader {
-            name,
-            class,
-            version,
-            index,
-        }))
+        Ok(Some(ObjectHeader { name, class, version, index }))
     }
 
     fn end_object(&mut self) -> Result<bool> {
@@ -103,10 +101,8 @@ impl<'a> Decode<'a> for Binary<'a> {
     }
 
     fn skip_object(&mut self) -> Result<()> {
-        let end = self
-            .ends
-            .pop()
-            .ok_or_else(|| malformed(self.r.position(), "no object is open"))?;
+        let end =
+            self.ends.pop().ok_or_else(|| malformed(self.r.position(), "no object is open"))?;
         self.r.seek(end)
     }
 
@@ -159,10 +155,7 @@ impl<'a> Decode<'a> for Binary<'a> {
 
     fn aabb(&mut self) -> Result<Aabb> {
         let [x0, y0, z0, x1, y1, z1] = le_floats(self.r.bytes(24)?);
-        Ok(Aabb {
-            min: Vec3::new(x0, y0, z0),
-            max: Vec3::new(x1, y1, z1),
-        })
+        Ok(Aabb { min: Vec3::new(x0, y0, z0), max: Vec3::new(x1, y1, z1) })
     }
 
     fn mat3(&mut self) -> Result<Mat3> {

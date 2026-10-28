@@ -12,14 +12,26 @@
 //! materials (binary archive) | alpha test: u8, after Gothic 1 | Aabb | Obb | 16 unknown bytes
 //! ```
 
-use zerocopy::little_endian::{F32, U16, U32};
-use zerocopy::{FromBytes, Immutable, KnownLayout, Unaligned};
+use zerocopy::FromBytes;
+use zerocopy::Immutable;
+use zerocopy::KnownLayout;
+use zerocopy::Unaligned;
+use zerocopy::little_endian::F32;
+use zerocopy::little_endian::U16;
+use zerocopy::little_endian::U32;
 
+use crate::Asset;
+use crate::Error;
+use crate::GameVersion;
+use crate::Result;
 use crate::archive::Archive;
-use crate::io::{Reader, Record};
+use crate::io::Reader;
+use crate::io::Record;
 use crate::material::Material;
-use crate::math::{Aabb, Obb, Vec2, Vec3};
-use crate::{Asset, Error, GameVersion, Result};
+use crate::math::Aabb;
+use crate::math::Obb;
+use crate::math::Vec2;
+use crate::math::Vec3;
 
 const FORMAT: &str = "multi-resolution mesh";
 
@@ -158,23 +170,13 @@ impl MultiResolutionMesh {
         };
         // ZenKit reads this flag for 0x805 and 0x905 only, so it misreads everything after it in
         // 0x705 meshes by one byte. Every version after Gothic 1's has it.
-        let alpha_test = if version > VERSION_G1 {
-            r.u8()? != 0
-        } else {
-            true
-        };
+        let alpha_test = if version > VERSION_G1 { r.u8()? != 0 } else { true };
         let bbox = Aabb::read(r)?;
         let obb = Obb::read(r)?;
         r.skip(16)?;
 
-        let positions = array::<[F32; 3]>(content, positions)?
-            .iter()
-            .map(vec3)
-            .collect();
-        let normals = array::<[F32; 3]>(content, normals)?
-            .iter()
-            .map(vec3)
-            .collect();
+        let positions = array::<[F32; 3]>(content, positions)?.iter().map(vec3).collect();
+        let normals = array::<[F32; 3]>(content, normals)?.iter().map(vec3).collect();
 
         let sub_meshes = sections
             .iter()
@@ -182,15 +184,7 @@ impl MultiResolutionMesh {
             .map(|(s, material)| read_sub_mesh(content, s, material))
             .collect::<Result<_>>()?;
 
-        Ok(Self {
-            game,
-            positions,
-            normals,
-            sub_meshes,
-            alpha_test,
-            bbox,
-            obb,
-        })
+        Ok(Self { game, positions, normals, sub_meshes, alpha_test, bbox, obb })
     }
 }
 
@@ -198,33 +192,19 @@ impl MultiResolutionMesh {
 fn array<T: Record>(content: &[u8], section: Section) -> Result<&[T]> {
     let (offset, count) = (section.offset.get() as usize, section.count.get() as usize);
     let mut r = Reader::new(content);
-    r.seek(offset)
-        .and_then(|()| r.records::<T>(count))
-        .map_err(|_| {
-            Error::malformed(
-                FORMAT,
-                format!("section of {count} elements at {offset} lies outside the mesh"),
-            )
-        })
+    r.seek(offset).and_then(|()| r.records::<T>(count)).map_err(|_| {
+        Error::malformed(
+            FORMAT,
+            format!("section of {count} elements at {offset} lies outside the mesh"),
+        )
+    })
 }
 
 fn read_sub_mesh(content: &[u8], s: &SubMeshSections, material: Material) -> Result<SubMesh> {
-    let u16s = |section| {
-        Ok::<_, Error>(
-            array::<U16>(content, section)?
-                .iter()
-                .map(|v| v.get())
-                .collect(),
-        )
-    };
-    let f32s = |section| {
-        Ok::<_, Error>(
-            array::<F32>(content, section)?
-                .iter()
-                .map(|v| v.get())
-                .collect(),
-        )
-    };
+    let u16s =
+        |section| Ok::<_, Error>(array::<U16>(content, section)?.iter().map(|v| v.get()).collect());
+    let f32s =
+        |section| Ok::<_, Error>(array::<F32>(content, section)?.iter().map(|v| v.get()).collect());
 
     Ok(SubMesh {
         material,
@@ -244,19 +224,13 @@ fn read_sub_mesh(content: &[u8], s: &SubMeshSections, material: Material) -> Res
         triangle_plane_indices: u16s(s.triangle_plane_indices)?,
         triangle_planes: array::<RawPlane>(content, s.triangle_planes)?
             .iter()
-            .map(|p| Plane {
-                distance: p.distance.get(),
-                normal: vec3(&p.normal),
-            })
+            .map(|p| Plane { distance: p.distance.get(), normal: vec3(&p.normal) })
             .collect(),
         triangle_edges: array::<[U16; 3]>(content, s.triangle_edges)?
             .iter()
             .map(|t| t.map(|v| v.get()))
             .collect(),
-        edges: array::<[U16; 2]>(content, s.edges)?
-            .iter()
-            .map(|e| e.map(|v| v.get()))
-            .collect(),
+        edges: array::<[U16; 2]>(content, s.edges)?.iter().map(|e| e.map(|v| v.get())).collect(),
         edge_scores: f32s(s.edge_scores)?,
         wedge_map: u16s(s.wedge_map)?,
     })

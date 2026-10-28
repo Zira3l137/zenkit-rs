@@ -4,21 +4,17 @@
 
 use std::path::Path;
 
-use zenkit::animation::{AnimationSample, ModelAnimation};
-use zenkit::math::{Quat, Vec3};
+use zenkit::animation::AnimationSample;
+use zenkit::animation::ModelAnimation;
+use zenkit::math::Quat;
+use zenkit::math::Vec3;
 
 fn sample(name: &str) -> Vec<u8> {
-    std::fs::read(
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/samples")
-            .join(name),
-    )
-    .unwrap()
+    std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/samples").join(name)).unwrap()
 }
 
-const NODE_INDICES: [u32; 25] = [
-    0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 15, 16, 17, 18, 19, 26, 27, 28, 29, 30, 31, 32, 33,
-];
+const NODE_INDICES: [u32; 25] =
+    [0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 15, 16, 17, 18, 19, 26, 27, 28, 29, 30, 31, 32, 33];
 
 /// ZenKit's `Quat` takes `w` first.
 fn quat(w: f32, x: f32, y: f32, z: f32) -> Quat {
@@ -30,10 +26,7 @@ fn fist_run(game: &str) -> ModelAnimation {
 }
 
 fn check(anim: &ModelAnimation) {
-    assert_eq!(
-        anim.bbox.max,
-        Vec3::new(46.33139419555664, 67.0935287475586, 49.88602828979492)
-    );
+    assert_eq!(anim.bbox.max, Vec3::new(46.33139419555664, 67.0935287475586, 49.88602828979492));
     assert_eq!(anim.checksum, 3325331650);
     assert!(anim.events.is_empty());
     assert_eq!(anim.fps, 10.0);
@@ -64,10 +57,7 @@ fn check(anim: &ModelAnimation) {
     assert_eq!(anim.frame(19).unwrap()[24], last);
     assert!(anim.frame(20).is_none());
 
-    assert_eq!(
-        anim.source_path,
-        "\\_WORK\\DATA\\ANIMS\\HUM_AMB_FISTRUN_M01.ASC"
-    );
+    assert_eq!(anim.source_path, "\\_WORK\\DATA\\ANIMS\\HUM_AMB_FISTRUN_M01.ASC");
     assert_eq!(
         anim.source_script,
         "\t\t\tANI\t\t\t(\"S_FISTRUN\"\t\t\t\t1\t\"S_FISTRUN\"\t\t0.0 0.1 MI\t\"HUM_AMB_FISTRUN_M01.ASC\"\tF   1\t50\tFPS:10)"

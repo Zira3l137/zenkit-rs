@@ -10,7 +10,8 @@ mod source;
 
 use bitflags::bitflags;
 
-use crate::{Asset, Result};
+use crate::Asset;
+use crate::Result;
 
 const FORMAT: &str = "model script";
 
@@ -65,11 +66,7 @@ pub enum Direction {
 
 impl Direction {
     fn parse(text: &str) -> Self {
-        if text.starts_with(['R', 'r']) {
-            Self::Backward
-        } else {
-            Self::Forward
-        }
+        if text.starts_with(['R', 'r']) { Self::Backward } else { Self::Forward }
     }
 }
 
@@ -191,12 +188,7 @@ impl EventTag {
     /// same two leading arguments, so both readers build events through here.
     fn new(frame: i32, kind: &str, a: Option<String>, b: Option<String>, attached: bool) -> Self {
         let kind = EventType::parse(kind);
-        let mut event = Self {
-            frame,
-            kind,
-            attached,
-            ..Self::default()
-        };
+        let mut event = Self { frame, kind, attached, ..Self::default() };
         let a = a.unwrap_or_default();
 
         use EventType::*;
@@ -213,10 +205,7 @@ impl EventTag {
             | UndrawSound | InventoryTorch | HitLimb | HitDirection => event.slot = a,
             SetFightMode => event.fight_mode = FightMode::parse(&a),
             DamageMultiplier | ParryFrame | OptimalFrame | HitEnd | ComboWindow => {
-                event.frames = a
-                    .split_ascii_whitespace()
-                    .filter_map(|f| f.parse().ok())
-                    .collect();
+                event.frames = a.split_ascii_whitespace().filter_map(|f| f.parse().ok()).collect();
             }
             Unknown | PlaceItem | DrawTorch | DropTorch => {}
         }
@@ -256,12 +245,7 @@ pub struct SoundEffect {
 
 impl Default for SoundEffect {
     fn default() -> Self {
-        Self {
-            frame: 0,
-            name: String::new(),
-            range: 1000.0,
-            empty_slot: false,
-        }
+        Self { frame: 0, name: String::new(), range: 1000.0, empty_slot: false }
     }
 }
 
@@ -375,9 +359,7 @@ impl ModelScript {
 
     /// Finds an animation by name, ignoring ASCII case like the engine does.
     pub fn animation(&self, name: &str) -> Option<&Animation> {
-        self.animations
-            .iter()
-            .find(|a| a.name.eq_ignore_ascii_case(name))
+        self.animations.iter().find(|a| a.name.eq_ignore_ascii_case(name))
     }
 }
 
@@ -393,10 +375,7 @@ mod tests {
 
     #[test]
     fn flags_ignore_placeholders() {
-        assert_eq!(
-            AnimationFlags::parse("MI"),
-            AnimationFlags::MOVE | AnimationFlags::IDLE
-        );
+        assert_eq!(AnimationFlags::parse("MI"), AnimationFlags::MOVE | AnimationFlags::IDLE);
         assert_eq!(AnimationFlags::parse("M."), AnimationFlags::MOVE);
         assert_eq!(AnimationFlags::parse(".F"), AnimationFlags::FLY);
         assert_eq!(AnimationFlags::parse("."), AnimationFlags::empty());
@@ -406,17 +385,8 @@ mod tests {
     fn events_sort_their_arguments() {
         let s = |v: &str| Some(v.to_owned());
 
-        let e = EventTag::new(
-            3,
-            "DEF_CREATE_ITEM",
-            s("ZS_LEFTHAND"),
-            s("ITFO_APPLE"),
-            false,
-        );
-        assert_eq!(
-            (e.kind, e.slot.as_str()),
-            (EventType::CreateItem, "ZS_LEFTHAND")
-        );
+        let e = EventTag::new(3, "DEF_CREATE_ITEM", s("ZS_LEFTHAND"), s("ITFO_APPLE"), false);
+        assert_eq!((e.kind, e.slot.as_str()), (EventType::CreateItem, "ZS_LEFTHAND"));
         assert_eq!(e.item, "ITFO_APPLE");
 
         let e = EventTag::new(0, "DEF_WINDOW", s("8\t15"), None, false);

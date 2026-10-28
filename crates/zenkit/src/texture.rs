@@ -7,9 +7,11 @@
 //! mipmaps   smallest first, each tightly packed in the texture's format
 //! ```
 
+use crate::Asset;
+use crate::Error;
+use crate::Result;
 use crate::io::Reader;
 use crate::math::Color;
-use crate::{Asset, Error, Result};
 
 const FORMAT: &str = "texture";
 
@@ -40,19 +42,14 @@ impl TextureFormat {
             B8G8R8A8, R8G8B8A8, A8B8G8R8, A8R8G8B8, B8G8R8, R8G8B8, A4R4G4B4, A1R5G5B5, R5G6B5, P8,
             Dxt1, Dxt2, Dxt3, Dxt4, Dxt5,
         ];
-        ALL.get(raw as usize)
-            .copied()
-            .ok_or_else(|| Error::Unsupported {
-                format: FORMAT,
-                reason: format!("pixel format {raw:#x}"),
-            })
+        ALL.get(raw as usize).copied().ok_or_else(|| Error::Unsupported {
+            format: FORMAT,
+            reason: format!("pixel format {raw:#x}"),
+        })
     }
 
     pub fn is_compressed(self) -> bool {
-        matches!(
-            self,
-            Self::Dxt1 | Self::Dxt2 | Self::Dxt3 | Self::Dxt4 | Self::Dxt5
-        )
+        matches!(self, Self::Dxt1 | Self::Dxt2 | Self::Dxt3 | Self::Dxt4 | Self::Dxt5)
     }
 
     /// The size in bytes of an image of this format, computed the way the engine does it: DXT
@@ -212,10 +209,7 @@ impl Texture {
                 [r as u8, g as u8, b as u8, 0xFF]
             })),
             TextureFormat::P8 => {
-                let palette = self
-                    .palette
-                    .as_deref()
-                    .expect("P8 textures always have a palette");
+                let palette = self.palette.as_deref().expect("P8 textures always have a palette");
                 out.extend(data.iter().flat_map(|&i| {
                     let c = palette[i as usize];
                     [c.r, c.g, c.b, c.a]
@@ -244,8 +238,7 @@ fn mip_dimensions(width: u32, height: u32, level: u32) -> (u32, u32) {
 }
 
 fn texels16(data: &[u8]) -> impl Iterator<Item = u16> + '_ {
-    data.chunks_exact(2)
-        .map(|p| u16::from_le_bytes([p[0], p[1]]))
+    data.chunks_exact(2).map(|p| u16::from_le_bytes([p[0], p[1]]))
 }
 
 fn expand5(v: u16) -> u8 {
@@ -269,10 +262,7 @@ fn decode_dxt(format: TextureFormat, data: &[u8], width: usize, height: usize) -
     if data.len() < needed {
         return Err(Error::malformed(
             FORMAT,
-            format!(
-                "{width}x{height} DXT image needs {needed} bytes, has {}",
-                data.len()
-            ),
+            format!("{width}x{height} DXT image needs {needed} bytes, has {}", data.len()),
         ));
     }
 
@@ -293,16 +283,8 @@ mod tests {
 
     fn texture(format: TextureFormat, width: u32, height: u32, mipmaps: &[&[u8]]) -> Vec<u8> {
         let mut out = b"ZTEX".to_vec();
-        for v in [
-            0,
-            format as u32,
-            width,
-            height,
-            mipmaps.len() as u32,
-            width,
-            height,
-            0xFF11_2233,
-        ] {
+        for v in [0, format as u32, width, height, mipmaps.len() as u32, width, height, 0xFF11_2233]
+        {
             out.extend(v.to_le_bytes());
         }
         if format == TextureFormat::P8 {
@@ -338,18 +320,9 @@ mod tests {
             pixel(TextureFormat::A4R4G4B4, 0xF84Cu16.to_le_bytes()),
             [0x88, 0x44, 0xCC, 0xFF]
         );
-        assert_eq!(
-            pixel(TextureFormat::A1R5G5B5, 0xFC00u16.to_le_bytes()),
-            [0xFF, 0, 0, 0xFF]
-        );
-        assert_eq!(
-            pixel(TextureFormat::A1R5G5B5, 0x001Fu16.to_le_bytes()),
-            [0, 0, 0xFF, 0]
-        );
-        assert_eq!(
-            pixel(TextureFormat::R5G6B5, 0xFFFFu16.to_le_bytes()),
-            [255, 254, 255, 255]
-        );
+        assert_eq!(pixel(TextureFormat::A1R5G5B5, 0xFC00u16.to_le_bytes()), [0xFF, 0, 0, 0xFF]);
+        assert_eq!(pixel(TextureFormat::A1R5G5B5, 0x001Fu16.to_le_bytes()), [0, 0, 0xFF, 0]);
+        assert_eq!(pixel(TextureFormat::R5G6B5, 0xFFFFu16.to_le_bytes()), [255, 254, 255, 255]);
     }
 
     #[test]
@@ -363,16 +336,10 @@ mod tests {
     fn rejects_bad_headers() {
         let mut data = texture(TextureFormat::R8G8B8, 1, 1, &[&[0; 3]]);
         data[8] = 0x42;
-        assert!(matches!(
-            Texture::from_bytes(&data),
-            Err(Error::Unsupported { .. })
-        ));
+        assert!(matches!(Texture::from_bytes(&data), Err(Error::Unsupported { .. })));
         assert!(Texture::from_bytes(b"ZTEY").is_err());
 
         let short = texture(TextureFormat::R8G8B8, 4, 4, &[&[0; 3]]);
-        assert!(matches!(
-            Texture::from_bytes(&short),
-            Err(Error::UnexpectedEof { .. })
-        ));
+        assert!(matches!(Texture::from_bytes(&short), Err(Error::UnexpectedEof { .. })));
     }
 }

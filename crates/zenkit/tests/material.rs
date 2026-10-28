@@ -3,18 +3,17 @@
 use std::path::Path;
 
 use zenkit::archive::Archive;
-use zenkit::material::{
-    AlphaFunction, AnimationMapping, Material, MaterialGroup, WaveMode, WaveSpeed,
-};
-use zenkit::math::{Color, Vec2};
+use zenkit::material::AlphaFunction;
+use zenkit::material::AnimationMapping;
+use zenkit::material::Material;
+use zenkit::material::MaterialGroup;
+use zenkit::material::WaveMode;
+use zenkit::material::WaveSpeed;
+use zenkit::math::Color;
+use zenkit::math::Vec2;
 
 fn sample(name: &str) -> Vec<u8> {
-    std::fs::read(
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/samples")
-            .join(name),
-    )
-    .unwrap()
+    std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/samples").join(name)).unwrap()
 }
 
 fn demon_body(game: &str) -> Material {

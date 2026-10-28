@@ -1,13 +1,24 @@
 //! Compiled model scripts (`.MSB`): the same statements as the source, one chunk each, in source
 //! order. Events follow the animation they belong to.
 
-use super::{
-    Animation, AnimationAlias, AnimationBlend, AnimationCombination, AnimationFlags, CameraTremor,
-    Direction, EventTag, FORMAT, ModelScript, MorphAnimation, ParticleEffect, ParticleEffectStop,
-    Skeleton, SoundEffect,
-};
+use super::Animation;
+use super::AnimationAlias;
+use super::AnimationBlend;
+use super::AnimationCombination;
+use super::AnimationFlags;
+use super::CameraTremor;
+use super::Direction;
+use super::EventTag;
+use super::FORMAT;
+use super::ModelScript;
+use super::MorphAnimation;
+use super::ParticleEffect;
+use super::ParticleEffectStop;
+use super::Skeleton;
+use super::SoundEffect;
+use crate::Result;
 use crate::io::Reader;
-use crate::{Result, text};
+use crate::text;
 
 const CHUNK_MESH_AND_TREE: u16 = 0xF300;
 const CHUNK_REGISTER_MESH: u16 = 0xF400;
@@ -48,10 +59,7 @@ pub(super) fn read(data: &[u8]) -> Result<ModelScript> {
         match chunk.id {
             CHUNK_MESH_AND_TREE => {
                 let disable_mesh = c.u32()? != 0;
-                script.skeleton = Some(Skeleton {
-                    name: string(c),
-                    disable_mesh,
-                });
+                script.skeleton = Some(Skeleton { name: string(c), disable_mesh });
             }
             CHUNK_REGISTER_MESH => script.meshes.push(string(c)),
             CHUNK_ANIMATION => script.animations.push(Animation {
@@ -143,9 +151,7 @@ fn read_event(id: u16, c: &mut Reader, animation: &mut Animation) -> Result<()> 
             let kind = string(c);
             let mut arg = || (!c.is_eof()).then(|| string(c));
             let (a, b) = (arg(), arg());
-            animation
-                .events
-                .push(EventTag::new(frame, &kind, a, b, false));
+            animation.events.push(EventTag::new(frame, &kind, a, b, false));
         }
         CHUNK_EVENT_PFX => animation.particles.push(ParticleEffect {
             frame: c.i32()?,
@@ -154,10 +160,9 @@ fn read_event(id: u16, c: &mut Reader, animation: &mut Animation) -> Result<()> 
             position: string(c),
             attached: c.u32()? != 0,
         }),
-        CHUNK_EVENT_PFX_STOP => animation.particle_stops.push(ParticleEffectStop {
-            frame: c.i32()?,
-            index: c.i32()?,
-        }),
+        CHUNK_EVENT_PFX_STOP => {
+            animation.particle_stops.push(ParticleEffectStop { frame: c.i32()?, index: c.i32()? })
+        }
         CHUNK_EVENT_MORPH => {
             // Followed by two floats nobody has identified yet.
             animation.morphs.push(MorphAnimation {

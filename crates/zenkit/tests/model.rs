@@ -4,16 +4,13 @@
 
 use std::path::Path;
 
-use zenkit::math::{Mat4, Vec3};
-use zenkit::model::{ModelHierarchy, ModelMesh};
+use zenkit::math::Mat4;
+use zenkit::math::Vec3;
+use zenkit::model::ModelHierarchy;
+use zenkit::model::ModelMesh;
 
 fn sample(name: &str) -> Vec<u8> {
-    std::fs::read(
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/samples")
-            .join(name),
-    )
-    .unwrap()
+    std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/samples").join(name)).unwrap()
 }
 
 #[test]
@@ -57,14 +54,8 @@ fn hierarchy() {
 
     assert_eq!(h.bbox.min, Vec3::new(-497.17572, -0.575592041, -105.896698));
     assert_eq!(h.bbox.max, Vec3::new(515.717346, 364.943878, 893.536743));
-    assert_eq!(
-        h.collision_bbox.min,
-        Vec3::new(-248.58786, -0.402914435, -52.948349)
-    );
-    assert_eq!(
-        h.collision_bbox.max,
-        Vec3::new(257.858673, 291.955109, 446.768372)
-    );
+    assert_eq!(h.collision_bbox.min, Vec3::new(-248.58786, -0.402914435, -52.948349));
+    assert_eq!(h.collision_bbox.max, Vec3::new(257.858673, 291.955109, 446.768372));
     assert_eq!(h.root_translation, Vec3::new(0.0, 0.0, -394.040466));
 
     assert_eq!(h.node("bip01 nabe").map(|(i, _)| i), Some(1));
@@ -98,18 +89,9 @@ fn mesh_with_soft_skin() {
             sk.weights[i][0].node,
         )
     };
-    assert_eq!(
-        w(0),
-        (1, 1.0, Vec3::new(-5.49776077, 35.086731, -2.64756012), 0)
-    );
-    assert_eq!(
-        w(62),
-        (1, 1.0, Vec3::new(0.260997772, 18.0412712, -23.9048882), 4)
-    );
-    assert_eq!(
-        w(114),
-        (1, 1.0, Vec3::new(1.05304337, 71.0284958, 1.32049942), 0)
-    );
+    assert_eq!(w(0), (1, 1.0, Vec3::new(-5.49776077, 35.086731, -2.64756012), 0));
+    assert_eq!(w(62), (1, 1.0, Vec3::new(0.260997772, 18.0412712, -23.9048882), 4));
+    assert_eq!(w(114), (1, 1.0, Vec3::new(1.05304337, 71.0284958, 1.32049942), 0));
 
     assert!(sk.wedge_normals.is_empty());
     assert_eq!(sk.nodes.len(), 6);

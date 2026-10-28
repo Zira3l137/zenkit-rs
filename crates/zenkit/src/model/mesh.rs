@@ -1,10 +1,20 @@
-use zerocopy::little_endian::{F32, U32};
-use zerocopy::{FromBytes, Immutable, KnownLayout, Unaligned};
+use zerocopy::FromBytes;
+use zerocopy::Immutable;
+use zerocopy::KnownLayout;
+use zerocopy::Unaligned;
+use zerocopy::little_endian::F32;
+use zerocopy::little_endian::U32;
 
-use crate::io::{Reader, WHITESPACE};
-use crate::math::{Obb, Vec3};
+use crate::Asset;
+use crate::Date;
+use crate::Error;
+use crate::Result;
+use crate::io::Reader;
+use crate::io::WHITESPACE;
+use crate::math::Obb;
+use crate::math::Vec3;
 use crate::mrm::MultiResolutionMesh;
-use crate::{Asset, Date, Error, Result, text};
+use crate::text;
 
 const FORMAT: &str = "model mesh";
 
@@ -106,20 +116,14 @@ impl SoftSkinMesh {
             })
             .collect::<Result<_>>()?;
         if !weights.is_eof() {
-            log::warn!(
-                "{FORMAT}: {} bytes left in the weight section",
-                weights.remaining()
-            );
+            log::warn!("{FORMAT}: {} bytes left in the weight section", weights.remaining());
         }
 
         let count = c.u32()? as usize;
         self.wedge_normals = c
             .records::<RawWedgeNormal>(count)?
             .iter()
-            .map(|n| WedgeNormal {
-                normal: vec3(&n.normal),
-                index: n.index.get(),
-            })
+            .map(|n| WedgeNormal { normal: vec3(&n.normal), index: n.index.get() })
             .collect();
 
         let count = c.u16()? as usize;
@@ -154,10 +158,7 @@ impl ModelMesh {
 
     /// Finds an attachment by its node name, ignoring ASCII case like the engine does.
     pub fn attachment(&self, node: &str) -> Option<&MultiResolutionMesh> {
-        self.attachments
-            .iter()
-            .find(|a| a.node.eq_ignore_ascii_case(node))
-            .map(|a| &a.mesh)
+        self.attachments.iter().find(|a| a.node.eq_ignore_ascii_case(node)).map(|a| &a.mesh)
     }
 
     pub(crate) fn read(r: &mut Reader) -> Result<Self> {
@@ -171,9 +172,7 @@ impl ModelMesh {
                 r.skip(6)?;
                 model.checksum = r.u32()?;
                 let count = r.u16()? as usize;
-                model.meshes = (0..count)
-                    .map(|_| SoftSkinMesh::read(r))
-                    .collect::<Result<_>>()?;
+                model.meshes = (0..count).map(|_| SoftSkinMesh::read(r)).collect::<Result<_>>()?;
                 continue;
             }
 
@@ -190,9 +189,7 @@ impl ModelMesh {
                 }
                 CHUNK_NODES => {
                     let count = c.u16()? as usize;
-                    nodes = (0..count)
-                        .map(|_| text::latin1(c.line(WHITESPACE)))
-                        .collect();
+                    nodes = (0..count).map(|_| text::latin1(c.line(WHITESPACE))).collect();
                 }
                 CHUNK_MRM => {
                     let index = model.attachments.len();

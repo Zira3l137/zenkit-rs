@@ -8,11 +8,17 @@
 mod hierarchy;
 mod mesh;
 
-pub use hierarchy::{HierarchyNode, ModelHierarchy};
-pub use mesh::{Attachment, ModelMesh, SoftSkinMesh, WedgeNormal, Weight};
-
+use crate::Asset;
+use crate::Result;
 use crate::io::Reader;
-use crate::{Asset, Result};
+
+pub use hierarchy::HierarchyNode;
+pub use hierarchy::ModelHierarchy;
+pub use mesh::Attachment;
+pub use mesh::ModelMesh;
+pub use mesh::SoftSkinMesh;
+pub use mesh::WedgeNormal;
+pub use mesh::Weight;
 
 /// A skeleton and its meshes in one file (`.MDL`).
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -24,10 +30,7 @@ pub struct Model {
 impl Model {
     pub fn from_bytes(data: &[u8]) -> Result<Self> {
         let mut r = Reader::new(data);
-        Ok(Self {
-            hierarchy: ModelHierarchy::read(&mut r)?,
-            mesh: ModelMesh::read(&mut r)?,
-        })
+        Ok(Self { hierarchy: ModelHierarchy::read(&mut r)?, mesh: ModelMesh::read(&mut r)? })
     }
 }
 

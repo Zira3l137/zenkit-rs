@@ -5,8 +5,9 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::time::SystemTime;
 
+use crate::Error;
+use crate::Result;
 use crate::io::Reader;
-use crate::{Error, Result};
 
 /// The bytes a file node points into: either a whole archive, or a single host file.
 pub(super) enum Storage {
@@ -40,11 +41,7 @@ impl FileData {
     /// `start..end` must lie within `storage`.
     pub(super) fn new(storage: Arc<Storage>, start: usize, end: usize) -> Self {
         debug_assert!(start <= end && end <= storage.len());
-        Self {
-            storage,
-            start,
-            end,
-        }
+        Self { storage, start, end }
     }
 
     pub(super) fn whole(storage: Storage) -> Self {
@@ -81,11 +78,7 @@ pub struct Node {
 
 impl Node {
     pub fn dir(name: impl Into<String>, time: SystemTime) -> Self {
-        Self {
-            name: name.into(),
-            time,
-            kind: Kind::Dir(Children::new()),
-        }
+        Self { name: name.into(), time, kind: Kind::Dir(Children::new()) }
     }
 
     pub fn file(name: impl Into<String>, data: impl Into<Box<[u8]>>, time: SystemTime) -> Self {
@@ -194,8 +187,9 @@ pub(super) fn fold(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::time::UNIX_EPOCH;
+
+    use super::*;
 
     fn names(node: &Node) -> Vec<&str> {
         node.children().map(Node::name).collect()
@@ -213,8 +207,7 @@ mod tests {
     #[test]
     fn lookups_ignore_case_and_trailing_whitespace() {
         let mut dir = Node::dir("root", UNIX_EPOCH);
-        dir.insert(Node::file("Mesh.MRM", vec![1, 2], UNIX_EPOCH))
-            .unwrap();
+        dir.insert(Node::file("Mesh.MRM", vec![1, 2], UNIX_EPOCH)).unwrap();
 
         let file = dir.child("mesh.mrm \t").unwrap();
         assert_eq!(file.data(), Some(&[1, 2][..]));
@@ -236,9 +229,6 @@ mod tests {
         let mut file = Node::file("f", vec![], UNIX_EPOCH);
         assert_eq!(file.children().len(), 0);
         assert!(file.child("x").is_none());
-        assert!(matches!(
-            file.insert(Node::dir("d", UNIX_EPOCH)),
-            Err(Error::NotADirectory(_))
-        ));
+        assert!(matches!(file.insert(Node::dir("d", UNIX_EPOCH)), Err(Error::NotADirectory(_))));
     }
 }

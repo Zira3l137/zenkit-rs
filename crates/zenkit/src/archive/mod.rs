@@ -35,9 +35,16 @@ mod binsafe;
 use std::borrow::Cow;
 use std::fmt;
 
-use crate::io::{Reader, WHITESPACE};
-use crate::math::{Aabb, Color, Mat3, Vec2, Vec3};
-use crate::{Error, Result, text};
+use crate::Error;
+use crate::Result;
+use crate::io::Reader;
+use crate::io::WHITESPACE;
+use crate::math::Aabb;
+use crate::math::Color;
+use crate::math::Mat3;
+use crate::math::Vec2;
+use crate::math::Vec3;
+use crate::text;
 
 const FORMAT: &str = "ZenGin archive";
 
@@ -244,10 +251,7 @@ impl<'a> Archive<'a> {
                     format!("{:?}", o.class.escape_ascii().to_string())
                 });
                 let expected = class.escape_ascii();
-                Err(malformed(
-                    position,
-                    format!("expected object \"{expected}\", found {found}"),
-                ))
+                Err(malformed(position, format!("expected object \"{expected}\", found {found}")))
             }
         }
     }
@@ -368,10 +372,7 @@ fn read_header(r: &mut Reader) -> Result<Header> {
         .and_then(|v| i32::try_from(v).ok())
         .ok_or_else(|| malformed(0, "missing \"ver\" line"))?;
     if version != 1 {
-        return Err(Error::Unsupported {
-            format: FORMAT,
-            reason: format!("version {version}"),
-        });
+        return Err(Error::Unsupported { format: FORMAT, reason: format!("version {version}") });
     }
 
     let archiver = text::latin1(next());
@@ -408,14 +409,7 @@ fn read_header(r: &mut Reader) -> Result<Header> {
         return Err(malformed(0, "header is missing its \"END\" line"));
     }
 
-    Ok(Header {
-        version,
-        archiver,
-        format,
-        save_game,
-        date,
-        user,
-    })
+    Ok(Header { version, archiver, format, save_game, date, user })
 }
 
 /// The value of a `key value` line, if the line starts with `key `.
@@ -441,9 +435,7 @@ pub(crate) mod parse {
             .take_while(|b| b.is_ascii_digit() || matches!(b, b'+' | b'-' | b'.' | b'e' | b'E'))
             .count();
         // The longest prefix that parses is the one C's `strtof` would have taken.
-        (1..=candidate)
-            .rev()
-            .find_map(|end| std::str::from_utf8(&s[..end]).ok()?.parse().ok())
+        (1..=candidate).rev().find_map(|end| std::str::from_utf8(&s[..end]).ok()?.parse().ok())
     }
 
     /// Whitespace-separated floats; missing ones read as zero, like a failed C++ stream read.

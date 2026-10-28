@@ -1,0 +1,5 @@
+# Imports are one per line, grouped std / external / crate. Stable rustfmt keeps that layout
+# but cannot enforce it; nightly can: cargo +nightly fmt -- --config
+# imports_granularity=Item,group_imports=StdExternalCrate
+max_width = 100
+use_small_heuristics = "Max"

@@ -4,16 +4,14 @@
 
 use std::path::Path;
 
-use zenkit::math::{Vec2, Vec3};
-use zenkit::mrm::{MultiResolutionMesh, Plane, Wedge};
+use zenkit::math::Vec2;
+use zenkit::math::Vec3;
+use zenkit::mrm::MultiResolutionMesh;
+use zenkit::mrm::Plane;
+use zenkit::mrm::Wedge;
 
 fn sample(name: &str) -> Vec<u8> {
-    std::fs::read(
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/samples")
-            .join(name),
-    )
-    .unwrap()
+    std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/samples").join(name)).unwrap()
 }
 
 #[test]
@@ -46,24 +44,11 @@ fn mesh0() {
     assert_eq!(sub.triangles[14], [2, 6, 29]);
     assert_eq!(sub.triangles[15], [28, 20, 3]);
 
-    let wedge = |normal: Vec3, texture: Vec2, index| Wedge {
-        normal,
-        texture,
-        index,
-    };
+    let wedge = |normal: Vec3, texture: Vec2, index| Wedge { normal, texture, index };
     assert_eq!(sub.wedges.len(), 32);
-    assert_eq!(
-        sub.wedges[0],
-        wedge(-Vec3::Z, Vec2::new(-1.500_000_5, -1.492_519_4), 4)
-    );
-    assert_eq!(
-        sub.wedges[1],
-        wedge(-Vec3::X, Vec2::new(2.499_999_5, -1.492_519_4), 4)
-    );
-    assert_eq!(
-        sub.wedges[31],
-        wedge(-Vec3::Z, Vec2::new(-1.500_000_5, 2.492_519_4), 7)
-    );
+    assert_eq!(sub.wedges[0], wedge(-Vec3::Z, Vec2::new(-1.500_000_5, -1.492_519_4), 4));
+    assert_eq!(sub.wedges[1], wedge(-Vec3::X, Vec2::new(2.499_999_5, -1.492_519_4), 4));
+    assert_eq!(sub.wedges[31], wedge(-Vec3::Z, Vec2::new(-1.500_000_5, 2.492_519_4), 7));
 
     assert_eq!(sub.triangle_plane_indices.len(), 16);
     assert_eq!(sub.triangle_plane_indices[..2], [0, 1]);
@@ -87,10 +72,7 @@ fn truncated_meshes_fail_cleanly() {
     // Only the trailing end chunk is optional; cutting into the mesh chunk must fail.
     let mesh_chunk_end = data.len() - 6;
     for len in 0..mesh_chunk_end {
-        assert!(
-            MultiResolutionMesh::from_bytes(&data[..len]).is_err(),
-            "{len}"
-        );
+        assert!(MultiResolutionMesh::from_bytes(&data[..len]).is_err(), "{len}");
     }
     assert!(MultiResolutionMesh::from_bytes(&data[..mesh_chunk_end]).is_ok());
 }

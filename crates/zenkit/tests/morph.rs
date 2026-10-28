@@ -8,12 +8,7 @@ use zenkit::math::Vec3;
 use zenkit::morph::MorphMesh;
 
 fn sample(name: &str) -> Vec<u8> {
-    std::fs::read(
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/samples")
-            .join(name),
-    )
-    .unwrap()
+    std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/samples").join(name)).unwrap()
 }
 
 #[test]
@@ -22,14 +17,8 @@ fn bow() {
 
     assert_eq!(mesh.name, "ITRWSMALLBOW");
     assert_eq!(mesh.morph_positions.len(), 28);
-    assert_eq!(
-        mesh.morph_positions[0],
-        Vec3::new(-40.9461403, -1.73638999, -26.7512894)
-    );
-    assert_eq!(
-        mesh.morph_positions[1],
-        Vec3::new(-29.6147194, -1.97599006, -9.19756984)
-    );
+    assert_eq!(mesh.morph_positions[0], Vec3::new(-40.9461403, -1.73638999, -26.7512894));
+    assert_eq!(mesh.morph_positions[1], Vec3::new(-29.6147194, -1.97599006, -9.19756984));
 
     assert_eq!(mesh.animations.len(), 4);
     let anim = &mesh.animations[1];
@@ -50,10 +39,7 @@ fn bow() {
 
     assert_eq!(mesh.sources.len(), 4);
     let d = mesh.sources[1].date;
-    assert_eq!(
-        (d.year, d.month, d.day, d.hour, d.minute, d.second),
-        (2000, 5, 8, 9, 13, 58)
-    );
+    assert_eq!((d.year, d.month, d.day, d.hour, d.minute, d.second), (2000, 5, 8, 9, 13, 58));
     assert_eq!(mesh.sources[1].file_name, "ITRWSMALLBOWSHOOT.ASC");
 }
 

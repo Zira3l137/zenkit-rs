@@ -4,15 +4,28 @@
 //! list stored as a binary archive, lightmaps, vertices, per-corner vertex features, polygons and
 //! an end marker.
 
-use zerocopy::little_endian::{F32, U32};
-use zerocopy::{FromBytes, Immutable, KnownLayout, Unaligned};
+use zerocopy::FromBytes;
+use zerocopy::Immutable;
+use zerocopy::KnownLayout;
+use zerocopy::Unaligned;
+use zerocopy::little_endian::F32;
+use zerocopy::little_endian::U32;
 
-use crate::archive::{Archive, Format};
+use crate::Asset;
+use crate::Date;
+use crate::Error;
+use crate::GameVersion;
+use crate::Result;
+use crate::archive::Archive;
+use crate::archive::Format;
 use crate::io::Reader;
 use crate::material::Material;
-use crate::math::{Aabb, Obb, Vec2, Vec3};
+use crate::math::Aabb;
+use crate::math::Obb;
+use crate::math::Vec2;
+use crate::math::Vec3;
+use crate::text;
 use crate::texture::Texture;
-use crate::{Asset, Date, Error, GameVersion, Result, text};
 
 const FORMAT: &str = "mesh";
 
@@ -131,10 +144,7 @@ impl Mesh {
     /// Reads a mesh. `wide_indices` forces 32-bit vertex indices for Gothic 1 meshes, which XZEN
     /// worlds need.
     pub(crate) fn read(r: &mut Reader, wide_indices: bool) -> Result<Self> {
-        let mut mesh = Self {
-            alpha_test: true,
-            ..Self::default()
-        };
+        let mut mesh = Self { alpha_test: true, ..Self::default() };
         let mut version = 0;
 
         while !r.is_eof() {
@@ -186,11 +196,7 @@ impl Mesh {
                                 format!("lightmap texture {texture} does not exist"),
                             ));
                         }
-                        mesh.lightmaps.push(Lightmap {
-                            texture,
-                            origin,
-                            normals,
-                        });
+                        mesh.lightmaps.push(Lightmap { texture, origin, normals });
                     }
                 }
                 CHUNK_LIGHTMAPS => {
@@ -252,18 +258,15 @@ impl Mesh {
     /// Splits every polygon into triangles. Polygons are convex fans, so corner 0 is shared by
     /// all of a polygon's triangles. Polygons with fewer than three corners are skipped.
     pub fn triangles(&self) -> impl Iterator<Item = Triangle> + '_ {
-        self.polygons
-            .iter()
-            .enumerate()
-            .flat_map(move |(i, polygon)| {
-                let vertices = self.polygon_vertices(polygon);
-                let features = self.polygon_features(polygon);
-                (2..vertices.len()).map(move |b| Triangle {
-                    polygon: i,
-                    vertices: [vertices[0], vertices[b - 1], vertices[b]],
-                    features: [features[0], features[b - 1], features[b]],
-                })
+        self.polygons.iter().enumerate().flat_map(move |(i, polygon)| {
+            let vertices = self.polygon_vertices(polygon);
+            let features = self.polygon_features(polygon);
+            (2..vertices.len()).map(move |b| Triangle {
+                polygon: i,
+                vertices: [vertices[0], vertices[b - 1], vertices[b]],
+                features: [features[0], features[b - 1], features[b]],
             })
+        })
     }
 }
 

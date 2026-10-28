@@ -1,6 +1,12 @@
+use crate::Asset;
+use crate::Date;
+use crate::Error;
+use crate::Result;
 use crate::io::Reader;
-use crate::math::{Aabb, Mat4, Vec3};
-use crate::{Asset, Date, Error, Result, text};
+use crate::math::Aabb;
+use crate::math::Mat4;
+use crate::math::Vec3;
+use crate::text;
 
 const FORMAT: &str = "model hierarchy";
 
@@ -88,10 +94,7 @@ impl ModelHierarchy {
 
     /// Finds a node by name, ignoring ASCII case like the engine does.
     pub fn node(&self, name: &str) -> Option<(usize, &HierarchyNode)> {
-        self.nodes
-            .iter()
-            .enumerate()
-            .find(|(_, n)| n.name.eq_ignore_ascii_case(name))
+        self.nodes.iter().enumerate().find(|(_, n)| n.name.eq_ignore_ascii_case(name))
     }
 }
 

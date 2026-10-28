@@ -1,15 +1,17 @@
 #![cfg(feature = "archive")]
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
 use zenkit::Error;
-use zenkit::archive::{Archive, Format};
-use zenkit::math::{Color, Vec2, Vec3};
+use zenkit::archive::Archive;
+use zenkit::archive::Format;
+use zenkit::math::Color;
+use zenkit::math::Vec2;
+use zenkit::math::Vec3;
 
 fn sample(name: &str) -> Vec<u8> {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/samples")
-        .join(name);
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/samples").join(name);
     std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 

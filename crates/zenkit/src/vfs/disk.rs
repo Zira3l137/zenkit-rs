@@ -6,16 +6,30 @@
 //! position of its contents in the archive.
 
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 
-use time::{Date, Month, PrimitiveDateTime, Time};
+use time::Date;
+use time::Month;
+use time::PrimitiveDateTime;
+use time::Time;
+use zerocopy::FromBytes;
+use zerocopy::Immutable;
+use zerocopy::KnownLayout;
+use zerocopy::Unaligned;
 use zerocopy::little_endian::U32;
-use zerocopy::{FromBytes, Immutable, KnownLayout, Unaligned};
 
-use super::node::{Children, FileData, Kind, Node, Storage};
-use super::{Overwrite, merge};
+use super::Overwrite;
+use super::merge;
+use super::node::Children;
+use super::node::FileData;
+use super::node::Kind;
+use super::node::Node;
+use super::node::Storage;
+use crate::Error;
+use crate::Result;
 use crate::io::Reader;
-use crate::{Error, Result, text};
+use crate::text;
 
 const FORMAT: &str = "VDF archive";
 
@@ -69,10 +83,7 @@ pub(super) fn parse(storage: Arc<Storage>, overwrite: Overwrite) -> Result<Child
 
     if ![SIGNATURE_G1, SIGNATURE_G2, SIGNATURE_VDFSTOOL].contains(&&header.signature) {
         let found = header.signature.escape_ascii();
-        return Err(Error::malformed(
-            FORMAT,
-            format!("unknown signature \"{found}\""),
-        ));
+        return Err(Error::malformed(FORMAT, format!("unknown signature \"{found}\"")));
     }
 
     match header.flags.get() {
@@ -127,17 +138,8 @@ fn read_dir(catalog: &mut Catalog, first: usize, depth: usize, out: &mut Childre
 
         if kind & ENTRY_DIR != 0 {
             let mut children = Children::new();
-            read_dir(
-                catalog,
-                entry.offset.get() as usize,
-                depth + 1,
-                &mut children,
-            )?;
-            let node = Node {
-                name,
-                time: catalog.time,
-                kind: Kind::Dir(children),
-            };
+            read_dir(catalog, entry.offset.get() as usize, depth + 1, &mut children)?;
+            let node = Node { name, time: catalog.time, kind: Kind::Dir(children) };
             merge(out, node, catalog.overwrite);
         } else {
             let start = entry.offset.get() as usize;

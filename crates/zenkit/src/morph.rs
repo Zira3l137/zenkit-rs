@@ -1,10 +1,14 @@
 //! Morph meshes (`.MMB`): meshes animated by moving vertices directly, used for faces and for
 //! things like bows bending.
 
-use crate::io::{Reader, WHITESPACE};
+use crate::Asset;
+use crate::Date;
+use crate::Result;
+use crate::io::Reader;
+use crate::io::WHITESPACE;
 use crate::math::Vec3;
 use crate::mrm::MultiResolutionMesh;
-use crate::{Asset, Date, Result, text};
+use crate::text;
 
 const FORMAT: &str = "morph mesh";
 
@@ -87,9 +91,8 @@ impl MorphMesh {
                 CHUNK_MORPH => morph.morph_positions = c.vec3s(morph.mesh.positions.len())?,
                 CHUNK_ANIMATIONS => {
                     let count = c.u16()? as usize;
-                    morph.animations = (0..count)
-                        .map(|_| read_animation(c))
-                        .collect::<Result<_>>()?;
+                    morph.animations =
+                        (0..count).map(|_| read_animation(c)).collect::<Result<_>>()?;
                 }
                 id => log::debug!("{FORMAT}: skipping unknown chunk {id:#06x}"),
             }

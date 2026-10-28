@@ -6,13 +6,25 @@
 //! quotes, parentheses and braces that the engine shrugs off, so this parser follows ZenKit's in
 //! accepting them.
 
-use super::{
-    Animation, AnimationAlias, AnimationBlend, AnimationCombination, AnimationFlags, CameraTremor,
-    Direction, EventTag, FORMAT, ModelScript, MorphAnimation, ParticleEffect, ParticleEffectStop,
-    Skeleton, SoundEffect,
-};
+use super::Animation;
+use super::AnimationAlias;
+use super::AnimationBlend;
+use super::AnimationCombination;
+use super::AnimationFlags;
+use super::CameraTremor;
+use super::Direction;
+use super::EventTag;
+use super::FORMAT;
+use super::ModelScript;
+use super::MorphAnimation;
+use super::ParticleEffect;
+use super::ParticleEffectStop;
+use super::Skeleton;
+use super::SoundEffect;
+use crate::Error;
+use crate::Result;
 use crate::io::WHITESPACE;
-use crate::{Error, Result, text};
+use crate::text;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
@@ -86,11 +98,8 @@ impl<'a> Lexer<'a> {
     fn lex(&mut self) -> Token<'a> {
         loop {
             let start = self.pos;
-            let token = |lexer: &Self, kind| Token {
-                kind,
-                text: &lexer.src[start..lexer.pos],
-                start,
-            };
+            let token =
+                |lexer: &Self, kind| Token { kind, text: &lexer.src[start..lexer.pos], start };
             let Some(c) = self.peek_byte() else {
                 return token(self, Kind::Eof);
             };
@@ -113,11 +122,7 @@ impl<'a> Lexer<'a> {
                 c if c.is_ascii_digit() || c == b'-' => {
                     self.eat_while(|c| c.is_ascii_digit() || c == b'.');
                     let t = token(self, Kind::Int);
-                    let kind = if t.text.contains(&b'.') {
-                        Kind::Float
-                    } else {
-                        Kind::Int
-                    };
+                    let kind = if t.text.contains(&b'.') { Kind::Float } else { Kind::Int };
                     return Token { kind, ..t };
                 }
                 b'"' => return self.string(start),
@@ -125,11 +130,7 @@ impl<'a> Lexer<'a> {
                 b'}' => return token(self, Kind::RBrace),
                 b':' => return token(self, Kind::Colon),
                 _ => {
-                    log::warn!(
-                        "{FORMAT}: {}: illegal character {:?}",
-                        self.at(start),
-                        c as char
-                    );
+                    log::warn!("{FORMAT}: {}: illegal character {:?}", self.at(start), c as char);
                     return token(self, Kind::Illegal);
                 }
             }
@@ -141,10 +142,8 @@ impl<'a> Lexer<'a> {
     /// trailing `)` even inside closed quotes; here `"BODY(1)"` keeps it.
     fn string(&mut self, start: usize) -> Token<'a> {
         let body = &self.src[start + 1..];
-        let len = body
-            .iter()
-            .position(|&c| matches!(c, b'"' | b'\n' | b'\r'))
-            .unwrap_or(body.len());
+        let len =
+            body.iter().position(|&c| matches!(c, b'"' | b'\n' | b'\r')).unwrap_or(body.len());
 
         let mut text = &body[..len];
         if body.get(len) == Some(&b'"') {
@@ -156,23 +155,14 @@ impl<'a> Lexer<'a> {
             text = text.strip_suffix(b")").unwrap_or(text);
         }
 
-        Token {
-            kind: Kind::String,
-            text,
-            start,
-        }
+        Token { kind: Kind::String, text, start }
     }
 
     /// `line L, column C` of a byte offset, for messages.
     fn at(&self, offset: usize) -> String {
         let before = &self.src[..offset];
         let line = before.iter().filter(|&&c| c == b'\n').count() + 1;
-        let column = offset
-            - before
-                .iter()
-                .rposition(|&c| c == b'\n')
-                .map_or(0, |i| i + 1)
-            + 1;
+        let column = offset - before.iter().rposition(|&c| c == b'\n').map_or(0, |i| i + 1) + 1;
         format!("line {line}, column {column}")
     }
 }
@@ -191,9 +181,7 @@ fn is(t: Token, keyword: &str) -> bool {
 
 /// Whether a keyword is made up of animation flag letters and placeholder dots only.
 fn is_flags(t: Token) -> bool {
-    t.text
-        .iter()
-        .all(|c| b"MREFIP.".contains(&c.to_ascii_uppercase()))
+    t.text.iter().all(|c| b"MREFIP.".contains(&c.to_ascii_uppercase()))
 }
 
 impl<'a> Parser<'a> {
@@ -217,10 +205,7 @@ impl<'a> Parser<'a> {
         if t.kind == kind {
             Ok(t)
         } else {
-            Err(self.error(
-                t,
-                format!("expected {}, found {}", kind.describe(), t.kind.describe()),
-            ))
+            Err(self.error(t, format!("expected {}, found {}", kind.describe(), t.kind.describe())))
         }
     }
 
@@ -255,9 +240,7 @@ impl<'a> Parser<'a> {
     fn parse_number(&self, t: Token) -> Result<f32> {
         let s = std::str::from_utf8(t.text).unwrap_or_default();
         let second_dot = s.match_indices('.').nth(1).map_or(s.len(), |(i, _)| i);
-        s[..second_dot]
-            .parse()
-            .map_err(|_| self.error(t, "invalid number"))
+        s[..second_dot].parse().map_err(|_| self.error(t, "invalid number"))
     }
 
     fn int(&mut self) -> Result<i32> {
@@ -443,18 +426,10 @@ impl<'a> Parser<'a> {
                 let position = self.string()?;
                 // Some scripts quote it: "ATTACH".
                 let attached = self.maybe_keyword("ATTACH") || self.maybe(Kind::String).is_some();
-                ani.particles.push(ParticleEffect {
-                    frame,
-                    index,
-                    name,
-                    position,
-                    attached,
-                });
+                ani.particles.push(ParticleEffect { frame, index, name, position, attached });
             } else if is(t, "*eventPFXStop") {
-                ani.particle_stops.push(ParticleEffectStop {
-                    frame: self.int()?,
-                    index: self.int()?,
-                });
+                ani.particle_stops
+                    .push(ParticleEffectStop { frame: self.int()?, index: self.int()? });
             } else if is(t, "*eventMMStartAni") {
                 ani.morphs.push(MorphAnimation {
                     frame: self.int()?,
@@ -548,14 +523,7 @@ impl<'a> Parser<'a> {
 }
 
 pub(super) fn parse(src: &[u8]) -> Result<ModelScript> {
-    Parser {
-        lexer: Lexer {
-            src,
-            pos: 0,
-            last: None,
-        },
-    }
-    .script()
+    Parser { lexer: Lexer { src, pos: 0, last: None } }.script()
 }
 
 #[cfg(test)]
@@ -563,11 +531,7 @@ mod tests {
     use super::*;
 
     fn kinds(src: &str) -> Vec<(Kind, String)> {
-        let mut lexer = Lexer {
-            src: src.as_bytes(),
-            pos: 0,
-            last: None,
-        };
+        let mut lexer = Lexer { src: src.as_bytes(), pos: 0, last: None };
         let mut out = Vec::new();
         loop {
             let t = lexer.next();

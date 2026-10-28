@@ -3,15 +3,11 @@
 use std::path::Path;
 
 use zenkit::math::Color;
-use zenkit::texture::{Texture, TextureFormat};
+use zenkit::texture::Texture;
+use zenkit::texture::TextureFormat;
 
 fn sample(name: &str) -> Vec<u8> {
-    std::fs::read(
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/samples")
-            .join(name),
-    )
-    .unwrap()
+    std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/samples").join(name)).unwrap()
 }
 
 #[test]
@@ -33,10 +29,7 @@ fn erz() {
 fn erz_decodes_like_zenkit() {
     let tex = Texture::from_bytes(&sample("erz.tex")).unwrap();
     let rgba = tex.to_rgba8(0).unwrap();
-    assert!(
-        rgba == sample("erz.expected.0.bin"),
-        "decoded pixels differ from ZenKit's"
-    );
+    assert!(rgba == sample("erz.expected.0.bin"), "decoded pixels differ from ZenKit's");
 
     for level in 1..tex.mipmap_count() {
         let (w, h) = tex.mipmap_dimensions(level);

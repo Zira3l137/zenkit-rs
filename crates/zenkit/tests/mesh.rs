@@ -5,16 +5,13 @@ use std::path::Path;
 use zenkit::GameVersion;
 use zenkit::archive::Archive;
 use zenkit::material::Material;
-use zenkit::math::{Vec2, Vec3};
-use zenkit::mesh::{Mesh, Triangle};
+use zenkit::math::Vec2;
+use zenkit::math::Vec3;
+use zenkit::mesh::Mesh;
+use zenkit::mesh::Triangle;
 
 fn sample(name: &str) -> Vec<u8> {
-    std::fs::read(
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/samples")
-            .join(name),
-    )
-    .unwrap()
+    std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/samples").join(name)).unwrap()
 }
 
 fn chunk(out: &mut Vec<u8>, id: u16, payload: &[u8]) {
@@ -74,9 +71,7 @@ fn mesh(version: u16) -> Vec<u8> {
     chunk(&mut out, 0xB026, &lightmaps);
 
     let mut vertices = 4u32.to_le_bytes().to_vec();
-    vertices.extend(floats(&[
-        -1.0, 0.0, -1.0, 1.0, 0.0, -1.0, 1.0, 0.0, 1.0, -1.0, 0.0, 1.0,
-    ]));
+    vertices.extend(floats(&[-1.0, 0.0, -1.0, 1.0, 0.0, -1.0, 1.0, 0.0, 1.0, -1.0, 0.0, 1.0]));
     chunk(&mut out, 0xB030, &vertices);
 
     let mut features = 1u32.to_le_bytes().to_vec();
@@ -117,10 +112,7 @@ fn gothic2() {
     let mesh = Mesh::from_bytes(&mesh(265)).unwrap();
     assert_eq!(mesh.name, "QUAD.3DS");
     assert_eq!(mesh.game, Some(GameVersion::Gothic2));
-    assert_eq!(
-        (mesh.date.year, mesh.date.month, mesh.date.second),
-        (2004, 5, 45)
-    );
+    assert_eq!((mesh.date.year, mesh.date.month, mesh.date.second), (2004, 5, 45));
     assert_eq!(mesh.bbox.max, Vec3::new(1.0, 0.0, 1.0));
 
     assert_eq!(mesh.materials.len(), 1);
@@ -128,10 +120,7 @@ fn gothic2() {
     assert!(!mesh.alpha_test);
 
     assert_eq!(mesh.lightmap_textures.len(), 1);
-    assert_eq!(
-        mesh.lightmap_textures[0].to_rgba8(0).unwrap(),
-        [10, 20, 30, 255]
-    );
+    assert_eq!(mesh.lightmap_textures[0].to_rgba8(0).unwrap(), [10, 20, 30, 255]);
     assert_eq!(mesh.lightmaps[0].origin, Vec3::new(1.0, 2.0, 3.0));
     assert_eq!(mesh.lightmaps[0].normals[1], Vec3::Z);
 
