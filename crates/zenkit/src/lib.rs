@@ -18,6 +18,8 @@ pub mod material;
 pub mod math;
 #[cfg(feature = "mesh")]
 pub mod mesh;
+#[cfg(feature = "model")]
+pub mod model;
 #[cfg(feature = "mrm")]
 pub mod mrm;
 #[cfg_attr(not(feature = "vfs"), allow(dead_code))]
