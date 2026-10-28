@@ -11,3 +11,7 @@ repository.workspace = true
 
 [lib]
 name = "zenkit"
+
+[dependencies]
+thiserror = "2"
+zerocopy = { version = "0.8", features = ["derive"] }

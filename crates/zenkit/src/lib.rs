@@ -4,3 +4,8 @@
 //! behind its own cargo feature, so you only compile what you use.
 
 #![deny(unsafe_code)]
+
+mod error;
+pub mod io;
+
+pub use error::{Error, Result};
