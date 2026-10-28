@@ -121,11 +121,16 @@ impl Material {
         let count = archive.int()?.max(0) as usize;
         let mut materials = Vec::with_capacity(count.min(4096));
         for _ in 0..count {
-            // The name is stored again inside the object; this copy is ignored, as in the engine.
-            archive.string()?;
-            materials.push(Self::read(archive)?);
+            materials.push(Self::read_named(archive)?);
         }
         Ok(materials)
+    }
+
+    /// Reads a name followed by a whole material object, the way material lists store each entry.
+    /// The name is stored again inside the object; this copy is ignored, as in the engine.
+    pub fn read_named(archive: &mut Archive) -> Result<Self> {
+        archive.string()?;
+        Self::read(archive)
     }
 
     /// Reads the fields of a material whose object header has already been read.

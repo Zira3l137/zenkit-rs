@@ -17,6 +17,8 @@ pub mod material;
 pub mod math;
 #[cfg(feature = "mesh")]
 pub mod mesh;
+#[cfg(feature = "mrm")]
+pub mod mrm;
 #[cfg_attr(not(feature = "vfs"), allow(dead_code))]
 mod par;
 #[cfg_attr(not(any(feature = "vfs", feature = "archive")), allow(dead_code))]

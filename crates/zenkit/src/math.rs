@@ -29,7 +29,7 @@ pub struct Aabb {
     pub max: Vec3,
 }
 
-#[cfg_attr(not(feature = "mesh"), allow(dead_code))]
+#[cfg_attr(not(any(feature = "mesh", feature = "mrm")), allow(dead_code))]
 impl Aabb {
     pub(crate) fn read(r: &mut Reader) -> Result<Self> {
         Ok(Self {
@@ -49,7 +49,7 @@ pub struct Obb {
     pub children: Vec<Obb>,
 }
 
-#[cfg_attr(not(feature = "mesh"), allow(dead_code))]
+#[cfg_attr(not(any(feature = "mesh", feature = "mrm")), allow(dead_code))]
 impl Obb {
     const MAX_DEPTH: usize = 64;
 

@@ -19,6 +19,7 @@ Every format sits behind its own cargo feature.
 | `material` |   yes   | Materials (`zCMaterial`), as found in meshes, worlds and `.MAT` files     |
 | `texture`  |   yes   | Textures (`.TEX`), including decoding every pixel format to RGBA8        |
 | `mesh`     |   yes   | Static meshes (`.MSH`), the format of world geometry                      |
+| `mrm`      |   yes   | Multi-resolution meshes (`.MRM`), the format of props, items and armour  |
 | `parallel` |   yes   | Spreads independent work, like reading many files, across all CPU cores  |
 | `mmap`     |         | Memory-maps archives and host files instead of reading them into memory  |
 
