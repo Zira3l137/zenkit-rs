@@ -12,19 +12,20 @@ zenkit = { package = "zenkit-rs", git = "https://github.com/Zira3l137/zenkit-rs"
 
 Every format sits behind its own cargo feature.
 
-| Feature    | Default | What it enables                                                          |
-|------------|:-------:|--------------------------------------------------------------------------|
-| `vfs`      |   yes   | Reading `.VDF` archives and mounting them together with host directories |
-| `archive`  |   yes   | Reading ZenGin archives, the object format behind worlds, saves and more |
-| `material` |   yes   | Materials (`zCMaterial`), as found in meshes, worlds and `.MAT` files     |
-| `texture`  |   yes   | Textures (`.TEX`), including decoding every pixel format to RGBA8        |
-| `mesh`     |   yes   | Static meshes (`.MSH`), the format of world geometry                      |
-| `mrm`      |   yes   | Multi-resolution meshes (`.MRM`), the format of props, items and armour  |
-| `model`    |   yes   | Skeletons (`.MDH`), skinned meshes (`.MDM`) and models (`.MDL`)          |
-| `morph`    |   yes   | Morph meshes (`.MMB`), animated by moving vertices: faces, bows          |
-| `animation`|   yes   | Skeletal animations (`.MAN`)                                             |
-| `parallel` |   yes   | Spreads independent work, like reading many files, across all CPU cores  |
-| `mmap`     |         | Memory-maps archives and host files instead of reading them into memory  |
+| Feature        | Default | What it enables                                                          |
+|----------------|:-------:|--------------------------------------------------------------------------|
+| `vfs`          |   yes   | Reading `.VDF` archives and mounting them together with host directories |
+| `archive`      |   yes   | Reading ZenGin archives, the object format behind worlds, saves and more |
+| `material`     |   yes   | Materials (`zCMaterial`), as found in meshes, worlds and `.MAT` files    |
+| `texture`      |   yes   | Textures (`.TEX`), including decoding every pixel format to RGBA8        |
+| `mesh`         |   yes   | Static meshes (`.MSH`), the format of world geometry                     |
+| `mrm`          |   yes   | Multi-resolution meshes (`.MRM`), the format of props, items and armour  |
+| `model`        |   yes   | Skeletons (`.MDH`), skinned meshes (`.MDM`) and models (`.MDL`)          |
+| `morph`        |   yes   | Morph meshes (`.MMB`), animated by moving vertices: faces, bows          |
+| `animation`    |   yes   | Skeletal animations (`.MAN`)                                             |
+| `model-script` |   yes   | Model scripts, both source (`.MDS`) and compiled (`.MSB`)                |
+| `parallel`     |   yes   | Spreads independent work, like reading many files, across all CPU cores  |
+| `mmap`         |         | Memory-maps archives and host files instead of reading them into memory  |
 
 `parallel` uses [rayon](https://docs.rs/rayon). Turn it off for targets without threads, such as
 plain `wasm32`; results are the same either way.

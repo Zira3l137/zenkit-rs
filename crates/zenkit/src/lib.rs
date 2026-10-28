@@ -25,13 +25,18 @@ pub mod math;
 pub mod mesh;
 #[cfg(feature = "model")]
 pub mod model;
+#[cfg(feature = "model-script")]
+pub mod model_script;
 #[cfg(feature = "morph")]
 pub mod morph;
 #[cfg(feature = "mrm")]
 pub mod mrm;
 #[cfg_attr(not(feature = "vfs"), allow(dead_code))]
 mod par;
-#[cfg_attr(not(any(feature = "vfs", feature = "archive")), allow(dead_code))]
+#[cfg_attr(
+    not(any(feature = "vfs", feature = "archive", feature = "model-script")),
+    allow(dead_code)
+)]
 mod text;
 #[cfg(feature = "texture")]
 pub mod texture;
