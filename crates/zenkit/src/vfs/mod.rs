@@ -39,6 +39,7 @@ use tracing::warn_span;
 use crate::Asset;
 use crate::Error;
 use crate::Result;
+use crate::ResultExt;
 use crate::par;
 
 pub use node::Node;
@@ -145,7 +146,7 @@ impl Vfs {
         let _span = warn_span!("load", file = name).entered();
         let node = self.find(name).ok_or_else(|| Error::NotFound(name.into()))?;
         let data = node.data().ok_or_else(|| Error::NotFound(name.into()))?;
-        T::from_bytes(data)
+        T::from_bytes(data).context(|| format!("cannot load {name:?}"))
     }
 
     /// [Loads](Self::load) many files at once, in parallel with the `parallel` feature. Results
@@ -200,7 +201,8 @@ impl Vfs {
             let path = path.as_ref();
             let _span = warn_span!("mount", disk = %path.display()).entered();
             let storage = host::load_file(path)?;
-            let archive = disk::parse(Arc::new(storage), overwrite)?;
+            let archive = disk::parse(Arc::new(storage), overwrite)
+                .context(|| format!("cannot mount {}", path.display()))?;
             debug!("read {} top-level entries", archive.len());
             Ok(archive)
         })?;

@@ -157,7 +157,7 @@ impl MultiResolutionMesh {
         let normals = *r.record::<Section>()?;
         let sections = r.records::<SubMeshSections>(sub_mesh_count)?;
 
-        let mut archive = Archive::new(r.rest())?;
+        let mut archive = Archive::from_reader(r.remainder())?;
         let materials = (0..sub_mesh_count)
             .map(|_| Material::read_named(&mut archive))
             .collect::<Result<Vec<_>>>()?;

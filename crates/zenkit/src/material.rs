@@ -7,6 +7,7 @@ use tracing::warn;
 
 use crate::GameVersion;
 use crate::Result;
+use crate::ResultExt;
 use crate::archive::Archive;
 use crate::archive::parse;
 use crate::macros::raw_enum;
@@ -125,8 +126,8 @@ impl Material {
     pub fn read_list(archive: &mut Archive) -> Result<Vec<Self>> {
         let count = archive.int()?.max(0) as usize;
         let mut materials = Vec::with_capacity(count.min(4096));
-        for _ in 0..count {
-            materials.push(Self::read_named(archive)?);
+        for i in 0..count {
+            materials.push(Self::read_named(archive).context(|| format!("material {i}"))?);
         }
         Ok(materials)
     }

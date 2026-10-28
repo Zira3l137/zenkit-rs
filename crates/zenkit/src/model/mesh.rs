@@ -12,6 +12,7 @@ use crate::Asset;
 use crate::Date;
 use crate::Error;
 use crate::Result;
+use crate::ResultExt;
 use crate::io::Reader;
 use crate::io::WHITESPACE;
 use crate::math::Obb;
@@ -175,7 +176,9 @@ impl ModelMesh {
                 r.skip(6)?;
                 model.checksum = r.u32()?;
                 let count = r.u16()? as usize;
-                model.meshes = (0..count).map(|_| SoftSkinMesh::read(r)).collect::<Result<_>>()?;
+                model.meshes = (0..count)
+                    .map(|i| SoftSkinMesh::read(r).context(|| format!("soft skin mesh {i}")))
+                    .collect::<Result<_>>()?;
                 continue;
             }
 
@@ -199,7 +202,8 @@ impl ModelMesh {
                     let node = nodes.get(index).cloned().ok_or_else(|| {
                         Error::malformed(FORMAT, format!("attachment {index} has no node name"))
                     })?;
-                    let mesh = MultiResolutionMesh::read_section(c)?;
+                    let mesh = MultiResolutionMesh::read_section(c)
+                        .context(|| format!("attachment {node:?}"))?;
                     model.attachments.push(Attachment { node, mesh });
                 }
                 CHUNK_END => break,

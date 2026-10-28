@@ -36,17 +36,17 @@ impl<'a> Ascii<'a> {
     pub(super) fn new(mut r: Reader<'a>) -> Result<Self> {
         let objects = r.line(WHITESPACE);
         if super::field(objects, "objects").and_then(parse::int).is_none() {
-            return Err(malformed(r.position(), "missing \"objects\" line"));
+            return Err(malformed(r.offset(), "missing \"objects\" line"));
         }
         if r.line(WHITESPACE) != b"END" {
-            return Err(malformed(r.position(), "missing second \"END\" line"));
+            return Err(malformed(r.offset(), "missing second \"END\" line"));
         }
         Ok(Self { r })
     }
 
     /// The value of the next `name=type:value` line, after checking its type.
     fn entry(&mut self, kind: &str) -> Result<&'a [u8]> {
-        let position = self.r.position();
+        let offset = self.r.offset();
         let line = self.r.line(WHITESPACE);
         let entry = line.iter().position(|&b| b == b'=').map_or(line, |i| &line[i + 1..]);
         let (found, value) = entry
@@ -56,24 +56,24 @@ impl<'a> Ascii<'a> {
 
         if found != kind.as_bytes() {
             let found = found.escape_ascii();
-            return Err(malformed(position, format!("expected a {kind} entry, found \"{found}\"")));
+            return Err(malformed(offset, format!("expected a {kind} entry, found \"{found}\"")));
         }
         Ok(value)
     }
 
     fn integer(&mut self, kind: &str) -> Result<i64> {
-        let position = self.r.position();
+        let offset = self.r.offset();
         let value = self.entry(kind)?;
         parse::int(value).ok_or_else(|| {
-            malformed(position, format!("invalid {kind} \"{}\"", value.escape_ascii()))
+            malformed(offset, format!("invalid {kind} \"{}\"", value.escape_ascii()))
         })
     }
 
     fn hex(&mut self) -> Result<Vec<u8>> {
-        let position = self.r.position();
+        let offset = self.r.offset();
         let value = self.entry("raw")?;
         let even = &value[..value.len() & !1];
-        hex::decode(even).map_err(|e| malformed(position, format!("invalid raw entry: {e}")))
+        hex::decode(even).map_err(|e| malformed(offset, format!("invalid raw entry: {e}")))
     }
 }
 
@@ -92,6 +92,10 @@ impl<'a> Decode<'a> for Ascii<'a> {
 
     fn position(&self) -> usize {
         self.r.position()
+    }
+
+    fn offset(&self) -> usize {
+        self.r.offset()
     }
 
     fn begin_object(&mut self) -> Result<Option<ObjectHeader<'a>>> {
@@ -125,18 +129,16 @@ impl<'a> Decode<'a> for Ascii<'a> {
     }
 
     fn int(&mut self) -> Result<i32> {
-        let position = self.r.position();
+        let offset = self.r.offset();
         let value = self.integer("int")?;
-        i32::try_from(value)
-            .map_err(|_| malformed(position, format!("int {value} is out of range")))
+        i32::try_from(value).map_err(|_| malformed(offset, format!("int {value} is out of range")))
     }
 
     fn float(&mut self) -> Result<f32> {
-        let position = self.r.position();
+        let offset = self.r.offset();
         let value = self.entry("float")?;
-        parse::float(value).ok_or_else(|| {
-            malformed(position, format!("invalid float \"{}\"", value.escape_ascii()))
-        })
+        parse::float(value)
+            .ok_or_else(|| malformed(offset, format!("invalid float \"{}\"", value.escape_ascii())))
     }
 
     // The engine writes bytes, words and enums as plain ints and truncates them when reading.
@@ -178,20 +180,20 @@ impl<'a> Decode<'a> for Ascii<'a> {
     }
 
     fn mat3(&mut self) -> Result<Mat3> {
-        let position = self.r.position();
+        let offset = self.r.offset();
         let bytes = self.hex()?;
         if bytes.len() < 36 {
-            return Err(malformed(position, "raw entry is too short for a 3x3 matrix"));
+            return Err(malformed(offset, "raw entry is too short for a 3x3 matrix"));
         }
         Ok(mat3_from_rows(le_floats(&bytes)))
     }
 
     fn raw(&mut self, len: usize) -> Result<Cow<'a, [u8]>> {
-        let position = self.r.position();
+        let offset = self.r.offset();
         let bytes = self.hex()?;
         if bytes.len() < len {
             return Err(malformed(
-                position,
+                offset,
                 format!("raw entry has {} bytes, needed {len}", bytes.len()),
             ));
         }

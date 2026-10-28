@@ -91,10 +91,10 @@ pub(super) fn parse(storage: Arc<Storage>, overwrite: Overwrite) -> Result<Child
     match header.flags.get() {
         FLAGS_NORMAL => {}
         FLAGS_ZIPPED => {
-            return Err(Error::Unsupported {
-                format: FORMAT,
-                reason: "compressed (Union ZippedStream) archives are not supported yet".into(),
-            });
+            return Err(Error::unsupported(
+                FORMAT,
+                "compressed (Union ZippedStream) archives are not supported yet",
+            ));
         }
         flags => warn!("unknown volume flags {flags:#x}, assuming uncompressed"),
     }

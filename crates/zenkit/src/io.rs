@@ -1,3 +1,5 @@
+use std::fmt;
+
 use zerocopy::FromBytes;
 use zerocopy::Immutable;
 use zerocopy::KnownLayout;
@@ -23,18 +25,32 @@ pub const WHITESPACE: &[u8] = b" \t\r\n\x0B\x0C";
 #[derive(Debug, Clone)]
 pub struct Chunk<'a> {
     pub id: u16,
-    /// The chunk's contents, with offsets starting at zero.
+    /// Where the chunk's header starts in the file.
+    pub offset: usize,
+    /// The chunk's contents, with positions starting at zero.
     pub data: Reader<'a>,
+}
+
+impl fmt::Display for Chunk<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "chunk {:#06x} at offset {}", self.id, self.offset)
+    }
 }
 
 /// A little-endian cursor over a byte slice.
 ///
 /// Unlike ZenKit's `Read`, which silently yields zeros past the end of its input, every read here
 /// fails with [`Error::UnexpectedEof`] instead.
+///
+/// [`position`](Self::position) counts from the start of this reader, which for a
+/// [chunk](Self::chunk) or a [sub-reader](Self::sub) is where it was split off. Errors report
+/// [`offset`](Self::offset) instead, which counts from the start of the file.
 #[derive(Debug, Clone)]
 pub struct Reader<'a> {
     data: &'a [u8],
     pos: usize,
+    /// Where `data` starts in the file.
+    base: usize,
 }
 
 macro_rules! read_le {
@@ -49,11 +65,16 @@ macro_rules! read_le {
 
 impl<'a> Reader<'a> {
     pub fn new(data: &'a [u8]) -> Self {
-        Self { data, pos: 0 }
+        Self { data, pos: 0, base: 0 }
     }
 
     pub fn position(&self) -> usize {
         self.pos
+    }
+
+    /// The position of the next read in the whole file.
+    pub fn offset(&self) -> usize {
+        self.base + self.pos
     }
 
     pub fn len(&self) -> usize {
@@ -80,7 +101,10 @@ impl<'a> Reader<'a> {
     /// Moves to an absolute offset. Seeking exactly to the end is allowed.
     pub fn seek(&mut self, offset: usize) -> Result<()> {
         if offset > self.data.len() {
-            return Err(Error::UnexpectedEof { offset, needed: 0, available: 0 });
+            return Err(Error::OutOfBounds {
+                offset: self.base + offset,
+                len: self.base + self.data.len(),
+            });
         }
         self.pos = offset;
         Ok(())
@@ -94,11 +118,7 @@ impl<'a> Reader<'a> {
     pub fn bytes(&mut self, len: usize) -> Result<&'a [u8]> {
         let data = self.data;
         let bytes =
-            data.get(self.pos..).and_then(|rest| rest.get(..len)).ok_or(Error::UnexpectedEof {
-                offset: self.pos,
-                needed: len,
-                available: self.remaining(),
-            })?;
+            data.get(self.pos..).and_then(|rest| rest.get(..len)).ok_or_else(|| self.eof(len))?;
         self.pos += len;
         Ok(bytes)
     }
@@ -116,11 +136,7 @@ impl<'a> Reader<'a> {
 
     /// Views the next `count` records as a slice, without copying.
     pub fn records<T: Record>(&mut self, count: usize) -> Result<&'a [T]> {
-        let len = count.checked_mul(size_of::<T>()).ok_or(Error::UnexpectedEof {
-            offset: self.pos,
-            needed: usize::MAX,
-            available: self.remaining(),
-        })?;
+        let len = count.checked_mul(size_of::<T>()).ok_or_else(|| self.eof(usize::MAX))?;
         let bytes = self.bytes(len)?;
         Ok(<[T]>::ref_from_bytes(bytes).expect("length matches and T has no alignment"))
     }
@@ -129,19 +145,30 @@ impl<'a> Reader<'a> {
     /// position.
     pub fn limit(&mut self, end: usize) -> Result<()> {
         if end < self.pos || end > self.data.len() {
-            return Err(Error::UnexpectedEof {
-                offset: end,
-                needed: 0,
-                available: self.data.len(),
+            return Err(Error::OutOfBounds {
+                offset: self.base + end,
+                len: self.base + self.data.len(),
             });
         }
         self.data = &self.data[..end];
         Ok(())
     }
 
-    /// Splits off the next `len` bytes as an independent reader whose offsets start at zero.
+    /// Splits off the next `len` bytes as an independent reader whose positions start at zero.
     pub fn sub(&mut self, len: usize) -> Result<Reader<'a>> {
-        self.bytes(len).map(Reader::new)
+        let base = self.offset();
+        let data = self.bytes(len)?;
+        Ok(Reader { data, pos: 0, base })
+    }
+
+    /// A reader over the bytes not read yet, whose positions start at zero, leaving this one
+    /// where it is.
+    pub fn remainder(&self) -> Reader<'a> {
+        Reader { data: self.rest(), pos: 0, base: self.offset() }
+    }
+
+    fn eof(&self, needed: usize) -> Error {
+        Error::UnexpectedEof { offset: self.offset(), needed, available: self.remaining() }
     }
 
     /// Reads a chunk header (`id: u16`, `len: u32`) and splits off its contents.
@@ -150,9 +177,10 @@ impl<'a> Reader<'a> {
     /// reader ends where the chunk does, so an overrun is an error and can never spill into the
     /// next chunk.
     pub fn chunk(&mut self) -> Result<Chunk<'a>> {
+        let offset = self.offset();
         let id = self.u16()?;
         let len = self.u32()? as usize;
-        Ok(Chunk { id, data: self.sub(len)? })
+        Ok(Chunk { id, offset, data: self.sub(len)? })
     }
 
     /// Reads up to the next `\0`, `\r` or `\n` and consumes that terminator. If the terminator
@@ -324,5 +352,19 @@ mod tests {
         assert_eq!(sub.u16().unwrap(), 1);
         assert!(sub.u8().is_err());
         assert_eq!(r.u8().unwrap(), 7);
+    }
+
+    #[test]
+    fn errors_count_offsets_from_the_start_of_the_file() {
+        let data = [0xFF, 0x00, 0xB1, 4, 0, 0, 0, 1, 2, 3, 4];
+        let mut r = Reader::new(&data);
+        r.skip(1).unwrap();
+        let mut chunk = r.remainder().chunk().unwrap();
+        assert_eq!((chunk.offset, chunk.data.offset()), (1, 7));
+
+        chunk.data.skip(3).unwrap();
+        let err = chunk.data.u16().unwrap_err();
+        assert!(matches!(err, Error::UnexpectedEof { offset: 10, needed: 2, available: 1 }));
+        assert!(matches!(chunk.data.seek(5), Err(Error::OutOfBounds { offset: 12, len: 11 })));
     }
 }

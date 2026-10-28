@@ -168,12 +168,12 @@ impl Mesh {
                     mesh.obb = Obb::read(c)?;
                 }
                 CHUNK_MATERIALS => {
-                    let mut archive = Archive::new(c.rest())?;
+                    let mut archive = Archive::from_reader(c.remainder())?;
                     if archive.format() != Format::Binary {
-                        return Err(Error::Unsupported {
-                            format: FORMAT,
-                            reason: format!("{:?} material archive", archive.format()),
-                        });
+                        return Err(Error::unsupported(
+                            FORMAT,
+                            format!("{:?} material archive", archive.format()),
+                        ));
                     }
                     mesh.materials = Material::read_list(&mut archive)?;
                     if version == VERSION_G2 {

@@ -10,6 +10,7 @@ mod mesh;
 
 use crate::Asset;
 use crate::Result;
+use crate::ResultExt;
 use crate::io::Reader;
 
 pub use hierarchy::HierarchyNode;
@@ -30,7 +31,10 @@ pub struct Model {
 impl Model {
     pub fn from_bytes(data: &[u8]) -> Result<Self> {
         let mut r = Reader::new(data);
-        Ok(Self { hierarchy: ModelHierarchy::read(&mut r)?, mesh: ModelMesh::read(&mut r)? })
+        Ok(Self {
+            hierarchy: ModelHierarchy::read(&mut r).context(|| "skeleton")?,
+            mesh: ModelMesh::read(&mut r).context(|| "meshes")?,
+        })
     }
 }
 

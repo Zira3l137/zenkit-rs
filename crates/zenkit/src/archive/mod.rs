@@ -116,6 +116,8 @@ trait Decode<'a> {
     fn reset(&mut self, mark: Mark);
     fn is_eof(&self) -> bool;
     fn position(&self) -> usize;
+    /// [`position`](Self::position) counted from the start of the file, for error messages.
+    fn offset(&self) -> usize;
 
     fn begin_object(&mut self) -> Result<Option<ObjectHeader<'a>>>;
     fn end_object(&mut self) -> Result<bool>;
@@ -148,7 +150,7 @@ trait Decode<'a> {
 fn skip_levels<'a, D: Decode<'a> + ?Sized>(d: &mut D, mut level: usize) -> Result<()> {
     loop {
         if d.is_eof() {
-            return Err(malformed(d.position(), "data ends inside an object"));
+            return Err(malformed(d.offset(), "data ends inside an object"));
         }
         if d.begin_object()?.is_some() {
             level += 1;
@@ -196,7 +198,11 @@ pub struct Archive<'a> {
 
 impl<'a> Archive<'a> {
     pub fn new(data: &'a [u8]) -> Result<Self> {
-        let mut r = Reader::new(data);
+        Self::from_reader(Reader::new(data))
+    }
+
+    /// Reads an archive embedded in a larger file, so that errors give offsets in that file.
+    pub fn from_reader(mut r: Reader<'a>) -> Result<Self> {
         let header = read_header(&mut r)?;
         let backend = match header.format {
             Format::Ascii => Backend::Ascii(ascii::Ascii::new(r)?),
@@ -223,6 +229,15 @@ impl<'a> Archive<'a> {
         }
     }
 
+    /// [`position`](Self::position) counted from the start of the file the archive is in.
+    pub fn offset(&self) -> usize {
+        match &self.backend {
+            Backend::Ascii(d) => d.offset(),
+            Backend::Binary(d) => d.offset(),
+            Backend::Binsafe(d) => d.offset(),
+        }
+    }
+
     pub fn is_eof(&self) -> bool {
         match &self.backend {
             Backend::Ascii(d) => d.is_eof(),
@@ -241,7 +256,7 @@ impl<'a> Archive<'a> {
 
     /// Opens the next object and checks its class.
     pub fn expect_object(&mut self, class: &[u8]) -> Result<ObjectHeader<'a>> {
-        let position = self.position();
+        let offset = self.offset();
         let mark = self.mark();
         match self.begin_object()? {
             Some(object) if object.class == class => Ok(object),
@@ -251,7 +266,7 @@ impl<'a> Archive<'a> {
                     format!("{:?}", o.class.escape_ascii().to_string())
                 });
                 let expected = class.escape_ascii();
-                Err(malformed(position, format!("expected object \"{expected}\", found {found}")))
+                Err(malformed(offset, format!("expected object \"{expected}\", found {found}")))
             }
         }
     }
@@ -356,23 +371,24 @@ impl<'a> Archive<'a> {
     }
 }
 
-fn malformed(position: usize, reason: impl fmt::Display) -> Error {
-    Error::malformed(FORMAT, format!("{reason} (at offset {position})"))
+fn malformed(offset: usize, reason: impl fmt::Display) -> Error {
+    Error::malformed(FORMAT, format!("{reason} (at offset {offset})"))
 }
 
 fn read_header(r: &mut Reader) -> Result<Header> {
+    let start = r.offset();
     let mut next = || r.line(WHITESPACE);
 
     if next() != b"ZenGin Archive" {
-        return Err(malformed(0, "missing \"ZenGin Archive\" magic"));
+        return Err(malformed(start, "missing \"ZenGin Archive\" magic"));
     }
 
     let version = field(next(), "ver")
         .and_then(parse::int)
         .and_then(|v| i32::try_from(v).ok())
-        .ok_or_else(|| malformed(0, "missing \"ver\" line"))?;
+        .ok_or_else(|| malformed(start, "missing \"ver\" line"))?;
     if version != 1 {
-        return Err(Error::Unsupported { format: FORMAT, reason: format!("version {version}") });
+        return Err(Error::unsupported(FORMAT, format!("version {version}")));
     }
 
     let archiver = text::latin1(next());
@@ -382,16 +398,16 @@ fn read_header(r: &mut Reader) -> Result<Header> {
         b"BINARY" => Format::Binary,
         b"BIN_SAFE" => Format::Binsafe,
         other => {
-            return Err(Error::Unsupported {
-                format: FORMAT,
-                reason: format!("encoding \"{}\"", other.escape_ascii()),
-            });
+            return Err(Error::unsupported(
+                FORMAT,
+                format!("encoding \"{}\"", other.escape_ascii()),
+            ));
         }
     };
 
     let save_game = field(next(), "saveGame")
         .and_then(parse::int)
-        .ok_or_else(|| malformed(0, "missing \"saveGame\" line"))?
+        .ok_or_else(|| malformed(start, "missing \"saveGame\" line"))?
         != 0;
 
     let mut optional = next();
@@ -406,7 +422,7 @@ fn read_header(r: &mut Reader) -> Result<Header> {
         optional = next();
     }
     if optional != b"END" {
-        return Err(malformed(0, "header is missing its \"END\" line"));
+        return Err(malformed(start, "header is missing its \"END\" line"));
     }
 
     Ok(Header { version, archiver, format, save_game, date, user })

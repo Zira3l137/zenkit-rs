@@ -42,10 +42,9 @@ impl TextureFormat {
             B8G8R8A8, R8G8B8A8, A8B8G8R8, A8R8G8B8, B8G8R8, R8G8B8, A4R4G4B4, A1R5G5B5, R5G6B5, P8,
             Dxt1, Dxt2, Dxt3, Dxt4, Dxt5,
         ];
-        ALL.get(raw as usize).copied().ok_or_else(|| Error::Unsupported {
-            format: FORMAT,
-            reason: format!("pixel format {raw:#x}"),
-        })
+        ALL.get(raw as usize)
+            .copied()
+            .ok_or_else(|| Error::unsupported(FORMAT, format!("pixel format {raw:#x}")))
     }
 
     pub fn is_compressed(self) -> bool {
@@ -94,10 +93,7 @@ impl Texture {
         }
         let version = r.u32()?;
         if version != 0 {
-            return Err(Error::Unsupported {
-                format: FORMAT,
-                reason: format!("version {version}"),
-            });
+            return Err(Error::unsupported(FORMAT, format!("version {version}")));
         }
 
         let format = TextureFormat::from_raw(r.u32()?)?;

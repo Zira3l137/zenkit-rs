@@ -108,7 +108,7 @@ fn mount_disks_resolves_collisions_in_order() {
 fn mount_disk_reports_the_path_on_io_errors() {
     let mut vfs = Vfs::new();
     let err = vfs.mount_disk(sample("missing.vdf"), Overwrite::Older).unwrap_err();
-    assert!(matches!(err, Error::File { ref path, .. } if path.ends_with("missing.vdf")));
+    assert!(matches!(err, Error::Io { ref path, .. } if path.ends_with("missing.vdf")));
 }
 
 #[test]
@@ -171,7 +171,9 @@ fn load_all_parses_in_order_and_reports_each_failure() {
     let results = vfs.load_all::<Texture, _>(&["c.tex", "broken.tex", "missing.tex", "a.tex"]);
     assert_eq!(results.len(), 4);
     assert_eq!(results[0].as_ref().unwrap().width, 128);
-    assert!(matches!(results[1], Err(Error::UnexpectedEof { .. })));
+    let broken = results[1].as_ref().unwrap_err();
+    assert!(matches!(broken.root(), Error::UnexpectedEof { .. }));
+    assert!(broken.report().to_string().starts_with("cannot load \"broken.tex\": the data ends"));
     assert!(matches!(results[2], Err(Error::NotFound(_))));
     assert!(results[3].is_ok());
 }

@@ -36,11 +36,11 @@ impl<'a> Binary<'a> {
     pub(super) fn new(mut r: Reader<'a>) -> Result<Self> {
         let objects = r.line(WHITESPACE);
         if super::field(objects, "objects").and_then(parse::int).is_none() {
-            return Err(malformed(r.position(), "missing \"objects\" line"));
+            return Err(malformed(r.offset(), "missing \"objects\" line"));
         }
         // Only newlines may follow, because the binary data starts right after them.
         if r.line(b"\n") != b"END" {
-            return Err(malformed(r.position(), "missing second \"END\" line"));
+            return Err(malformed(r.offset(), "missing second \"END\" line"));
         }
         Ok(Self { r, ends: Vec::new() })
     }
@@ -64,6 +64,10 @@ impl<'a> Decode<'a> for Binary<'a> {
         self.r.position()
     }
 
+    fn offset(&self) -> usize {
+        self.r.offset()
+    }
+
     fn begin_object(&mut self) -> Result<Option<ObjectHeader<'a>>> {
         if self.r.is_eof() {
             return Ok(None);
@@ -71,10 +75,10 @@ impl<'a> Decode<'a> for Binary<'a> {
 
         let start = self.r.position();
         let size = self.r.u32()? as usize;
-        let end = start
-            .checked_add(size)
-            .filter(|&end| end <= self.r.len())
-            .ok_or_else(|| malformed(start, format!("object of {size} bytes runs past the end")))?;
+        let end = start.checked_add(size).filter(|&end| end <= self.r.len()).ok_or_else(|| {
+            let offset = self.r.offset() - 4;
+            malformed(offset, format!("object of {size} bytes runs past the end"))
+        })?;
 
         let version = self.r.u16()?;
         let index = self.r.u32()?;
@@ -101,8 +105,7 @@ impl<'a> Decode<'a> for Binary<'a> {
     }
 
     fn skip_object(&mut self) -> Result<()> {
-        let end =
-            self.ends.pop().ok_or_else(|| malformed(self.r.position(), "no object is open"))?;
+        let end = self.ends.pop().ok_or_else(|| malformed(self.r.offset(), "no object is open"))?;
         self.r.seek(end)
     }
 

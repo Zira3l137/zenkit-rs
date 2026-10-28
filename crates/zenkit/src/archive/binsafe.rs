@@ -87,9 +87,9 @@ impl<'a> Binsafe<'a> {
 
     /// Reads a value's key and type tags, returning its payload length.
     fn meta(&mut self, expected: u8) -> Result<usize> {
-        let position = self.r.position();
+        let offset = self.r.offset();
         if self.r.u8()? != HASH {
-            return Err(malformed(position, "expected a value"));
+            return Err(malformed(offset, "expected a value"));
         }
         let key = self.r.u32()? as usize;
 
@@ -98,7 +98,7 @@ impl<'a> Binsafe<'a> {
             let key = self.keys.get(key).copied().unwrap_or_default().escape_ascii();
             let (expected, found) = (type_name(expected), type_name(found));
             return Err(malformed(
-                position,
+                offset,
                 format!("expected {expected} for \"{key}\", found {found}"),
             ));
         }
@@ -115,11 +115,11 @@ impl<'a> Binsafe<'a> {
 
     /// A raw or raw-float payload of at least `min` bytes. Extra bytes are skipped.
     fn payload(&mut self, tag: u8, min: usize) -> Result<&'a [u8]> {
-        let position = self.r.position();
+        let offset = self.r.offset();
         let len = self.meta(tag)?;
         if len < min {
             return Err(malformed(
-                position,
+                offset,
                 format!("{} entry has {len} bytes, needed {min}", type_name(tag)),
             ));
         }
@@ -154,6 +154,10 @@ impl<'a> Decode<'a> for Binsafe<'a> {
         self.r.position()
     }
 
+    fn offset(&self) -> usize {
+        self.r.offset()
+    }
+
     fn begin_object(&mut self) -> Result<Option<ObjectHeader<'a>>> {
         let Some(text) = self.peek_string() else {
             return Ok(None);
@@ -177,14 +181,14 @@ impl<'a> Decode<'a> for Binsafe<'a> {
     }
 
     fn skip_entry(&mut self) -> Result<()> {
-        let position = self.r.position();
+        let offset = self.r.offset();
         let len = match self.r.u8()? {
             STRING | RAW | RAW_FLOAT => self.r.u16()? as usize,
             INTEGER | FLOAT | BOOL | ENUM | HASH | COLOR => 4,
             BYTE => 1,
             WORD => 2,
             VEC3 => 12,
-            tag => return Err(malformed(position, format!("unknown type tag {tag:#04x}"))),
+            tag => return Err(malformed(offset, format!("unknown type tag {tag:#04x}"))),
         };
         self.r.skip(len)
     }
@@ -263,9 +267,9 @@ fn read_keys(mut table: Reader<'_>, offset: usize) -> Result<Vec<&[u8]>> {
         let index = table.u16()? as usize;
         let _hash = table.u32()?;
         let key = table.bytes(len)?;
-        let slot = keys.get_mut(index).ok_or_else(|| {
-            malformed(table.position(), format!("key index {index} out of range"))
-        })?;
+        let slot = keys
+            .get_mut(index)
+            .ok_or_else(|| malformed(table.offset(), format!("key index {index} out of range")))?;
         *slot = key;
     }
     Ok(keys)
