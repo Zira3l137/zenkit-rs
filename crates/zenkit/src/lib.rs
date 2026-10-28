@@ -7,9 +7,21 @@
 
 mod error;
 pub mod io;
+pub mod math;
 #[cfg_attr(not(feature = "vfs"), allow(dead_code))]
 mod par;
+#[cfg_attr(not(feature = "vfs"), allow(dead_code))]
+mod text;
 #[cfg(feature = "vfs")]
 pub mod vfs;
 
 pub use error::{Error, Result};
+
+/// The game a file was made for. Several formats store different fields for each.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum GameVersion {
+    /// Any release of *Gothic*.
+    Gothic1,
+    /// Any release of *Gothic II*, including *Night of the Raven*.
+    Gothic2,
+}

@@ -15,7 +15,7 @@ use zerocopy::{FromBytes, Immutable, KnownLayout, Unaligned};
 use super::node::{Children, FileData, Kind, Node, Storage};
 use super::{Overwrite, merge};
 use crate::io::Reader;
-use crate::{Error, Result};
+use crate::{Error, Result, text};
 
 const FORMAT: &str = "VDF archive";
 
@@ -162,14 +162,13 @@ fn read_dir(catalog: &mut Catalog, first: usize, depth: usize, out: &mut Childre
     Ok(())
 }
 
-/// Names are space-padded to 64 bytes. They are decoded as Latin-1, which maps every byte to a
-/// char and back, so no name is ever lost or altered.
+/// Names are space-padded to 64 bytes.
 fn decode_name(raw: &[u8]) -> String {
     let len = raw
         .iter()
         .rposition(|&b| !(b.is_ascii_whitespace() || b == b'\x0B' || b == 0))
         .map_or(0, |i| i + 1);
-    raw[..len].iter().map(|&b| char::from(b)).collect()
+    text::latin1(&raw[..len])
 }
 
 /// Converts an MS-DOS timestamp, read as UTC. Invalid dates become the Unix epoch.

@@ -19,6 +19,7 @@ mmap = ["vfs", "dep:memmap2"]
 parallel = ["dep:rayon"]
 
 [dependencies]
+glam = { version = "0.34", default-features = false, features = ["std"] }
 log = "0.4"
 thiserror = "2"
 zerocopy = { version = "0.8", features = ["derive"] }
