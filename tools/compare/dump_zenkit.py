@@ -97,73 +97,83 @@ def material(m):
     }
 
 
-def mrm(m):
-    sub_meshes = []
-    for s in m.submeshes:
-        sub_meshes.append(
-            {
-                "material": material(s.material),
-                "triangles": [list(t.wedges) for t in s.triangles],
-                "wedges": [{"normal": v3(w.normal), "texture": v2(w.texture), "index": w.index} for w in s.wedges],
-                "colors": list(s.colors),
-                "triangle_plane_indices": list(s.triangle_plane_indices),
-                "triangle_planes": [{"distance": p.distance, "normal": v3(p.normal)} for p in s.triangle_planes],
-                "triangle_edges": [list(e.edges) for e in s.triangle_edges],
-                "edges": [list(e.edges)[:2] for e in s.edges],
-                "edge_scores": list(s.edge_scores),
-                "wedge_map": list(s.wedge_map),
-            }
-        )
+def fields(**getters):
+    """Evaluates each getter on its own, so a broken binding only costs that one field."""
+    return {name: safe(getter) for name, getter in getters.items()}
 
-    return {
-        "positions": [v3(p) for p in m.positions],
-        "normals": [v3(n) for n in m.normals],
-        "alpha_test": bool(m.alpha_test),
-        "bbox": aabb(m.bbox),
-        "obb": obb(m.oriented_bbox),
-        "sub_meshes": sub_meshes,
-    }
+
+def sub_mesh(s):
+    return fields(
+        material=lambda: material(s.material),
+        triangles=lambda: [list(t.wedges) for t in s.triangles],
+        wedges=lambda: [{"normal": v3(w.normal), "texture": v2(w.texture), "index": w.index} for w in s.wedges],
+        colors=lambda: list(s.colors),
+        triangle_plane_indices=lambda: list(s.triangle_plane_indices),
+        triangle_planes=lambda: [{"distance": p.distance, "normal": v3(p.normal)} for p in s.triangle_planes],
+        triangle_edges=lambda: [list(e.edges) for e in s.triangle_edges],
+        # MeshEdge.edges reads a third element from its two-element array.
+        edges=lambda: [[e._edges[0], e._edges[1]] for e in s.edges],
+        edge_scores=lambda: list(s.edge_scores),
+        wedge_map=lambda: list(s.wedge_map),
+    )
+
+
+def mrm(m):
+    return fields(
+        positions=lambda: [v3(p) for p in m.positions],
+        normals=lambda: [v3(n) for n in m.normals],
+        alpha_test=lambda: bool(m.alpha_test),
+        # MultiResolutionMesh.bbox compares the box with 0 and returns that bool.
+        bbox=lambda: aabb(DLL.ZkMultiResolutionMesh_getBbox(m._handle)),
+        obb=lambda: obb(m.oriented_bbox),
+        sub_meshes=lambda: [sub_mesh(s) for s in m.submeshes],
+    )
+
+
+def polygon(p):
+    return fields(
+        material=lambda: p.material_index,
+        lightmap=lambda: p.light_map_index,
+        vertices=lambda: p.position_indices,
+        features=lambda: p.feature_indices,
+        is_portal=lambda: bool(p.is_portal),
+        is_occluder=lambda: bool(p.is_occluder),
+        is_sector=lambda: bool(p.is_sector),
+        should_relight=lambda: bool(p.should_relight),
+        is_outdoor=lambda: bool(p.is_outdoor),
+        is_ghost_occluder=lambda: bool(p.is_ghost_occluder),
+        is_dynamically_lit=lambda: bool(p.is_dynamically_lit),
+        is_lod=lambda: bool(p.is_lod),
+        # Polygon.normal_axis and .sector_index compare the value with 0 and return that bool.
+        normal_axis=lambda: DLL.ZkPolygon_getNormalAxis(p._handle),
+        sector_index=lambda: DLL.ZkPolygon_getSectorIndex(p._handle),
+    )
 
 
 def mesh(m):
-    DLL.ZkMesh_getSourceDate.restype = Date
-    d = DLL.ZkMesh_getSourceDate(m.handle)
+    def date():
+        DLL.ZkMesh_getSourceDate.restype = Date
+        d = DLL.ZkMesh_getSourceDate(m.handle)
+        return [d.year, d.month, d.day, d.hour, d.minute, d.second]
 
-    polygons = []
-    for p in m.polygons:
-        polygons.append(
-            {
-                "material": p.material_index,
-                "lightmap": p.light_map_index,
-                "vertices": p.position_indices,
-                "features": p.feature_indices,
-                "is_portal": bool(p.is_portal),
-                "is_occluder": bool(p.is_occluder),
-                "is_sector": bool(p.is_sector),
-                "should_relight": bool(p.should_relight),
-                "is_outdoor": bool(p.is_outdoor),
-                "is_ghost_occluder": bool(p.is_ghost_occluder),
-                "is_dynamically_lit": bool(p.is_dynamically_lit),
-                "is_lod": bool(p.is_lod),
-                "normal_axis": int(p.normal_axis),
-                "sector_index": int(p.sector_index),
-            }
+    def lightmap(l):
+        return fields(
+            texture=lambda: texture(l.image),
+            origin=lambda: v3(l.origin),
+            normals=lambda: [v3(n) for n in l.normal],
         )
 
-    return {
-        "name": latin1(m.name),
-        "date": [d.year, d.month, d.day, d.hour, d.minute, d.second],
-        "bbox": aabb(m.bounding_box),
-        "obb": obb(m.oriented_bounding_box),
-        "materials": [material(x) for x in m.materials],
-        "vertices": [v3(v) for v in m.positions],
-        "features": [{"texture": v2(f.texture), "light": f.light, "normal": v3(f.normal)} for f in m.features],
-        "lightmaps": [
-            {"texture": texture(l.image), "origin": v3(l.origin), "normals": [v3(n) for n in l.normal]}
-            for l in m.light_maps
-        ],
-        "polygons": polygons,
-    }
+    return fields(
+        name=lambda: latin1(m.name),
+        date=date,
+        bbox=lambda: aabb(m.bounding_box),
+        obb=lambda: obb(m.oriented_bounding_box),
+        materials=lambda: [material(x) for x in m.materials],
+        vertices=lambda: [v3(v) for v in m.positions],
+        features=lambda: [{"texture": v2(f.texture), "light": f.light, "normal": v3(f.normal)} for f in m.features],
+        lightmaps=lambda: [lightmap(l) for l in m.light_maps],
+        polygons=lambda: [polygon(p) for p in m.polygons],
+    )
 
 
 def texture(t):
