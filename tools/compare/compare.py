@@ -8,6 +8,7 @@ else differs.
 """
 
 import json
+import math
 import re
 import struct
 import sys
@@ -31,6 +32,10 @@ def walk(rs, zk, pattern, at, out):
     `pattern` leaves out list indices so that differences group by field, and `at` keeps them."""
     if isinstance(zk, dict) and "__error__" in zk:
         out.append((pattern, at, "<skipped>", zk["__error__"]))
+        return
+
+    # JSON has no NaN or infinity. zk-dump (serde_json) writes them as null, Python as NaN/Infinity.
+    if rs is None and isinstance(zk, float) and not math.isfinite(zk):
         return
 
     if isinstance(rs, bool) or isinstance(zk, bool):
@@ -125,7 +130,7 @@ def main():
     if skipped:
         print("\nValues ZenKit's Python bindings could not read (not compared):")
         for path, count in skipped.most_common(10):
-            print(f"  {count:>8}  {path}")
+            print(f"  {count:>8}  {path or '(whole file)'}")
 
     if errors:
         print("\nLoaded by only one side (zenkit-rs | ZenKit):")

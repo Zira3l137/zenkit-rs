@@ -7,7 +7,7 @@ bindings (`pip install zenkit`), in the same shape as `zk-dump`.
 import hashlib
 import json
 import sys
-from ctypes import c_size_t
+from ctypes import byref, c_size_t, c_ulong, c_void_p, string_at
 from pathlib import Path
 
 import zenkit
@@ -176,6 +176,17 @@ def mesh(m):
     )
 
 
+def mipmap_raw(t, level):
+    # Texture.mipmap_raw declares the result as c_char_p, so ctypes copies the pixels only up to
+    # the first zero byte, and string_at then reads the full size past the end of that copy. That
+    # hashes garbage and sometimes crashes. The C function returns a plain pointer; ZkSize is a C
+    # `unsigned long`.
+    DLL.ZkTexture_getMipmapRaw.restype = c_void_p
+    size = c_ulong(0)
+    pointer = DLL.ZkTexture_getMipmapRaw(t._handle, c_ulong(level), byref(size))
+    return string_at(pointer, size.value) if pointer else b""
+
+
 def texture(t):
     mipmaps = []
     for level in range(t.mipmap_count):
@@ -186,7 +197,7 @@ def texture(t):
             {
                 "width": t.width_mipmap(level),
                 "height": t.height_mipmap(level),
-                "raw": hashlib.sha256(t.mipmap_raw(level)).hexdigest(),
+                "raw": hashlib.sha256(mipmap_raw(t, level)).hexdigest(),
                 "rgba": rgba,
             }
         )
