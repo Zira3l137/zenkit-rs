@@ -86,6 +86,9 @@ ZENKIT_SAMPLES=../ZenKit/tests/samples cargo test
 | `zenkit-rs-archive`      | ZenGin archives                                                   |
 | `zenkit-rs-<format>`     | One crate per format, named like its feature                      |
 
+CI runs the tests on Linux and Windows, clippy and rustdoc with warnings as errors, clippy on
+every feature of every crate on its own, and a build on the minimum Rust version, 1.88.
+
 Code is formatted with `cargo fmt`. Imports are one per line, grouped std, external crates, then
 this crate; stable rustfmt keeps that layout but only nightly enforces it:
 `cargo +nightly fmt -- --config imports_granularity=Item,group_imports=StdExternalCrate`.
