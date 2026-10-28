@@ -18,6 +18,8 @@ pub mod math;
 mod par;
 #[cfg_attr(not(any(feature = "vfs", feature = "archive")), allow(dead_code))]
 mod text;
+#[cfg(feature = "texture")]
+pub mod texture;
 #[cfg(feature = "vfs")]
 pub mod vfs;
 

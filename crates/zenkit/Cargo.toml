@@ -13,12 +13,13 @@ repository.workspace = true
 name = "zenkit"
 
 [features]
-default = ["vfs", "archive", "material", "parallel"]
+default = ["vfs", "archive", "material", "texture", "parallel"]
 vfs = ["dep:time"]
 mmap = ["vfs", "dep:memmap2"]
 archive = ["dep:hex"]
 material = ["archive"]
-parallel = ["dep:rayon"]
+texture = ["dep:texpresso"]
+parallel = ["dep:rayon", "texpresso?/rayon"]
 
 [dependencies]
 hex = { version = "0.4", optional = true }
@@ -28,4 +29,5 @@ thiserror = "2"
 zerocopy = { version = "0.8", features = ["derive"] }
 memmap2 = { version = "0.9", optional = true }
 rayon = { version = "1.12", optional = true }
+texpresso = { version = "2", optional = true }
 time = { version = "0.3", default-features = false, features = ["std"], optional = true }
