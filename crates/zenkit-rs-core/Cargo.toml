@@ -2,7 +2,6 @@
 name = "zenkit-rs-core"
 description = "Shared foundations of zenkit-rs: the byte reader, errors, math types and dates"
 version.workspace = true
-authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

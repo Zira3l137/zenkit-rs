@@ -4,7 +4,6 @@ members = ["crates/*"]
 
 [workspace.package]
 version = "0.1.0"
-authors = ["Zira3l137 <raulbairamov2002@gmail.com>"]
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"

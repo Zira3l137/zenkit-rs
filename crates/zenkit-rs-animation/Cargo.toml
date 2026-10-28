@@ -2,7 +2,6 @@
 name = "zenkit-rs-animation"
 description = "Reader for ZenGin skeletal animations (.MAN)"
 version.workspace = true
-authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

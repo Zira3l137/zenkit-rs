@@ -2,7 +2,6 @@
 name = "zenkit-rs-texture"
 description = "Reader for ZenGin textures (.TEX), with decoding of every pixel format to RGBA8"
 version.workspace = true
-authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

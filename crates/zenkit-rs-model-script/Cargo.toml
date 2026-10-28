@@ -2,7 +2,6 @@
 name = "zenkit-rs-model-script"
 description = "Reader for ZenGin model scripts, both source (.MDS) and compiled (.MSB)"
 version.workspace = true
-authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
