@@ -20,6 +20,8 @@ pub mod math;
 pub mod mesh;
 #[cfg(feature = "model")]
 pub mod model;
+#[cfg(feature = "morph")]
+pub mod morph;
 #[cfg(feature = "mrm")]
 pub mod mrm;
 #[cfg_attr(not(feature = "vfs"), allow(dead_code))]
