@@ -7,6 +7,7 @@
 
 #[cfg(feature = "archive")]
 pub mod archive;
+mod asset;
 mod date;
 mod error;
 pub mod io;
@@ -28,6 +29,7 @@ pub mod texture;
 #[cfg(feature = "vfs")]
 pub mod vfs;
 
+pub use asset::Asset;
 pub use date::Date;
 pub use error::{Error, Result};
 

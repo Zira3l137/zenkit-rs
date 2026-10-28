@@ -12,7 +12,7 @@ use crate::io::Reader;
 use crate::material::Material;
 use crate::math::{Aabb, Obb, Vec2, Vec3};
 use crate::texture::Texture;
-use crate::{Date, Error, GameVersion, Result, text};
+use crate::{Asset, Date, Error, GameVersion, Result, text};
 
 const FORMAT: &str = "mesh";
 
@@ -331,4 +331,10 @@ fn read_polygons(c: &mut Reader, mesh: &mut Mesh, gothic2: bool, wide: bool) -> 
         });
     }
     Ok(())
+}
+
+impl Asset for Mesh {
+    fn from_bytes(data: &[u8]) -> Result<Self> {
+        Mesh::from_bytes(data)
+    }
 }

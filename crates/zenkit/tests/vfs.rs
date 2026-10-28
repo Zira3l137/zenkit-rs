@@ -185,3 +185,32 @@ fn self_referencing_directory_is_rejected() {
         .unwrap_err();
     assert!(matches!(err, Error::Malformed { .. }), "{err}");
 }
+
+#[cfg(feature = "texture")]
+#[test]
+fn load_all_parses_in_order_and_reports_each_failure() {
+    use zenkit::texture::Texture;
+    use zenkit::vfs::Node;
+
+    let tex = std::fs::read(sample("erz.tex")).unwrap();
+    let mut vfs = Vfs::new();
+    for (name, data) in [
+        ("A.TEX", tex.clone()),
+        ("BROKEN.TEX", b"ZTEX".to_vec()),
+        ("C.TEX", tex),
+    ] {
+        vfs.mount(
+            Node::file(name, data, std::time::UNIX_EPOCH),
+            "/",
+            Overwrite::All,
+        )
+        .unwrap();
+    }
+
+    let results = vfs.load_all::<Texture, _>(&["c.tex", "broken.tex", "missing.tex", "a.tex"]);
+    assert_eq!(results.len(), 4);
+    assert_eq!(results[0].as_ref().unwrap().width, 128);
+    assert!(matches!(results[1], Err(Error::UnexpectedEof { .. })));
+    assert!(matches!(results[2], Err(Error::NotFound(_))));
+    assert!(results[3].is_ok());
+}

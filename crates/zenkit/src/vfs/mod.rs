@@ -29,7 +29,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub use node::Node;
 use node::{Children, Kind, Storage, fold, trim_name};
 
-use crate::{Error, Result, par};
+use crate::{Asset, Error, Result, par};
 
 /// What to do when a mounted node collides with one that is already in the tree.
 ///
@@ -112,6 +112,35 @@ impl Vfs {
             stack.extend(dir.children().filter(|c| c.is_dir()));
         }
         None
+    }
+
+    /// Every file in the tree, depth-first.
+    pub fn files(&self) -> impl Iterator<Item = &Node> {
+        let mut stack = vec![&self.root];
+        std::iter::from_fn(move || {
+            while let Some(node) = stack.pop() {
+                if node.is_file() {
+                    return Some(node);
+                }
+                stack.extend(node.children().rev());
+            }
+            None
+        })
+    }
+
+    /// [Finds](Self::find) a file by name and parses it.
+    pub fn load<T: Asset>(&self, name: &str) -> Result<T> {
+        let node = self
+            .find(name)
+            .ok_or_else(|| Error::NotFound(name.into()))?;
+        let data = node.data().ok_or_else(|| Error::NotFound(name.into()))?;
+        T::from_bytes(data)
+    }
+
+    /// [Loads](Self::load) many files at once, in parallel with the `parallel` feature. Results
+    /// come back in the order of `names`, and one failure does not stop the others.
+    pub fn load_all<T: Asset, S: AsRef<str> + Sync>(&self, names: &[S]) -> Vec<Result<T>> {
+        par::map(names.iter().collect(), |name| self.load(name.as_ref()))
     }
 
     /// Creates the directory at `path` along with any missing parents, and returns it.
@@ -256,6 +285,21 @@ mod tests {
 
     fn contents<'a>(vfs: &'a Vfs, path: &str) -> &'a [u8] {
         vfs.resolve(path).unwrap().data().unwrap()
+    }
+
+    #[test]
+    fn files_are_listed_depth_first() {
+        let mut vfs = Vfs::new();
+        vfs.mkdir("b/c").unwrap();
+        vfs.mount(Node::file("a.txt", vec![], at(0)), "/", Overwrite::All)
+            .unwrap();
+        vfs.mount(Node::file("x.txt", vec![], at(0)), "b", Overwrite::All)
+            .unwrap();
+        vfs.mount(Node::file("y.txt", vec![], at(0)), "b/c", Overwrite::All)
+            .unwrap();
+
+        let names: Vec<_> = vfs.files().map(Node::name).collect();
+        assert_eq!(names, ["a.txt", "y.txt", "x.txt"]);
     }
 
     #[test]

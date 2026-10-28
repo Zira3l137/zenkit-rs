@@ -19,6 +19,20 @@ where
     items.into_iter().map(f).collect()
 }
 
+/// Maps every item through `f`, keeping each result.
+pub(crate) fn map<T, U, F>(items: Vec<T>, f: F) -> Vec<U>
+where
+    T: Send,
+    U: Send,
+    F: Fn(T) -> U + Sync + Send,
+{
+    #[cfg(feature = "parallel")]
+    return items.into_par_iter().map(f).collect();
+
+    #[cfg(not(feature = "parallel"))]
+    items.into_iter().map(f).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

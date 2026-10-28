@@ -19,7 +19,7 @@ use crate::archive::Archive;
 use crate::io::{Reader, Record};
 use crate::material::Material;
 use crate::math::{Aabb, Obb, Vec2, Vec3};
-use crate::{Error, GameVersion, Result};
+use crate::{Asset, Error, GameVersion, Result};
 
 const FORMAT: &str = "multi-resolution mesh";
 
@@ -253,6 +253,12 @@ fn read_sub_mesh(content: &[u8], s: &SubMeshSections, material: Material) -> Res
         edge_scores: f32s(s.edge_scores)?,
         wedge_map: u16s(s.wedge_map)?,
     })
+}
+
+impl Asset for MultiResolutionMesh {
+    fn from_bytes(data: &[u8]) -> Result<Self> {
+        MultiResolutionMesh::from_bytes(data)
+    }
 }
 
 #[cfg(test)]

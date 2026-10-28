@@ -9,7 +9,7 @@
 
 use crate::io::Reader;
 use crate::math::Color;
-use crate::{Error, Result};
+use crate::{Asset, Error, Result};
 
 const FORMAT: &str = "texture";
 
@@ -279,6 +279,12 @@ fn decode_dxt(format: TextureFormat, data: &[u8], width: usize, height: usize) -
     let mut out = vec![0; width * height * 4];
     codec.decompress(data, width, height, &mut out);
     Ok(out)
+}
+
+impl Asset for Texture {
+    fn from_bytes(data: &[u8]) -> Result<Self> {
+        Texture::from_bytes(data)
+    }
 }
 
 #[cfg(test)]
