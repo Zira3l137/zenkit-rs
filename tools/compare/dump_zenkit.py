@@ -57,7 +57,15 @@ def aabb(b):
     return {"min": v3(b.min), "max": v3(b.max)}
 
 
-def obb(b):
+# zenkit-rs rejects deeper box trees. ZenKit builds them from misread data, sometimes hundreds of
+# levels deep with thousands of children each, which takes hours to walk through ctypes.
+OBB_MAX_DEPTH = 64
+
+
+def obb(b, depth=0):
+    if depth > OBB_MAX_DEPTH:
+        raise ValueError(f"box tree is deeper than {OBB_MAX_DEPTH} levels, so ZenKit misread it")
+
     # OrientedBoundingBox.axis forgets to pass the axis index, so call the C API directly.
     DLL.ZkOrientedBoundingBox_getAxis.restype = Vec3f
     axes = [v3(DLL.ZkOrientedBoundingBox_getAxis(b._handle, c_size_t(i))) for i in range(3)]
@@ -65,7 +73,7 @@ def obb(b):
         "center": v3(b.center),
         "axes": axes,
         "half_width": v3(b.half_width),
-        "children": [obb(c) for c in b.children],
+        "children": [obb(c, depth + 1) for c in b.children],
     }
 
 
