@@ -1,13 +1,13 @@
 """Dumps every asset of one kind from a Gothic installation as JSON lines using ZenKit's Python
 bindings (`pip install zenkit`), in the same shape as `zk-dump`.
 
-    python dump_zenkit.py <mrm|msh|tex> <gothic directory> <output.jsonl>
+    python dump_zenkit.py <mrm|msh|tex|mdh|mdm|mdl|mmb|man> <gothic directory> <output.jsonl>
 """
 
 import hashlib
 import json
 import sys
-from ctypes import byref, c_size_t, c_ulong, c_void_p, string_at
+from ctypes import byref, c_float, c_size_t, c_ulong, c_void_p, string_at
 from pathlib import Path
 
 import zenkit
@@ -213,10 +213,121 @@ def texture(t):
     }
 
 
+def floats(struct, count):
+    """The struct's floats in memory order, whatever its Python field names claim."""
+    return list((c_float * count).from_buffer_copy(struct))
+
+
+def raw_date(fn, handle):
+    # The bindings convert dates with datetime(), which fails on the nonsense dates some
+    # files store. Read the C struct instead.
+    fn.restype = Date
+    d = fn(handle)
+    return [d.year, d.month, d.day, d.hour, d.minute, d.second]
+
+
+NOT_EXPOSED = {"__error__": "not exposed by ZenKit's C API"}
+
+
+def hierarchy(h):
+    return fields(
+        nodes=lambda: [
+            {"name": latin1(n.name), "parent": n.parent, "transform": floats(n.transform, 16)} for n in h.nodes
+        ],
+        bbox=lambda: aabb(h.bbox),
+        collision_bbox=lambda: aabb(h.collision_bbox),
+        root_translation=lambda: v3(h.root_translation),
+        checksum=lambda: h.checksum,
+        source_date=lambda: raw_date(DLL.ZkModelHierarchy_getSourceDate, h._handle),
+        source_path=lambda: latin1(h.source_path),
+    )
+
+
+def soft_skin(s):
+    return fields(
+        mesh=lambda: mrm(s.mesh),
+        weights=lambda: [
+            [{"weight": w.weight, "position": v3(w.position), "node": w.index} for w in ws] for ws in s.weights
+        ],
+        wedge_normals=lambda: [{"normal": v3(n.normal), "index": n.index} for n in s.wedge_normals],
+        nodes=lambda: list(s.nodes),
+        bboxes=lambda: [obb(b) for b in s.bboxes],
+    )
+
+
+def model_mesh(m):
+    return fields(
+        checksum=lambda: m.checksum,
+        meshes=lambda: [soft_skin(s) for s in m.meshes],
+        attachments=lambda: {latin1(name): mrm(a) for name, a in m.attachments.items()},
+    )
+
+
+def model(m):
+    return fields(hierarchy=lambda: hierarchy(m.hierarchy), mesh=lambda: model_mesh(m.mesh))
+
+
+def morph_animation(a):
+    return fields(
+        name=lambda: latin1(a.name),
+        layer=lambda: a.layer,
+        blend_in=lambda: a.blend_in,
+        blend_out=lambda: a.blend_out,
+        # MorphAnimation.duration wraps the stored milliseconds in timedelta(seconds=...).
+        duration=lambda: DLL.ZkMorphAnimation_getDuration(a._handle),
+        speed=lambda: a.speed,
+        flags=lambda: a.flags,
+        frame_count=lambda: a.frame_count,
+        vertices=lambda: list(a.vertices),
+        samples=lambda: [v3(v) for v in a.samples],
+    )
+
+
+def morph(m):
+    return fields(
+        name=lambda: latin1(m.name),
+        mesh=lambda: mrm(m.mesh),
+        morph_positions=lambda: [v3(v) for v in m.morph_positions],
+        animations=lambda: [morph_animation(a) for a in m.animations],
+        sources=lambda: [
+            {"date": raw_date(DLL.ZkMorphSource_getFileDate, s._handle), "file_name": latin1(s.file)}
+            for s in m.sources
+        ],
+    )
+
+
+def animation(a):
+    return fields(
+        name=lambda: latin1(a.name),
+        next=lambda: latin1(a.next),
+        layer=lambda: a.layer,
+        frame_count=lambda: a.frame_count,
+        node_count=lambda: a.node_count,
+        fps=lambda: a.fps,
+        fps_source=lambda: a.fps_source,
+        sample_position_min=lambda: NOT_EXPOSED,
+        sample_position_scale=lambda: NOT_EXPOSED,
+        bbox=lambda: aabb(a.bbox),
+        checksum=lambda: a.checksum,
+        source_path=lambda: latin1(a.source_path),
+        source_date=lambda: raw_date(DLL.ZkModelAnimation_getSourceDate, a._handle),
+        source_script=lambda: latin1(a.source_script),
+        # The Python Quat lists its fields as w, x, y, z; the C struct is x, y, z, w.
+        samples=lambda: [{"position": v3(s.position), "rotation": floats(s.rotation, 4)} for s in a.samples],
+        events=lambda: NOT_EXPOSED,
+        node_indices=lambda: list(a.node_indices),
+    )
+
+
 KINDS = {
     "mrm": (zenkit.MultiResolutionMesh, mrm),
     "msh": (zenkit.Mesh, mesh),
     "tex": (zenkit.Texture, texture),
+    "mdh": (zenkit.ModelHierarchy, hierarchy),
+    "mdm": (zenkit.ModelMesh, model_mesh),
+    "mdl": (zenkit.Model, model),
+    "mmb": (zenkit.MorphMesh, morph),
+    "man": (zenkit.ModelAnimation, animation),
 }
 
 

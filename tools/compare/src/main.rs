@@ -9,14 +9,19 @@ use std::process::ExitCode;
 use rayon::prelude::*;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use zenkit::Date;
+use zenkit::animation::ModelAnimation;
 use zenkit::material::Material;
-use zenkit::math::{Aabb, Color, Obb, Vec2, Vec3};
+use zenkit::math::{Aabb, Color, Mat4, Obb, Quat, Vec2, Vec3};
 use zenkit::mesh::Mesh;
+use zenkit::model::{Model, ModelHierarchy, ModelMesh};
+use zenkit::morph::MorphMesh;
 use zenkit::mrm::MultiResolutionMesh;
 use zenkit::texture::Texture;
 use zenkit::vfs::{Node, Overwrite, Vfs};
 
-const USAGE: &str = "usage: zk-dump <mrm|msh|tex> <gothic directory> [output.jsonl]";
+const USAGE: &str =
+    "usage: zk-dump <mrm|msh|tex|mdh|mdm|mdl|mmb|man> <gothic directory> [output.jsonl]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -29,6 +34,15 @@ fn main() -> ExitCode {
         "mrm" => |d| MultiResolutionMesh::from_bytes(d).map(|m| mrm(&m)),
         "msh" => |d| Mesh::from_bytes(d).map(|m| mesh(&m)),
         "tex" => |d| Texture::from_bytes(d).map(|t| texture(&t)),
+        "mdh" => |d| ModelHierarchy::from_bytes(d).map(|h| hierarchy(&h)),
+        "mdm" => |d| ModelMesh::from_bytes(d).map(|m| model_mesh(&m)),
+        "mdl" => {
+            |d| {
+                Model::from_bytes(d).map(|m| json!({ "hierarchy": hierarchy(&m.hierarchy), "mesh": model_mesh(&m.mesh) }))
+            }
+        }
+        "mmb" => |d| MorphMesh::from_bytes(d).map(|m| morph(&m)),
+        "man" => |d| ModelAnimation::from_bytes(d).map(|a| animation(&a)),
         _ => {
             eprintln!("{USAGE}");
             return ExitCode::FAILURE;
@@ -112,6 +126,18 @@ fn v2(v: Vec2) -> Value {
 
 fn v3(v: Vec3) -> Value {
     json!([v.x, v.y, v.z])
+}
+
+fn quat(q: Quat) -> Value {
+    json!([q.x, q.y, q.z, q.w])
+}
+
+fn mat4(m: Mat4) -> Value {
+    json!(m.to_cols_array())
+}
+
+fn date(d: Date) -> Value {
+    json!([d.year, d.month, d.day, d.hour, d.minute, d.second])
 }
 
 fn color(c: Color) -> Value {
@@ -219,10 +245,9 @@ fn mesh(m: &Mesh) -> Value {
         })
         .collect();
 
-    let d = m.date;
     json!({
         "name": m.name,
-        "date": [d.year, d.month, d.day, d.hour, d.minute, d.second],
+        "date": date(m.date),
         "bbox": aabb(&m.bbox),
         "obb": obb(&m.obb),
         "materials": m.materials.iter().map(material).collect::<Vec<_>>(),
@@ -266,5 +291,104 @@ fn texture(t: &Texture) -> Value {
         "reference_height": t.reference_height,
         "average_color": argb,
         "mipmaps": mipmaps,
+    })
+}
+
+fn hierarchy(h: &ModelHierarchy) -> Value {
+    json!({
+        "nodes": h.nodes.iter().map(|n| json!({
+            "name": n.name,
+            "parent": n.parent.map_or(-1, i32::from),
+            "transform": mat4(n.transform),
+        })).collect::<Vec<_>>(),
+        "bbox": aabb(&h.bbox),
+        "collision_bbox": aabb(&h.collision_bbox),
+        "root_translation": v3(h.root_translation),
+        "checksum": h.checksum,
+        "source_date": date(h.source_date),
+        "source_path": h.source_path,
+    })
+}
+
+fn model_mesh(m: &ModelMesh) -> Value {
+    let meshes: Vec<Value> = m
+        .meshes
+        .iter()
+        .map(|s| {
+            json!({
+                "mesh": mrm(&s.mesh),
+                "weights": s.weights.iter().map(|ws| ws.iter().map(|w| json!({
+                    "weight": w.weight, "position": v3(w.position), "node": w.node,
+                })).collect::<Vec<_>>()).collect::<Vec<_>>(),
+                "wedge_normals": s.wedge_normals.iter().map(|n| json!({
+                    "normal": v3(n.normal), "index": n.index,
+                })).collect::<Vec<_>>(),
+                "nodes": s.nodes,
+                "bboxes": s.bboxes.iter().map(obb).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+
+    // Keyed by node name: ZenKit keeps attachments in a hash map, so their order means nothing.
+    let attachments: serde_json::Map<String, Value> = m
+        .attachments
+        .iter()
+        .map(|a| (a.node.clone(), mrm(&a.mesh)))
+        .collect();
+
+    json!({ "checksum": m.checksum, "meshes": meshes, "attachments": attachments })
+}
+
+fn morph(m: &MorphMesh) -> Value {
+    json!({
+        "name": m.name,
+        "mesh": mrm(&m.mesh),
+        "morph_positions": m.morph_positions.iter().copied().map(v3).collect::<Vec<_>>(),
+        "animations": m.animations.iter().map(|a| json!({
+            "name": a.name,
+            "layer": a.layer,
+            "blend_in": a.blend_in,
+            "blend_out": a.blend_out,
+            "duration": a.duration,
+            "speed": a.speed,
+            "flags": a.flags,
+            "frame_count": a.frame_count,
+            "vertices": a.vertices,
+            "samples": a.samples.iter().copied().map(v3).collect::<Vec<_>>(),
+        })).collect::<Vec<_>>(),
+        "sources": m.sources.iter().map(|s| json!({
+            "date": date(s.date), "file_name": s.file_name,
+        })).collect::<Vec<_>>(),
+    })
+}
+
+fn animation(a: &ModelAnimation) -> Value {
+    json!({
+        "name": a.name,
+        "next": a.next,
+        "layer": a.layer,
+        "frame_count": a.frame_count,
+        "node_count": a.node_count,
+        "fps": a.fps,
+        "fps_source": a.fps_source,
+        "sample_position_min": a.sample_position_min,
+        "sample_position_scale": a.sample_position_scale,
+        "bbox": aabb(&a.bbox),
+        "checksum": a.checksum,
+        "source_path": a.source_path,
+        "source_date": date(a.source_date),
+        "source_script": a.source_script,
+        "samples": a.samples.iter().map(|s| json!({
+            "position": v3(s.position), "rotation": quat(s.rotation),
+        })).collect::<Vec<_>>(),
+        "events": a.events.iter().map(|e| json!({
+            "kind": e.kind as u32,
+            "frame": e.frame,
+            "tag": e.tag,
+            "content": e.content,
+            "values": e.values,
+            "probability": e.probability,
+        })).collect::<Vec<_>>(),
+        "node_indices": a.node_indices,
     })
 }

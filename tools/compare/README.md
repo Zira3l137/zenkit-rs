@@ -8,6 +8,11 @@ asset of one kind as JSON lines, and `compare.py` diffs the two.
 | `mrm` | Multi-resolution meshes (props) |
 | `msh` | Static meshes                   |
 | `tex` | Textures                        |
+| `mdh` | Skeletons                       |
+| `mdm` | Model meshes                    |
+| `mdl` | Models (skeleton and meshes)    |
+| `mmb` | Morph meshes                    |
+| `man` | Animations                      |
 
 ## Setup
 
@@ -38,6 +43,9 @@ minutes for a few thousand files.
 - **Values ZenKit's Python bindings could not read**: usually enum values the bindings reject.
 - **Unexpected differences**: everything else, with a few example files per field. These are what
   to look at.
+
+Animation events and the sample position range have no getter in ZenKit's C API, so they show up
+under "could not read" and are only checked on the zenkit-rs side.
 
 Texture pixels are compared as SHA-256 hashes of the decoded RGBA data. Formats ZenKit cannot
 decode (P8, A1R5G5B5, DXT2, DXT4) are only checked on the zenkit-rs side.
