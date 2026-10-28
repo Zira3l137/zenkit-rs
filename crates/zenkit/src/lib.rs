@@ -5,12 +5,14 @@
 
 #![deny(unsafe_code)]
 
+#[cfg(feature = "archive")]
+pub mod archive;
 mod error;
 pub mod io;
 pub mod math;
 #[cfg_attr(not(feature = "vfs"), allow(dead_code))]
 mod par;
-#[cfg_attr(not(feature = "vfs"), allow(dead_code))]
+#[cfg_attr(not(any(feature = "vfs", feature = "archive")), allow(dead_code))]
 mod text;
 #[cfg(feature = "vfs")]
 pub mod vfs;

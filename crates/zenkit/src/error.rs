@@ -40,8 +40,9 @@ pub enum Error {
     NotADirectory(String),
 }
 
-#[cfg_attr(not(feature = "vfs"), allow(dead_code))]
+#[cfg_attr(not(any(feature = "vfs", feature = "archive")), allow(dead_code))]
 impl Error {
+    #[cfg_attr(not(feature = "vfs"), allow(dead_code))]
     pub(crate) fn file(path: impl Into<PathBuf>) -> impl FnOnce(io::Error) -> Self {
         let path = path.into();
         move |source| Self::File { path, source }

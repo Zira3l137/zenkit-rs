@@ -53,6 +53,11 @@ impl<'a> Reader<'a> {
         self.pos == self.data.len()
     }
 
+    /// The bytes that have not been read yet.
+    pub fn rest(&self) -> &'a [u8] {
+        &self.data[self.pos..]
+    }
+
     /// Moves to an absolute offset. Seeking exactly to the end is allowed.
     pub fn seek(&mut self, offset: usize) -> Result<()> {
         if offset > self.data.len() {
@@ -107,6 +112,20 @@ impl<'a> Reader<'a> {
             })?;
         let bytes = self.bytes(len)?;
         Ok(<[T]>::ref_from_bytes(bytes).expect("length matches and T has no alignment"))
+    }
+
+    /// Cuts the input off at the absolute offset `end`, which must not lie before the current
+    /// position.
+    pub fn limit(&mut self, end: usize) -> Result<()> {
+        if end < self.pos || end > self.data.len() {
+            return Err(Error::UnexpectedEof {
+                offset: end,
+                needed: 0,
+                available: self.data.len(),
+            });
+        }
+        self.data = &self.data[..end];
+        Ok(())
     }
 
     /// Splits off the next `len` bytes as an independent reader whose offsets start at zero.
@@ -192,6 +211,16 @@ mod tests {
         assert!(r.record::<Pair>().is_err());
         assert!(r.records::<Pair>(usize::MAX).is_err());
         assert_eq!(r.u8().unwrap(), 0xff);
+    }
+
+    #[test]
+    fn limit_cuts_off_the_tail() {
+        let mut r = Reader::new(&[1, 2, 3, 4]);
+        r.skip(1).unwrap();
+        assert!(r.limit(0).is_err());
+        r.limit(2).unwrap();
+        assert_eq!(r.rest(), &[2]);
+        assert!(r.u16().is_err());
     }
 
     #[test]
