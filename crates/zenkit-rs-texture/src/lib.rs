@@ -174,19 +174,19 @@ impl Texture {
         match self.format {
             TextureFormat::R8G8B8A8 => out.extend_from_slice(&data[..pixels * 4]),
             TextureFormat::B8G8R8A8 => {
-                out.extend(data.chunks_exact(4).flat_map(|p| [p[2], p[1], p[0], p[3]]))
+                out.extend(texels::<4>(data).flat_map(|&[b, g, r, a]| [r, g, b, a]))
             }
             TextureFormat::A8B8G8R8 => {
-                out.extend(data.chunks_exact(4).flat_map(|p| [p[3], p[2], p[1], p[0]]))
+                out.extend(texels::<4>(data).flat_map(|&[a, b, g, r]| [r, g, b, a]))
             }
             TextureFormat::A8R8G8B8 => {
-                out.extend(data.chunks_exact(4).flat_map(|p| [p[1], p[2], p[3], p[0]]))
+                out.extend(texels::<4>(data).flat_map(|&[a, r, g, b]| [r, g, b, a]))
             }
             TextureFormat::B8G8R8 => {
-                out.extend(data.chunks_exact(3).flat_map(|p| [p[2], p[1], p[0], 0xFF]))
+                out.extend(texels::<3>(data).flat_map(|&[b, g, r]| [r, g, b, 0xFF]))
             }
             TextureFormat::R8G8B8 => {
-                out.extend(data.chunks_exact(3).flat_map(|p| [p[0], p[1], p[2], 0xFF]))
+                out.extend(texels::<3>(data).flat_map(|&[r, g, b]| [r, g, b, 0xFF]))
             }
             TextureFormat::A4R4G4B4 => out.extend(texels16(data).flat_map(|v| {
                 let n = |shift: u16| ((v >> shift) & 0xF) as u8 * 17;
@@ -233,8 +233,13 @@ fn mip_dimensions(width: u32, height: u32, level: u32) -> (u32, u32) {
     (shrink(width.max(1)), shrink(height.max(1)))
 }
 
+/// The texels of an uncompressed format, `N` bytes each. A trailing partial texel is ignored.
+fn texels<const N: usize>(data: &[u8]) -> std::slice::Iter<'_, [u8; N]> {
+    data.as_chunks::<N>().0.iter()
+}
+
 fn texels16(data: &[u8]) -> impl Iterator<Item = u16> + '_ {
-    data.chunks_exact(2).map(|p| u16::from_le_bytes([p[0], p[1]]))
+    texels::<2>(data).map(|&p| u16::from_le_bytes(p))
 }
 
 fn expand5(v: u16) -> u8 {
