@@ -33,7 +33,17 @@ python tools/compare/compare.py rs.jsonl zk.jsonl
 ```
 
 `zk-dump` takes seconds. The Python side goes through ctypes for every single value, so expect
-minutes for a few thousand files.
+minutes for a few thousand files. If one file takes over a minute, it prints the file's path and
+where it is stuck, and keeps going.
+
+## Extracting a file
+
+To look at a file that fails, or attach it to a bug report, copy it out of the archives. Either the
+full path from the comparison output or just the file name works:
+
+```nu
+cargo run --release -p zk-dump -- extract $game _work/data/anims/_compiled/door.mdl door.mdl
+```
 
 ## Reading the result
 

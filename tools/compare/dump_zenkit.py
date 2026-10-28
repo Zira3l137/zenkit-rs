@@ -7,6 +7,8 @@ bindings (`pip install zenkit`), in the same shape as `zk-dump`.
 import hashlib
 import json
 import sys
+import threading
+import traceback
 from ctypes import byref, c_float, c_size_t, c_ulong, c_void_p, string_at
 from pathlib import Path
 
@@ -340,6 +342,18 @@ def collect(node, prefix, extension, out):
             out.append((path, child))
 
 
+SLOW_FILE_SECONDS = 60
+
+
+def report_slow(path):
+    """Says which file is taking so long and where the main thread is stuck: the last frame is a
+    ZenKit call if the C++ side hangs, or a loop here if a getter returned a nonsense count."""
+    frame = sys._current_frames().get(threading.main_thread().ident)
+    print(f"\n{path} has been running for over {SLOW_FILE_SECONDS} s, currently at:", file=sys.stderr)
+    traceback.print_stack(frame, file=sys.stderr)
+    sys.stderr.flush()
+
+
 def main():
     if len(sys.argv) != 4 or sys.argv[1] not in KINDS:
         print(__doc__, file=sys.stderr)
@@ -362,11 +376,17 @@ def main():
 
     with output.open("w", encoding="utf-8") as out:
         for i, (path, node) in enumerate(files):
+            watchdog = threading.Timer(SLOW_FILE_SECONDS, report_slow, (path,))
+            watchdog.daemon = True
+            watchdog.start()
+
             asset = cls.load(node)
             if asset._handle.value is None:
                 entry = {"path": path, "error": "ZenKit failed to load the file"}
             else:
                 entry = {"path": path, "result": safe(lambda: dump(asset))}
+
+            watchdog.cancel()
             out.write(json.dumps(entry) + "\n")
             if (i + 1) % 250 == 0:
                 print(f"  {i + 1}/{len(files)}", file=sys.stderr)

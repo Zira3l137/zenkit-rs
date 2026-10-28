@@ -21,7 +21,8 @@ use zenkit::texture::Texture;
 use zenkit::vfs::{Node, Overwrite, Vfs};
 
 const USAGE: &str =
-    "usage: zk-dump <mrm|msh|tex|mdh|mdm|mdl|mmb|man> <gothic directory> [output.jsonl]";
+    "usage: zk-dump <mrm|msh|tex|mdh|mdm|mdl|mmb|man> <gothic directory> [output.jsonl]
+       zk-dump extract <gothic directory> <file> <output>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -29,6 +30,20 @@ fn main() -> ExitCode {
         eprintln!("{USAGE}");
         return ExitCode::FAILURE;
     };
+
+    if kind == "extract" {
+        let (Some(file), Some(output)) = (args.get(2), args.get(3)) else {
+            eprintln!("{USAGE}");
+            return ExitCode::FAILURE;
+        };
+        return match extract(Path::new(game), file, Path::new(output)) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::FAILURE
+            }
+        };
+    }
 
     let dump: fn(&[u8]) -> zenkit::Result<Value> = match kind.as_str() {
         "mrm" => |d| MultiResolutionMesh::from_bytes(d).map(|m| mrm(&m)),
@@ -64,11 +79,7 @@ fn run(
     output: Option<PathBuf>,
     dump: fn(&[u8]) -> zenkit::Result<Value>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let disks = disks(&game.join("Data"))?;
-    eprintln!("mounting {} archives", disks.len());
-
-    let mut vfs = Vfs::new();
-    vfs.mount_disks(&disks, Overwrite::Older)?;
+    let vfs = mount(game)?;
 
     let mut files = Vec::new();
     collect(vfs.root(), String::new(), &format!(".{kind}"), &mut files);
@@ -97,6 +108,32 @@ fn run(
     }
     out.flush()?;
     Ok(())
+}
+
+/// Copies one file out of the game's archives, to look at or share a file that fails to load.
+/// `file` is either a full path like `_work/data/anims/_compiled/door.mdl` or just a file name.
+fn extract(game: &Path, file: &str, output: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let vfs = mount(game)?;
+    let path = file.replace('\\', "/");
+    let node = vfs
+        .resolve(&path)
+        .or_else(|| vfs.find(path.rsplit('/').next().unwrap_or(&path)))
+        .ok_or_else(|| format!("{file} is not in any archive"))?;
+    let data = node
+        .data()
+        .ok_or_else(|| format!("{file} is a directory"))?;
+    fs::write(output, data)?;
+    eprintln!("wrote {} bytes to {}", data.len(), output.display());
+    Ok(())
+}
+
+fn mount(game: &Path) -> Result<Vfs, Box<dyn std::error::Error>> {
+    let disks = disks(&game.join("Data"))?;
+    eprintln!("mounting {} archives", disks.len());
+
+    let mut vfs = Vfs::new();
+    vfs.mount_disks(&disks, Overwrite::Older)?;
+    Ok(vfs)
 }
 
 /// The `.vdf` files in `dir`, sorted by name so both dumpers mount them in the same order.
