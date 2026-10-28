@@ -1,0 +1,13 @@
+[package]
+name = "zenkit-rs"
+description = "Pure Rust reader for ZenGin (Gothic, Gothic II) asset formats, ported from ZenKit"
+keywords = ["gothic", "zengin", "gamedev", "parser"]
+categories = ["game-development", "parser-implementations"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "zenkit"
