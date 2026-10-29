@@ -453,6 +453,7 @@ dependencies = [
  "tracing-subscriber",
  "zenkit-rs-archive",
  "zenkit-rs-core",
+ "zenkit-rs-cutscene",
  "zenkit-rs-material",
  "zenkit-rs-mesh",
  "zerocopy",

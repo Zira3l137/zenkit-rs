@@ -7,6 +7,7 @@ use zenkit_rs_core::Result;
 use zenkit_rs_core::math::Vec3;
 use zenkit_rs_core::text;
 
+use crate::cutscene::CutsceneContext;
 use crate::vob::Ctx;
 use crate::vob::Next;
 use crate::vob::VobId;
@@ -59,10 +60,11 @@ pub struct Spawn {
 }
 
 /// Plays the cutscenes running in the world.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct CutscenePlayer {
     pub last_process_day: i32,
     pub last_process_hour: i32,
+    pub playlist: Vec<CutsceneContext>,
 }
 
 impl CutscenePlayer {
@@ -70,11 +72,11 @@ impl CutscenePlayer {
         let Some(object) = expect(r, "a cutscene player", b"oCCSPlayer:zCCSPlayer")? else {
             return Ok(None);
         };
-        let player = Self { last_process_day: r.int()?, last_process_hour: r.int()? };
+        let mut player =
+            Self { last_process_day: r.int()?, last_process_hour: r.int()?, playlist: Vec::new() };
         let count = r.int()?;
         for _ in 0..count {
-            // Cutscenes are not read yet; the samples have none running.
-            r.skip_unread("cutscene context")?;
+            player.playlist.extend(CutsceneContext::read(r)?);
         }
         r.end(&object)?;
         Ok(Some(player))

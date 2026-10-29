@@ -48,7 +48,10 @@ fn gothic1_player() {
     let (vobs, id) = read(Gothic1, "oCNpc");
     let player = &vobs[id];
     assert_eq!(player.name, "PC_THIEF");
-    assert_eq!(player.event_manager, Some(EventManager { cleared: false, active: true }));
+    assert_eq!(
+        player.event_manager,
+        Some(EventManager { cleared: false, active: true, cutscene: None })
+    );
     let state = player.state.unwrap();
     assert_eq!((state.sleep_mode, state.next_on_timer, state.rigid_body), (1, f32::MAX, None));
 
@@ -86,7 +89,10 @@ fn gothic1_player() {
 fn gothic2_player() {
     let (vobs, id) = read(Gothic2, "oCNpc");
     let player = &vobs[id];
-    assert_eq!(player.event_manager, Some(EventManager { cleared: false, active: false }));
+    assert_eq!(
+        player.event_manager,
+        Some(EventManager { cleared: false, active: false, cutscene: None })
+    );
 
     let VobKind::Npc(npc) = &player.kind else { panic!("{:?}", player.kind) };
     assert_eq!(npc.instance, "PC_HERO");
@@ -212,7 +218,8 @@ fn zenkit_sample_saves() {
     assert_eq!((state.npcs.len(), state.spawns.len()), (1029, 634));
     assert!(state.spawning_enabled);
     assert_eq!(state.sky.unwrap().master_time, 0.837_731);
-    assert_eq!(state.cutscene_player.unwrap().last_process_hour, 8);
+    let player = state.cutscene_player.as_ref().unwrap();
+    assert_eq!((player.last_process_hour, player.playlist.len()), (8, 0));
     assert_eq!(world.vobs.len(), 17136);
     let kinds = count_kinds(&world);
     assert_eq!((kinds["npc"], kinds["item"], kinds["light"]), (1031, 2811, 1077));
@@ -234,4 +241,72 @@ fn zenkit_sample_saves() {
 
     let moving = world.vobs.iter().filter(|(_, vob)| matches!(vob.ai, Some(Ai::Move(_)))).count();
     assert_eq!(moving, 3);
+}
+
+/// A packed Gothic 2 VOB's raw data with only the name and event manager flags set.
+fn packed_vob() -> String {
+    let mut raw: Vec<f32> = vec![0.0; 9];
+    raw.extend([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
+    let mut bytes: Vec<u8> = raw.iter().flat_map(|f| f.to_le_bytes()).collect();
+    bytes.push(0);
+    bytes.extend((1u16 << 1 | 1 << 5).to_le_bytes());
+    bytes.extend([0.0f32, 1.0].iter().flat_map(|f| f.to_le_bytes()));
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// A Gothic 2 save world whose one VOB plays a cutscene, which the cutscene player lists too.
+fn cutscene_world() -> String {
+    format!(
+        "ZenGin Archive\nver 1\nzCArchiverGeneric\nASCII\nsaveGame 1\nEND\nobjects 9\nEND\n\n\
+         [% oCWorld:zCWorld 64513 0]\n[VobTree % 0 0]\nchilds0=int:1\n\
+         [% zCVob 52224 1]\npack=int:1\ndataRaw=raw:{raw}\nvobName=string:ACTOR\n\
+         [% zCEventManager 0 2]\ncleared=bool:0\nactive=bool:1\n\
+         [emCutscene zCCSCutsceneContext:zCCutscene:zCCSBlock 0 3]\n\
+         blockName=string:DIA_TEST_01\nnumOfBlocks=int:1\nsubBlock0=float:0\n\
+         [% zCCSAtomicBlock 0 4]\n[% oCMsgConversation:oCNpcMessage:zCEventMessage 0 5]\n\
+         subType=enum:0\nhighPriority=bool:0\ninUse=bool:1\ndeleted=bool:0\n\
+         text=string:Hallo.\nname=string:DIA_TEST_01.WAV\n[]\n[]\n\
+         [% zCCSProps 0 6]\nname=string:DIA_TEST\nglobalCutscene=bool:0\ncsLoop=bool:0\n\
+         hasToBeTriggerd=bool:1\ndistance=float:500\nrange=float:1000\nnumLockedBlocks=int:0\n\
+         runBehaviour=enum:3\nrunBehaviourValue=int:0\nStageName=string:\nscriptFuncOnStop=string:\n[]\n\
+         numOfRoles=int:1\nnumOfRoleVobs=int:1\n[% \u{A7} 0 1]\n[]\n[mainRoleVob % 0 0]\n[]\n\
+         isCutscene=bool:0\nreference=int:0\nactualBlock=int:0\n[alt_stage % 0 0]\n[]\n\
+         [stage % 0 0]\n[]\nwasTriggered=bool:1\n[]\n[]\nsleepMode=int:0\nnextOnTimer=float:0\n[]\n\
+         childs1=int:0\n[]\n\
+         [CutscenePlayer % 0 0]\n[% oCCSPlayer:zCCSPlayer 36865 7]\nlastProcessDay=int:1\n\
+         lastProcessHour=int:9\nplayListCount=int:1\n[playContext0 \u{A7} 0 3]\n[]\n[]\n[]\n\
+         [EndMarker % 0 0]\n[]\nnpcCount=int:0\nNoOfEntries=int:0\nspawningEnabled=bool:1\n\
+         spawnFlags=int:0\n[]\n",
+        raw = packed_vob()
+    )
+}
+
+#[test]
+fn running_cutscenes() {
+    // `§` must be the single byte 0xA7, as the engine writes it.
+    let data: Vec<u8> = cutscene_world().chars().map(|c| c as u8).collect();
+    let (world, log) = read_logged(&data);
+    assert!(log.is_empty(), "{log}");
+    assert_eq!(world.game, Gothic2);
+
+    let actor_id = world.roots[0];
+    let actor = &world.vobs[actor_id];
+    assert_eq!(actor.name, "ACTOR");
+    let manager = actor.event_manager.as_ref().unwrap();
+    assert!(manager.active && !manager.cleared);
+
+    let context = manager.cutscene.as_deref().unwrap();
+    assert_eq!(context.block.name, "DIA_TEST_01");
+    let message = &context.block.message;
+    assert_eq!((message.text.as_str(), message.name.as_str()), ("Hallo.", "DIA_TEST_01.WAV"));
+    assert!(message.state.unwrap().in_use);
+    let props = context.props.as_ref().unwrap();
+    assert_eq!((props.name.as_str(), props.range, props.run_behaviour), ("DIA_TEST", 1000.0, 3));
+    assert!(props.has_to_be_triggered);
+    assert_eq!((context.npc, context.main_role, context.stage), (Some(actor_id), None, None));
+    assert!(context.was_triggered);
+
+    let player = world.state.as_ref().unwrap().cutscene_player.as_ref().unwrap();
+    assert_eq!((player.last_process_day, player.last_process_hour), (1, 9));
+    assert_eq!(player.playlist, std::slice::from_ref(context), "the reference resolves to a copy");
 }

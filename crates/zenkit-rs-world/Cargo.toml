@@ -15,6 +15,7 @@ parallel = ["dep:rayon"]
 [dependencies]
 zenkit-rs-archive.workspace = true
 zenkit-rs-core.workspace = true
+zenkit-rs-cutscene.workspace = true
 zenkit-rs-material.workspace = true
 zenkit-rs-mesh.workspace = true
 rayon = { workspace = true, optional = true }

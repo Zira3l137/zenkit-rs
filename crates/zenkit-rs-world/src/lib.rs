@@ -24,6 +24,7 @@
 //! ```
 
 mod bsp;
+mod cutscene;
 mod par;
 mod save;
 pub mod vob;
@@ -46,6 +47,8 @@ pub use bsp::BspMode;
 pub use bsp::BspNode;
 pub use bsp::BspSector;
 pub use bsp::BspTree;
+pub use cutscene::CutsceneContext;
+pub use cutscene::CutsceneProps;
 pub use save::CutscenePlayer;
 pub use save::SkyController;
 pub use save::Spawn;

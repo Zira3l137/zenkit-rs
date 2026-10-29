@@ -15,6 +15,8 @@ use zenkit_rs_core::math::Mat3;
 use zenkit_rs_core::text;
 use zenkit_rs_material::AlphaFunction;
 
+use crate::cutscene::CutsceneContext;
+
 use super::Ai;
 use super::Animate;
 use super::AnimationMode;
@@ -67,6 +69,7 @@ pub(crate) enum Shared {
     Vob(VobId),
     Visual(VisualKind),
     WayPoint(usize),
+    Cutscene(Box<CutsceneContext>),
 }
 
 /// The start of the next object, with references and null objects already dealt with.
@@ -264,15 +267,6 @@ impl<'a, 'b> Ctx<'a, 'b> {
         self.objects.insert(object.index, Shared::Visual(kind.clone()));
         self.end(&object)?;
         Ok(Some(kind))
-    }
-
-    /// Skips an object this crate does not read yet, warning unless it is null.
-    pub(crate) fn skip_unread(&mut self, what: &str) -> Result<()> {
-        if let Next::New(object) = self.begin(what)? {
-            warn!("skipping {what} of class {:?}", text::latin1(object.class));
-            self.skip_object()?;
-        }
-        Ok(())
     }
 }
 

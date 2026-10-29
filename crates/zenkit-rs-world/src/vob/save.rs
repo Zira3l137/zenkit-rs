@@ -8,6 +8,7 @@ use zenkit_rs_core::text;
 use super::Ctx;
 use super::Next;
 use super::VobId;
+use crate::cutscene::CutsceneContext;
 
 /// The state save games store for every VOB.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -44,10 +45,12 @@ pub struct RigidBody {
 }
 
 /// Queues the messages sent to a VOB, like an NPC's orders in a cutscene.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct EventManager {
     pub cleared: bool,
     pub active: bool,
+    /// The cutscene the VOB is playing.
+    pub cutscene: Option<Box<CutsceneContext>>,
 }
 
 impl EventManager {
@@ -61,9 +64,11 @@ impl EventManager {
             }
             _ => return Ok(None),
         };
-        let manager = Self { cleared: r.bool()?, active: r.bool()? };
-        // The cutscene the VOB is playing. Cutscenes are not read yet; the samples have none.
-        r.skip_unread("cutscene context")?;
+        let manager = Self {
+            cleared: r.bool()?,
+            active: r.bool()?,
+            cutscene: CutsceneContext::read(r)?.map(Box::new),
+        };
         r.end(&object)?;
         Ok(Some(manager))
     }
