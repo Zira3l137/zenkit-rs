@@ -7,11 +7,19 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = ["parallel"]
+# Reads a world's mesh and BSP tree alongside its VOBs.
+parallel = ["dep:rayon"]
+
 [dependencies]
 zenkit-rs-archive.workspace = true
 zenkit-rs-core.workspace = true
 zenkit-rs-material.workspace = true
+zenkit-rs-mesh.workspace = true
+rayon = { workspace = true, optional = true }
 tracing.workspace = true
+zerocopy.workspace = true
 
 [lints]
 workspace = true

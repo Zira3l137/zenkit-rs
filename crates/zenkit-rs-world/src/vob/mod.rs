@@ -61,6 +61,9 @@ pub use mob::Interactive;
 pub use mob::Mob;
 pub use mob::SoundMaterial;
 pub(crate) use read::Ctx;
+pub(crate) use read::FORMAT;
+pub(crate) use read::Next;
+pub(crate) use read::Shared;
 pub use sound::Sound;
 pub use sound::SoundDaytime;
 pub use sound::SoundMode;
@@ -130,7 +133,7 @@ impl Vobs {
     /// VOB inside it, like a camera's key frames. Gives `None` if the object is null or of a class
     /// this crate does not know.
     ///
-    /// This is for archives holding a single VOB.
+    /// This is for archives holding a single VOB; worlds are read with [`World`](crate::World).
     pub fn read(archive: &mut Archive, game: GameVersion) -> Result<Option<(Self, VobId)>> {
         let mut ctx = Ctx::new(archive, game)?;
         let id = ctx.vob()?;

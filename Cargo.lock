@@ -321,6 +321,7 @@ dependencies = [
  "zenkit-rs-mrm",
  "zenkit-rs-texture",
  "zenkit-rs-vfs",
+ "zenkit-rs-world",
 ]
 
 [[package]]
@@ -437,10 +438,13 @@ dependencies = [
 name = "zenkit-rs-world"
 version = "0.1.0"
 dependencies = [
+ "rayon",
  "tracing",
  "zenkit-rs-archive",
  "zenkit-rs-core",
  "zenkit-rs-material",
+ "zenkit-rs-mesh",
+ "zerocopy",
 ]
 
 [[package]]

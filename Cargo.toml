@@ -40,7 +40,7 @@ zenkit-rs-mrm = { path = "crates/zenkit-rs-mrm", version = "0.1.0" }
 # Without its default `parallel` feature, so the facade's own `parallel` decides.
 zenkit-rs-texture = { path = "crates/zenkit-rs-texture", version = "0.1.0", default-features = false }
 zenkit-rs-vfs = { path = "crates/zenkit-rs-vfs", version = "0.1.0", default-features = false }
-zenkit-rs-world = { path = "crates/zenkit-rs-world", version = "0.1.0" }
+zenkit-rs-world = { path = "crates/zenkit-rs-world", version = "0.1.0", default-features = false }
 
 [workspace.lints.rust]
 # Only memory-mapping needs unsafe code, and allows it right there.

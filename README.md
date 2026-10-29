@@ -25,6 +25,7 @@ re-exported as a module of `zenkit`, so `zenkit::mrm` is the `zenkit-rs-mrm` cra
 | `morph`        |   yes   | Morph meshes (`.MMB`), animated by moving vertices: faces, bows          |
 | `animation`    |   yes   | Skeletal animations (`.MAN`)                                             |
 | `model-script` |   yes   | Model scripts, both source (`.MDS`) and compiled (`.MSB`)                |
+| `world`        |   yes   | Worlds (`.ZEN`): the world mesh, BSP tree, way-net and every VOB         |
 | `parallel`     |   yes   | Spreads independent work, like reading many files, across all CPU cores  |
 | `mmap`         |         | Memory-maps archives and host files instead of reading them into memory  |
 | `log`          |         | Emits every message as a `log` record too, for applications using `log`  |
@@ -75,6 +76,9 @@ larger ones, including complete world saves; point `ZENKIT_SAMPLES` at a ZenKit 
 ```sh
 ZENKIT_SAMPLES=../ZenKit/tests/samples cargo test
 ```
+
+Like ZenKit's own tests, the world tests also read Gothic 1's `WORLD.ZEN` when a copy of it sits in
+that directory as `world.proprietary.zen`. It is part of the game, so it cannot ship here.
 
 ## Layout
 

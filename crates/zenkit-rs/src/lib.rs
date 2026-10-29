@@ -48,3 +48,5 @@ pub use zenkit_rs_mrm as mrm;
 pub use zenkit_rs_texture as texture;
 #[cfg(feature = "vfs")]
 pub use zenkit_rs_vfs as vfs;
+#[cfg(feature = "world")]
+pub use zenkit_rs_world as world;

@@ -62,6 +62,7 @@ pub(crate) const FORMAT: &str = "world";
 pub(crate) enum Shared {
     Vob(VobId),
     Visual(VisualKind),
+    WayPoint(usize),
 }
 
 /// The start of the next object, with references and null objects already dealt with.
@@ -173,6 +174,60 @@ impl<'a, 'b> Ctx<'a, 'b> {
         self.vobs[id.index()] = vob;
         self.end(&object)?;
         Ok(Some(id))
+    }
+
+    /// Reads `count` VOB trees: each is a VOB, its number of children, and then the children's
+    /// trees. Returns the VOBs at their tops.
+    ///
+    /// Children whose VOB cannot be read are skipped along with everything below them, as in the
+    /// engine.
+    pub(crate) fn tree(&mut self, count: i32) -> Result<Vec<VobId>> {
+        #[derive(Clone, Copy)]
+        enum Parent {
+            Root,
+            Vob(VobId),
+            Skipped,
+        }
+
+        let mut roots = Vec::new();
+        // One entry per level being read: whose children these are, and how many are left.
+        let mut stack = vec![(Parent::Root, count.max(0))];
+        while let Some((parent, left)) = stack.last_mut() {
+            if *left == 0 {
+                stack.pop();
+                continue;
+            }
+            *left -= 1;
+            let parent = *parent;
+
+            let child = match parent {
+                Parent::Skipped => {
+                    self.skip_next_object()?;
+                    None
+                }
+                _ => self.vob()?,
+            };
+            let count = self.int()?.max(0);
+
+            // A reference to a VOB above this one would make the tree a cycle.
+            let cycle =
+                |id| stack.iter().any(|(p, _)| matches!(p, Parent::Vob(above) if *above == id));
+            match child {
+                Some(id) if cycle(id) => {
+                    warn!("VOB {} appears inside itself in the VOB tree", id.index());
+                    stack.push((Parent::Skipped, count));
+                }
+                Some(id) => {
+                    match parent {
+                        Parent::Vob(parent) => self.vobs[parent.index()].children.push(id),
+                        _ => roots.push(id),
+                    }
+                    stack.push((Parent::Vob(id), count));
+                }
+                None => stack.push((Parent::Skipped, count)),
+            }
+        }
+        Ok(roots)
     }
 
     /// Reads a visual object, which several VOBs may share.
