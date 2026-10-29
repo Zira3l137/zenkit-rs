@@ -434,6 +434,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "zenkit-rs-world"
+version = "0.1.0"
+dependencies = [
+ "tracing",
+ "zenkit-rs-archive",
+ "zenkit-rs-core",
+ "zenkit-rs-material",
+]
+
+[[package]]
 name = "zerocopy"
 version = "0.8.63"
 source = "registry+https://github.com/rust-lang/crates.io-index"

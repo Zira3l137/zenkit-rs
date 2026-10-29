@@ -1,0 +1,17 @@
+[package]
+name = "zenkit-rs-world"
+description = "Reader for ZenGin worlds (.ZEN): the world mesh, BSP tree, way-net and every VOB"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+zenkit-rs-archive.workspace = true
+zenkit-rs-core.workspace = true
+zenkit-rs-material.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true

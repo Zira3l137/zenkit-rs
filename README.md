@@ -96,4 +96,5 @@ this crate; stable rustfmt keeps that layout but only nightly enforces it:
 ## License
 
 MIT. Portions are derived from ZenKit, © GothicKit Contributors, also MIT. Test samples under
-`samples/` are taken from the ZenKit repository.
+`samples/` are taken from the ZenKit repository; the VOB samples in `samples/*/VOb` had their
+key tables cut off to keep them small.
