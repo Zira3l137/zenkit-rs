@@ -24,8 +24,9 @@ macro_rules! raw_enum {
         }
 
         impl $name {
-            #[allow(dead_code)]
-            pub(crate) fn from_raw(raw: u32) -> Self {
+            /// Converts a value as stored in a file. Unknown values log a warning and give the
+            /// default.
+            pub fn from_raw(raw: u32) -> Self {
                 match raw {
                     $($value => Self::$variant,)*
                     _ => {
