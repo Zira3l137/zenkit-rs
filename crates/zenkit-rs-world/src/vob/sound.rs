@@ -41,6 +41,14 @@ pub struct Sound {
     pub radius: f32,
     /// A `.WAV` file or an instance from the sound scripts.
     pub sound_name: String,
+    /// Save games only.
+    pub state: Option<SoundState>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SoundState {
+    pub is_running: bool,
+    pub allowed_to_run: bool,
 }
 
 impl Default for Sound {
@@ -57,13 +65,14 @@ impl Default for Sound {
             volume_type: SoundVolume::Spherical,
             radius: 0.0,
             sound_name: String::new(),
+            state: None,
         }
     }
 }
 
 impl Sound {
     pub(crate) fn read(r: &mut Ctx) -> Result<Self> {
-        Ok(Self {
+        let mut sound = Self {
             volume: r.float()?,
             mode: SoundMode::from_raw(r.enumeration()?),
             random_delay: r.float()?,
@@ -75,7 +84,12 @@ impl Sound {
             volume_type: SoundVolume::from_raw(r.enumeration()?),
             radius: r.float()?,
             sound_name: r.name()?,
-        })
+            state: None,
+        };
+        if r.save {
+            sound.state = Some(SoundState { is_running: r.bool()?, allowed_to_run: r.bool()? });
+        }
+        Ok(sound)
     }
 }
 

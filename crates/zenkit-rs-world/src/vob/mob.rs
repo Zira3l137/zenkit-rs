@@ -2,6 +2,7 @@ use zenkit_rs_core::Result;
 use zenkit_rs_core::raw_enum;
 
 use super::Ctx;
+use super::VobId;
 
 raw_enum! {
     /// What a mob sounds like when hit or moved.
@@ -109,17 +110,28 @@ pub struct Container {
     pub pick_string: String,
     /// The items inside, as comma-separated `INSTANCE:AMOUNT` pairs, like `ItMi_Gold:35`.
     pub contents: String,
+    /// In save games, the items inside, which are [`Item`](super::Item)s. Their
+    /// [`contents`](Self::contents) are only created the first time the container is opened.
+    pub items: Vec<VobId>,
 }
 
 impl Container {
     pub(crate) fn read(r: &mut Ctx) -> Result<Self> {
-        Ok(Self {
+        let mut container = Self {
             interactive: Interactive::read(r)?,
             locked: r.bool()?,
             key: r.name()?,
             pick_string: r.name()?,
             contents: r.name()?,
-        })
+            items: Vec::new(),
+        };
+        if r.save {
+            let count = r.int()?;
+            for _ in 0..count {
+                container.items.extend(r.vob()?);
+            }
+        }
+        Ok(container)
     }
 }
 

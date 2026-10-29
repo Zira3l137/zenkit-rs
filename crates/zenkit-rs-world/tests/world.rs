@@ -370,14 +370,6 @@ fn a_mesh_after_the_vobs_is_read_too() {
     assert_eq!(world.vobs.len(), 1);
 }
 
-#[test]
-fn save_games_are_not_read_yet() {
-    let data =
-        String::from_utf8_lossy(&ascii_world(12289, false)).replace("saveGame 0", "saveGame 1");
-    let err = World::from_bytes(data.as_bytes()).unwrap_err();
-    assert!(matches!(err.root(), Error::Unsupported { .. }));
-}
-
 /// Gothic 1's world, if `ZENKIT_SAMPLES` points at a ZenKit checkout's `tests/samples` with a copy
 /// of `WORLD.ZEN` named `world.proprietary.zen` in it, as ZenKit's own tests want it. The checks are
 /// ZenKit's.

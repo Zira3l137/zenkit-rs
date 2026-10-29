@@ -15,6 +15,7 @@ use zenkit_rs_core::math::Mat3;
 use zenkit_rs_core::text;
 use zenkit_rs_material::AlphaFunction;
 
+use super::Ai;
 use super::Animate;
 use super::AnimationMode;
 use super::CameraKeyFrame;
@@ -24,6 +25,7 @@ use super::CutsceneCamera;
 use super::Decal;
 use super::Door;
 use super::Earthquake;
+use super::EventManager;
 use super::Fire;
 use super::Interactive;
 use super::Item;
@@ -33,6 +35,7 @@ use super::MessageFilter;
 use super::Mob;
 use super::Mover;
 use super::MoverController;
+use super::Npc;
 use super::ParticleEffectController;
 use super::ShadowType;
 use super::Sound;
@@ -50,6 +53,7 @@ use super::VisualKind;
 use super::Vob;
 use super::VobId;
 use super::VobKind;
+use super::VobState;
 use super::Vobs;
 use super::ZoneFarPlane;
 use super::ZoneFog;
@@ -81,6 +85,8 @@ pub(crate) enum Next<'a> {
 pub(crate) struct Ctx<'a, 'b> {
     archive: &'b mut Archive<'a>,
     pub(crate) game: GameVersion,
+    /// Whether this is a save game, which stores more state for most objects.
+    pub(crate) save: bool,
     pub(crate) vobs: Vec<Vob>,
     pub(crate) objects: HashMap<u32, Shared>,
 }
@@ -102,11 +108,9 @@ impl<'a> DerefMut for Ctx<'a, '_> {
 }
 
 impl<'a, 'b> Ctx<'a, 'b> {
-    pub(crate) fn new(archive: &'b mut Archive<'a>, game: GameVersion) -> Result<Self> {
-        if archive.header().save_game {
-            return Err(Error::unsupported(FORMAT, "save-game archives"));
-        }
-        Ok(Self { archive, game, vobs: Vec::new(), objects: HashMap::new() })
+    pub(crate) fn new(archive: &'b mut Archive<'a>, game: GameVersion) -> Self {
+        let save = archive.header().save_game;
+        Self { archive, game, save, vobs: Vec::new(), objects: HashMap::new() }
     }
 
     pub(crate) fn finish(self) -> Vobs {
@@ -263,7 +267,7 @@ impl<'a, 'b> Ctx<'a, 'b> {
     }
 
     /// Skips an object this crate does not read yet, warning unless it is null.
-    fn skip_unread(&mut self, what: &str) -> Result<()> {
+    pub(crate) fn skip_unread(&mut self, what: &str) -> Result<()> {
         if let Next::New(object) = self.begin(what)? {
             warn!("skipping {what} of class {:?}", text::latin1(object.class));
             self.skip_object()?;
@@ -282,7 +286,7 @@ fn kind_reader(class: &[u8]) -> Option<ReadKind> {
         b"zCVobSpot:zCVob" => |_| Ok(VobKind::Spot),
         b"zCVobStartpoint:zCVob" => |_| Ok(VobKind::StartPoint),
         b"zCVobStair:zCVob" => |_| Ok(VobKind::Stair),
-        b"zCVobScreenFX:zCVob" => |_| Ok(VobKind::ScreenEffect),
+        b"zCVobScreenFX:zCVob" => read_screen_effect,
         b"zCVobAnimate:zCVob" => |r| Animate::read(r).map(VobKind::Animate),
         b"oCItem:zCVob" => |r| Item::read(r).map(VobKind::Item),
         b"zCVobLensFlare:zCVob" => |r| LensFlare::read(r).map(VobKind::LensFlare),
@@ -334,6 +338,7 @@ fn kind_reader(class: &[u8]) -> Option<ReadKind> {
         b"zCTriggerUntouch:zCVob" => |r| TriggerUntouch::read(r).map(VobKind::TriggerUntouch),
         b"zCCSCamera:zCVob" => |r| CutsceneCamera::read(r).map(VobKind::CutsceneCamera),
         b"zCCamTrj_KeyFrame:zCVob" => |r| CameraKeyFrame::read(r).map(VobKind::CameraKeyFrame),
+        b"oCNpc:zCVob" => |r| Npc::read(r).map(|npc| VobKind::Npc(Box::new(npc))),
         _ => return None,
     };
     Some(read)
@@ -353,6 +358,7 @@ fn read_base(r: &mut Ctx) -> Result<Vob> {
     let mut visual_name = String::new();
     let mut has_visual = true;
     let mut has_ai = true;
+    let mut has_event_manager = false;
 
     let packed = r.int()? != 0;
     if packed {
@@ -376,6 +382,7 @@ fn read_base(r: &mut Ctx) -> Result<Vob> {
         let has = |bit: u16| flags & 1 << bit != 0;
         has_visual = has(3);
         has_ai = has(4);
+        has_event_manager = has(5) && r.save;
         vob.physics_enabled = has(6);
         if gothic2 {
             // One bit higher than ZenKit reads them: bit 7 is a flag of unknown meaning, as
@@ -429,12 +436,31 @@ fn read_base(r: &mut Ctx) -> Result<Vob> {
         None => None,
     };
 
-    // Only save games give VOBs an AI.
     if has_ai {
-        r.skip_unread("AI")?;
+        vob.ai = Ai::read(r)?;
+    }
+    if has_event_manager {
+        vob.event_manager = EventManager::read(r)?;
+    }
+    if r.save {
+        vob.state = Some(VobState::read(r, vob.physics_enabled)?);
     }
 
     Ok(vob)
+}
+
+fn read_screen_effect(r: &mut Ctx) -> Result<VobKind> {
+    if r.save {
+        // The blend, cinema and field of view effects that were running. ZenKit skips them too,
+        // since what they mean is unknown.
+        let count = if r.game == GameVersion::Gothic1 { 5 } else { 12 };
+        for _ in 0..3 {
+            r.raw(count * 4)?;
+        }
+        r.vec2()?;
+        r.vec2()?;
+    }
+    Ok(VobKind::ScreenEffect)
 }
 
 fn read_decal(r: &mut Ctx) -> Result<Decal> {

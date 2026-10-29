@@ -21,5 +21,8 @@ rayon = { workspace = true, optional = true }
 tracing.workspace = true
 zerocopy.workspace = true
 
+[dev-dependencies]
+tracing-subscriber.workspace = true
+
 [lints]
 workspace = true

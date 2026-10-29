@@ -16,7 +16,9 @@ mod camera;
 mod light;
 mod misc;
 mod mob;
+mod npc;
 mod read;
+mod save;
 mod sound;
 mod trigger;
 mod zone;
@@ -38,14 +40,17 @@ pub use camera::CameraLerp;
 pub use camera::CameraLoop;
 pub use camera::CameraMotion;
 pub use camera::CameraReference;
+pub use camera::CameraState;
 pub use camera::CutsceneCamera;
 pub use light::Light;
 pub use light::LightQuality;
 pub use light::LightType;
 pub use misc::Animate;
 pub use misc::CodeMaster;
+pub use misc::CodeMasterState;
 pub use misc::Earthquake;
 pub use misc::Item;
+pub use misc::ItemState;
 pub use misc::LensFlare;
 pub use misc::MessageFilter;
 pub use misc::MessageFilterAction;
@@ -60,30 +65,48 @@ pub use mob::Fire;
 pub use mob::Interactive;
 pub use mob::Mob;
 pub use mob::SoundMaterial;
+pub use npc::AiState;
+pub use npc::InventoryItem;
+pub use npc::News;
+pub use npc::NewsSpread;
+pub use npc::Npc;
+pub use npc::Slot;
+pub use npc::Talent;
 pub(crate) use read::Ctx;
 pub(crate) use read::FORMAT;
 pub(crate) use read::Next;
 pub(crate) use read::Shared;
+pub use save::Ai;
+pub use save::AiHuman;
+pub use save::AiMove;
+pub use save::EventManager;
+pub use save::RigidBody;
+pub use save::VobState;
 pub use sound::Sound;
 pub use sound::SoundDaytime;
 pub use sound::SoundMode;
+pub use sound::SoundState;
 pub use sound::SoundVolume;
 pub use trigger::Mover;
 pub use trigger::MoverBehavior;
 pub use trigger::MoverKeyFrame;
 pub use trigger::MoverLerp;
 pub use trigger::MoverSpeed;
+pub use trigger::MoverState;
 pub use trigger::Trigger;
 pub use trigger::TriggerBatchMode;
 pub use trigger::TriggerChangeLevel;
 pub use trigger::TriggerList;
+pub use trigger::TriggerListState;
 pub use trigger::TriggerScript;
+pub use trigger::TriggerState;
 pub use trigger::TriggerTarget;
 pub use trigger::TriggerUntouch;
 pub use trigger::TriggerWorldStart;
 pub use zone::ZoneFarPlane;
 pub use zone::ZoneFog;
 pub use zone::ZoneMusic;
+pub use zone::ZoneMusicState;
 
 raw_enum! {
     pub enum ShadowType: u8 = None {
@@ -135,7 +158,7 @@ impl Vobs {
     ///
     /// This is for archives holding a single VOB; worlds are read with [`World`](crate::World).
     pub fn read(archive: &mut Archive, game: GameVersion) -> Result<Option<(Self, VobId)>> {
-        let mut ctx = Ctx::new(archive, game)?;
+        let mut ctx = Ctx::new(archive, game);
         let id = ctx.vob()?;
         Ok(id.map(|id| (ctx.finish(), id)))
     }
@@ -224,6 +247,10 @@ pub struct Vob {
     pub far_clip_scale: f32,
     /// The VOBs below this one in the VOB tree.
     pub children: Vec<VobId>,
+    /// Save games only, like [`event_manager`](Self::event_manager) and [`state`](Self::state).
+    pub ai: Option<Ai>,
+    pub event_manager: Option<EventManager>,
+    pub state: Option<VobState>,
 }
 
 impl Default for Vob {
@@ -249,6 +276,9 @@ impl Default for Vob {
             ambient: false,
             far_clip_scale: 2.0,
             children: Vec::new(),
+            ai: None,
+            event_manager: None,
+            state: None,
         }
     }
 }
@@ -344,6 +374,8 @@ pub enum VobKind {
     CutsceneCamera(CutsceneCamera),
     /// `zCCamTrj_KeyFrame`
     CameraKeyFrame(CameraKeyFrame),
+    /// `oCNpc`, only found in save games.
+    Npc(Box<Npc>),
 }
 
 impl VobKind {

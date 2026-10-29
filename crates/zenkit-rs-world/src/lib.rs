@@ -7,6 +7,9 @@
 //! - `VobTree`: the [VOBs](vob), as a tree.
 //! - `WayNet`: the points and ways NPCs walk along.
 //!
+//! Save games store each world the player visited in the same format, with more state for most
+//! VOBs, the NPCs, and the weather; see [`WorldState`].
+//!
 //! ```no_run
 //! # fn main() -> zenkit_rs_core::Result<()> {
 //! use zenkit_rs_world::World;
@@ -22,6 +25,7 @@
 
 mod bsp;
 mod par;
+mod save;
 pub mod vob;
 mod way_net;
 
@@ -42,6 +46,10 @@ pub use bsp::BspMode;
 pub use bsp::BspNode;
 pub use bsp::BspSector;
 pub use bsp::BspTree;
+pub use save::CutscenePlayer;
+pub use save::SkyController;
+pub use save::Spawn;
+pub use save::WorldState;
 pub use vob::Vob;
 pub use vob::VobId;
 pub use vob::VobKind;
@@ -66,14 +74,16 @@ pub struct World {
     /// [`children`](Vob::children).
     pub roots: Vec<VobId>,
     pub way_net: WayNet,
+    /// Save games only.
+    pub state: Option<WorldState>,
 }
 
 impl World {
     /// Reads a world, telling the game it was made for from the data.
     ///
     /// The BSP tree says which game a compiled world is for. Without one, the version of the first
-    /// VOB's class tells, which works for any world that starts with a plain VOB or one of its
-    /// close relatives, as nearly all do. Otherwise this fails, and
+    /// VOB's class tells, if that is a plain VOB or one of its close relatives, as in nearly all
+    /// worlds, or the player, as in save games. Otherwise this fails, and
     /// [`from_bytes_as`](Self::from_bytes_as) has to be told the game.
     pub fn from_bytes(data: &[u8]) -> Result<Self> {
         Self::read(data, None)
@@ -111,9 +121,6 @@ impl World {
 
     fn read(data: &[u8], game: Option<GameVersion>) -> Result<Self> {
         let mut archive = Archive::new(data)?;
-        if archive.header().save_game {
-            return Err(Error::unsupported(FORMAT, "save-game worlds"));
-        }
 
         let scan = scan(data).context(|| "scanning the sections")?;
         let game = game.or(scan.game).ok_or_else(|| {
@@ -142,6 +149,7 @@ impl World {
             vobs: sections.vobs,
             roots: sections.roots,
             way_net: sections.way_net,
+            state: sections.state,
         })
     }
 }
@@ -233,19 +241,22 @@ fn scan(data: &[u8]) -> Result<Scan<'_>> {
     Ok(Scan { game: None, geometry: None })
 }
 
-/// Plain VOBs and a few classes that add nothing to them share the version of `zCVob`, which
-/// changed from Gothic 1 to Gothic 2.
+/// The class versions that differ between the games. Plain VOBs and a few classes that add
+/// nothing to them share `zCVob`'s; save games start with the player, an NPC.
 fn game_of_class(class: &[u8], version: u16) -> Option<GameVersion> {
-    let plain =
-        [&b"zCVob"[..], b"zCVobLevelCompo:zCVob", b"zCVobSpot:zCVob", b"zCVobStartpoint:zCVob"];
-    if !plain.contains(&class) {
-        return None;
-    }
-    match version {
-        12289 => Some(GameVersion::Gothic1),
-        52224 => Some(GameVersion::Gothic2),
+    match (class, version) {
+        (b"oCNpc:zCVob", 52224) => Some(GameVersion::Gothic1),
+        (b"oCNpc:zCVob", 29697) => Some(GameVersion::Gothic2),
+        (b"oCNpc:zCVob", _) => None,
+        (_, 12289) if is_plain(class) => Some(GameVersion::Gothic1),
+        (_, 52224) if is_plain(class) => Some(GameVersion::Gothic2),
         _ => None,
     }
+}
+
+fn is_plain(class: &[u8]) -> bool {
+    [&b"zCVob"[..], b"zCVobLevelCompo:zCVob", b"zCVobSpot:zCVob", b"zCVobStartpoint:zCVob"]
+        .contains(&class)
 }
 
 /// Everything in a world besides its mesh and BSP tree.
@@ -255,12 +266,14 @@ struct Sections<'a> {
     vobs: Vobs,
     roots: Vec<VobId>,
     way_net: WayNet,
+    state: Option<WorldState>,
 }
 
 fn read_sections<'a>(archive: &mut Archive<'a>, game: GameVersion) -> Result<Sections<'a>> {
     let world = archive.expect_object(b"oCWorld:zCWorld")?;
-    let mut r = Ctx::new(archive, game)?;
+    let mut r = Ctx::new(archive, game);
     let (mut geometry, mut roots, mut way_net) = (None, Vec::new(), WayNet::default());
+    let (mut cutscene_player, mut sky) = (None, None);
 
     let mut closed = false;
     loop {
@@ -280,6 +293,12 @@ fn read_sections<'a>(archive: &mut Archive<'a>, game: GameVersion) -> Result<Sec
                 roots = r.tree(count).context(|| "VOB tree")?;
             }
             b"WayNet" => way_net = WayNet::read(&mut r).context(|| "way-net")?,
+            b"CutscenePlayer" if r.save => {
+                cutscene_player = CutscenePlayer::read(&mut r).context(|| "cutscene player")?;
+            }
+            b"SkyCtrl" if r.save => {
+                sky = SkyController::read(&mut r).context(|| "sky controller")?;
+            }
             b"EndMarker" => {
                 r.end(&section)?;
                 break;
@@ -292,9 +311,18 @@ fn read_sections<'a>(archive: &mut Archive<'a>, game: GameVersion) -> Result<Sec
         }
         r.end(&section)?;
     }
+    let mut state = None;
+    if r.save {
+        let mut save = WorldState { cutscene_player, sky, ..WorldState::default() };
+        // Save games store their NPCs inside the world object, after its last section.
+        if !closed {
+            save.read_npcs(&mut r).context(|| "NPCs")?;
+        }
+        state = Some(save);
+    }
     if !closed {
         r.end(&world)?;
     }
 
-    Ok(Sections { geometry, vobs: r.finish(), roots, way_net })
+    Ok(Sections { geometry, vobs: r.finish(), roots, way_net, state })
 }

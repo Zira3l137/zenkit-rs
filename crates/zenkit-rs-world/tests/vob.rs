@@ -125,7 +125,8 @@ fn zones() {
                 ellipsoid: false,
                 reverb,
                 volume: 1.0,
-                looping: true
+                looping: true,
+                state: None,
             }
         );
     }
@@ -258,6 +259,7 @@ fn sounds() {
             volume_type: SoundVolume::Spherical,
             radius: 1500.0,
             sound_name: "FIRE_MEDIUM".into(),
+            state: None,
         }
     );
     let g2 = expect!(kind(Gothic2, "zCVobSound"), VobKind::Sound(s) => s);
@@ -299,6 +301,7 @@ fn triggers() {
             retrigger_delay: 0.0,
             damage_threshold: 0.0,
             fire_delay: 0.0,
+            state: None,
         }
     );
 
@@ -556,12 +559,4 @@ fn unknown_and_null_vobs_read_as_none() {
         assert!(Vobs::read(&mut archive, Gothic1).unwrap().is_none(), "{class}");
         assert!(archive.is_eof());
     }
-}
-
-#[test]
-fn save_games_are_not_read_yet() {
-    let data =
-        b"ZenGin Archive\nver 1\nzCArchiverGeneric\nASCII\nsaveGame 1\nEND\nobjects 0\nEND\n";
-    let mut archive = Archive::new(data).unwrap();
-    assert!(Vobs::read(&mut archive, Gothic1).is_err());
 }

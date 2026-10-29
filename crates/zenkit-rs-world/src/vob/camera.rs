@@ -1,3 +1,4 @@
+use zenkit_rs_core::GameVersion;
 use zenkit_rs_core::Result;
 use zenkit_rs_core::io::Reader;
 use zenkit_rs_core::math::Mat4;
@@ -67,6 +68,17 @@ pub struct CutsceneCamera {
     pub trajectory: Vec<VobId>,
     /// The key frames the camera looks at, which are [`CameraKeyFrame`]s.
     pub targets: Vec<VobId>,
+    /// Gothic 2 save games only.
+    pub state: Option<CameraState>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct CameraState {
+    pub paused: bool,
+    pub started: bool,
+    pub goto_time_mode: bool,
+    /// How far into the cutscene it is, in seconds.
+    pub time: f32,
 }
 
 impl CutsceneCamera {
@@ -96,6 +108,15 @@ impl CutsceneCamera {
         }
         for _ in 0..targets {
             camera.targets.extend(r.vob()?);
+        }
+
+        if r.save && r.game == GameVersion::Gothic2 {
+            camera.state = Some(CameraState {
+                paused: r.bool()?,
+                started: r.bool()?,
+                goto_time_mode: r.bool()?,
+                time: r.float()?,
+            });
         }
         Ok(camera)
     }

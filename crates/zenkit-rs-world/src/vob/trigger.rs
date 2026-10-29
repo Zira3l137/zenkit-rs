@@ -6,6 +6,7 @@ use zenkit_rs_core::math::Vec3;
 use zenkit_rs_core::raw_enum;
 
 use super::Ctx;
+use super::VobId;
 
 raw_enum! {
     pub enum MoverBehavior: u8 = Toggle {
@@ -74,6 +75,18 @@ pub struct Trigger {
     pub retrigger_delay: f32,
     pub damage_threshold: f32,
     pub fire_delay: f32,
+    /// Save games only.
+    pub state: Option<TriggerState>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TriggerState {
+    pub next_time_triggerable: f32,
+    /// The VOB that set it off last.
+    pub other_vob: Option<VobId>,
+    pub count_can_be_activated: i32,
+    /// Always true in Gothic 1, which does not store it.
+    pub is_enabled: bool,
 }
 
 impl Trigger {
@@ -82,7 +95,7 @@ impl Trigger {
         let flags = r.raw(1)?[0];
         let filter = r.raw(1)?[0];
         let bit = |byte: u8, n: u8| byte & 1 << n != 0;
-        Ok(Self {
+        let mut trigger = Self {
             target,
             start_enabled: bit(flags, 0),
             send_untrigger: bit(flags, 2),
@@ -97,7 +110,22 @@ impl Trigger {
             retrigger_delay: r.float()?,
             damage_threshold: r.float()?,
             fire_delay: r.float()?,
-        })
+            state: None,
+        };
+
+        if r.save {
+            let mut state = TriggerState {
+                next_time_triggerable: r.float()?,
+                other_vob: r.vob()?,
+                count_can_be_activated: r.int()?,
+                is_enabled: true,
+            };
+            if r.game == GameVersion::Gothic2 {
+                state.is_enabled = r.bool()?;
+            }
+            trigger.state = Some(state);
+        }
+        Ok(trigger)
     }
 }
 
@@ -115,6 +143,15 @@ pub struct TriggerList {
     pub trigger: Trigger,
     pub mode: TriggerBatchMode,
     pub targets: Vec<TriggerTarget>,
+    /// Save games only.
+    pub state: Option<TriggerListState>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct TriggerListState {
+    /// The index of the target to fire next.
+    pub act_target: u8,
+    pub send_on_trigger: bool,
 }
 
 impl TriggerList {
@@ -126,7 +163,12 @@ impl TriggerList {
         for _ in 0..count {
             targets.push(TriggerTarget { name: r.name()?, delay: r.float()? });
         }
-        Ok(Self { trigger, mode, targets })
+        let state = if r.save {
+            Some(TriggerListState { act_target: r.byte()?, send_on_trigger: r.bool()? })
+        } else {
+            None
+        };
+        Ok(Self { trigger, mode, targets, state })
     }
 }
 
@@ -190,6 +232,22 @@ pub struct Mover {
     pub sfx_lock: String,
     pub sfx_unlock: String,
     pub sfx_use_locked: String,
+    /// Save games only.
+    pub state: Option<MoverState>,
+}
+
+/// Where a mover is between its key frames.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct MoverState {
+    pub act_key_pos_delta: Vec3,
+    pub act_keyframe_f: f32,
+    pub act_keyframe: i32,
+    pub next_keyframe: i32,
+    pub move_speed_unit: f32,
+    pub advance_dir: f32,
+    pub mover_state: u32,
+    pub trigger_event_count: i32,
+    pub stay_open_time_dest: f32,
 }
 
 impl Mover {
@@ -224,6 +282,20 @@ impl Mover {
             }
         }
 
+        if r.save {
+            mover.state = Some(MoverState {
+                act_key_pos_delta: r.vec3()?,
+                act_keyframe_f: r.float()?,
+                act_keyframe: r.int()?,
+                next_keyframe: r.int()?,
+                move_speed_unit: r.float()?,
+                advance_dir: r.float()?,
+                mover_state: r.enumeration()?,
+                trigger_event_count: r.int()?,
+                stay_open_time_dest: r.float()?,
+            });
+        }
+
         mover.sfx_open_start = r.name()?;
         mover.sfx_open_end = r.name()?;
         mover.sfx_moving = r.name()?;
@@ -242,11 +314,17 @@ pub struct TriggerWorldStart {
     pub target: String,
     /// Whether to fire only the first time the world is entered.
     pub fire_once: bool,
+    /// Gothic 2 save games only.
+    pub has_fired: Option<bool>,
 }
 
 impl TriggerWorldStart {
     pub(crate) fn read(r: &mut Ctx) -> Result<Self> {
-        Ok(Self { target: r.name()?, fire_once: r.bool()? })
+        let mut trigger = Self { target: r.name()?, fire_once: r.bool()?, has_fired: None };
+        if r.save && r.game == GameVersion::Gothic2 {
+            trigger.has_fired = Some(r.bool()?);
+        }
+        Ok(trigger)
     }
 }
 

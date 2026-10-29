@@ -25,7 +25,7 @@ re-exported as a module of `zenkit`, so `zenkit::mrm` is the `zenkit-rs-mrm` cra
 | `morph`        |   yes   | Morph meshes (`.MMB`), animated by moving vertices: faces, bows          |
 | `animation`    |   yes   | Skeletal animations (`.MAN`)                                             |
 | `model-script` |   yes   | Model scripts, both source (`.MDS`) and compiled (`.MSB`)                |
-| `world`        |   yes   | Worlds (`.ZEN`): the world mesh, BSP tree, way-net and every VOB         |
+| `world`        |   yes   | Worlds (`.ZEN`, or saved in a save game): mesh, BSP, way-net, VOBs       |
 | `parallel`     |   yes   | Spreads independent work, like reading many files, across all CPU cores  |
 | `mmap`         |         | Memory-maps archives and host files instead of reading them into memory  |
 | `log`          |         | Emits every message as a `log` record too, for applications using `log`  |
@@ -101,4 +101,5 @@ this crate; stable rustfmt keeps that layout but only nightly enforces it:
 
 MIT. Portions are derived from ZenKit, © GothicKit Contributors, also MIT. Test samples under
 `samples/` are taken from the ZenKit repository; the VOB samples in `samples/*/VOb` had their
-key tables cut off to keep them small.
+key tables cut off to keep them small, and those in `samples/*/SaveVOb` are single objects cut out
+of its sample saves.

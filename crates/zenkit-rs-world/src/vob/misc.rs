@@ -1,8 +1,10 @@
+use zenkit_rs_core::GameVersion;
 use zenkit_rs_core::Result;
 use zenkit_rs_core::math::Vec3;
 use zenkit_rs_core::raw_enum;
 
 use super::Ctx;
+use super::VobId;
 
 raw_enum! {
     /// What a [`MessageFilter`] sends on when it receives a message.
@@ -40,11 +42,15 @@ raw_enum! {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Animate {
     pub start_on: bool,
+    /// Whether it is running now. Save games only.
+    pub is_running: Option<bool>,
 }
 
 impl Animate {
     pub(crate) fn read(r: &mut Ctx) -> Result<Self> {
-        Ok(Self { start_on: r.bool()? })
+        let start_on = r.bool()?;
+        let is_running = if r.save { Some(r.bool()?) } else { None };
+        Ok(Self { start_on, is_running })
     }
 }
 
@@ -53,11 +59,22 @@ impl Animate {
 pub struct Item {
     /// The script instance that defines the item, like `ITMW_1H_AXE_01`.
     pub instance: String,
+    /// Save games only.
+    pub state: Option<ItemState>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ItemState {
+    pub amount: i32,
+    pub flags: i32,
 }
 
 impl Item {
     pub(crate) fn read(r: &mut Ctx) -> Result<Self> {
-        Ok(Self { instance: r.name()? })
+        let instance = r.name()?;
+        let state =
+            if r.save { Some(ItemState { amount: r.int()?, flags: r.int()? }) } else { None };
+        Ok(Self { instance, state })
     }
 }
 
@@ -121,6 +138,15 @@ pub struct CodeMaster {
     pub untriggered_cancels: bool,
     /// The names of the VOBs to wait for.
     pub slaves: Vec<String>,
+    /// Gothic 2 save games only.
+    pub state: Option<CodeMasterState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct CodeMasterState {
+    pub triggered_count: u8,
+    /// One entry per slave: the VOB that triggered it, if it has been.
+    pub triggered: Vec<Option<VobId>>,
 }
 
 impl CodeMaster {
@@ -132,10 +158,19 @@ impl CodeMaster {
             failure_target: r.name()?,
             untriggered_cancels: r.bool()?,
             slaves: Vec::new(),
+            state: None,
         };
         let count = r.byte()?;
         for _ in 0..count {
             master.slaves.push(r.name()?);
+        }
+
+        if r.save && r.game == GameVersion::Gothic2 {
+            let mut state = CodeMasterState { triggered_count: r.byte()?, triggered: Vec::new() };
+            for _ in 0..count {
+                state.triggered.push(r.vob()?);
+            }
+            master.state = Some(state);
         }
         Ok(master)
     }

@@ -15,18 +15,36 @@ pub struct ZoneMusic {
     pub reverb: f32,
     pub volume: f32,
     pub looping: bool,
+    /// Save games only.
+    pub state: Option<ZoneMusicState>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ZoneMusicState {
+    pub local_enabled: bool,
+    pub day_entrance_done: bool,
+    pub night_entrance_done: bool,
 }
 
 impl ZoneMusic {
     pub(crate) fn read(r: &mut Ctx) -> Result<Self> {
-        Ok(Self {
+        let mut zone = Self {
             enabled: r.bool()?,
             priority: r.int()?,
             ellipsoid: r.bool()?,
             reverb: r.float()?,
             volume: r.float()?,
             looping: r.bool()?,
-        })
+            state: None,
+        };
+        if r.save {
+            zone.state = Some(ZoneMusicState {
+                local_enabled: r.bool()?,
+                day_entrance_done: r.bool()?,
+                night_entrance_done: r.bool()?,
+            });
+        }
+        Ok(zone)
     }
 }
 
