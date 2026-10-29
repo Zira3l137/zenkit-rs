@@ -1,0 +1,27 @@
+[package]
+name = "zenkit-rs-save"
+description = "Reader for ZenGin save games: metadata, script state, thumbnail and the worlds visited"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = ["parallel"]
+# Reads the worlds of a save game on several threads.
+parallel = ["dep:rayon", "zenkit-rs-world/parallel"]
+
+[dependencies]
+zenkit-rs-archive.workspace = true
+zenkit-rs-core.workspace = true
+zenkit-rs-texture.workspace = true
+zenkit-rs-world.workspace = true
+rayon = { workspace = true, optional = true }
+tracing.workspace = true
+
+[dev-dependencies]
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true

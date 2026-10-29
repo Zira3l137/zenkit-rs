@@ -38,6 +38,7 @@ zenkit-rs-model = { path = "crates/zenkit-rs-model", version = "0.1.0" }
 zenkit-rs-model-script = { path = "crates/zenkit-rs-model-script", version = "0.1.0" }
 zenkit-rs-morph = { path = "crates/zenkit-rs-morph", version = "0.1.0" }
 zenkit-rs-mrm = { path = "crates/zenkit-rs-mrm", version = "0.1.0" }
+zenkit-rs-save = { path = "crates/zenkit-rs-save", version = "0.1.0", default-features = false }
 # Without its default `parallel` feature, so the facade's own `parallel` decides.
 zenkit-rs-texture = { path = "crates/zenkit-rs-texture", version = "0.1.0", default-features = false }
 zenkit-rs-vfs = { path = "crates/zenkit-rs-vfs", version = "0.1.0", default-features = false }

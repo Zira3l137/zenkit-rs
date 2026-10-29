@@ -320,6 +320,7 @@ dependencies = [
  "zenkit-rs-model-script",
  "zenkit-rs-morph",
  "zenkit-rs-mrm",
+ "zenkit-rs-save",
  "zenkit-rs-texture",
  "zenkit-rs-vfs",
  "zenkit-rs-world",
@@ -421,6 +422,19 @@ dependencies = [
  "zenkit-rs-core",
  "zenkit-rs-material",
  "zerocopy",
+]
+
+[[package]]
+name = "zenkit-rs-save"
+version = "0.1.0"
+dependencies = [
+ "rayon",
+ "tracing",
+ "tracing-subscriber",
+ "zenkit-rs-archive",
+ "zenkit-rs-core",
+ "zenkit-rs-texture",
+ "zenkit-rs-world",
 ]
 
 [[package]]

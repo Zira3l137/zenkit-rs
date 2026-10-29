@@ -46,6 +46,8 @@ pub use zenkit_rs_model_script as model_script;
 pub use zenkit_rs_morph as morph;
 #[cfg(feature = "mrm")]
 pub use zenkit_rs_mrm as mrm;
+#[cfg(feature = "save")]
+pub use zenkit_rs_save as save;
 #[cfg(feature = "texture")]
 pub use zenkit_rs_texture as texture;
 #[cfg(feature = "vfs")]

@@ -27,6 +27,7 @@ re-exported as a module of `zenkit`, so `zenkit::mrm` is the `zenkit-rs-mrm` cra
 | `model-script` |   yes   | Model scripts, both source (`.MDS`) and compiled (`.MSB`)                |
 | `world`        |   yes   | Worlds (`.ZEN`, or saved in a save game): mesh, BSP, way-net, VOBs       |
 | `cutscene`     |   yes   | Cutscene libraries (`OU.BIN`, `OU.CSL`): every line of dialogue          |
+| `save`         |   yes   | Save games: metadata, script state, quest log, thumbnail and worlds      |
 | `parallel`     |   yes   | Spreads independent work, like reading many files, across all CPU cores  |
 | `mmap`         |         | Memory-maps archives and host files instead of reading them into memory  |
 | `log`          |         | Emits every message as a `log` record too, for applications using `log`  |
@@ -103,5 +104,5 @@ this crate; stable rustfmt keeps that layout but only nightly enforces it:
 
 MIT. Portions are derived from ZenKit, © GothicKit Contributors, also MIT. Test samples under
 `samples/` are taken from the ZenKit repository; the VOB samples in `samples/*/VOb` had their
-key tables cut off to keep them small, and those in `samples/*/SaveVOb` are single objects cut out
-of its sample saves.
+key tables cut off to keep them small, those in `samples/*/SaveVOb` are single objects cut out of
+its sample saves, and `samples/*/SAVEDAT.SAV` keep only the first few entries of each list.
