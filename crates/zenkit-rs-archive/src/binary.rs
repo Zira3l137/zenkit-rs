@@ -169,4 +169,8 @@ impl<'a> Decode<'a> for Binary<'a> {
     fn raw(&mut self, len: usize) -> Result<Cow<'a, [u8]>> {
         self.r.bytes(len).map(Cow::Borrowed)
     }
+
+    fn stream(&mut self) -> &mut Reader<'a> {
+        &mut self.r
+    }
 }

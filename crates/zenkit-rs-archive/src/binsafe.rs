@@ -255,6 +255,10 @@ impl<'a> Decode<'a> for Binsafe<'a> {
     fn raw(&mut self, len: usize) -> Result<Cow<'a, [u8]>> {
         self.payload(RAW, len).map(Cow::Borrowed)
     }
+
+    fn stream(&mut self) -> &mut Reader<'a> {
+        &mut self.r
+    }
 }
 
 fn read_keys(mut table: Reader<'_>, offset: usize) -> Result<Vec<&[u8]>> {

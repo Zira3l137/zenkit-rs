@@ -245,6 +245,46 @@ fn binsafe() {
     assert!(ar.is_eof());
 }
 
+/// The engine writes some data, like a world's mesh, straight into the stream, so it looks the
+/// same in every encoding.
+#[test]
+fn reads_data_written_straight_into_the_stream() {
+    const BLOB: [u8; 4] = [0xAA, 0xBB, 0xCC, 0xDD];
+
+    let mut binsafe = Binsafe::default();
+    binsafe.object("[MeshAndBsp % 0 0]");
+    binsafe.body.extend(BLOB);
+    let binsafe = binsafe.end().value("after", 0x02, &7i32.to_le_bytes()).finish();
+
+    let mut binary = b"ZenGin Archive\nver 1\nzCArchiverGeneric\nBINARY\nsaveGame 0\nEND\n\
+                       objects 1    \nEND\n"
+        .to_vec();
+    let mut object = 0u16.to_le_bytes().to_vec();
+    object.extend(0u32.to_le_bytes());
+    object.extend(b"MeshAndBsp\0%\0");
+    object.extend(BLOB);
+    binary.extend((object.len() as u32 + 4).to_le_bytes());
+    binary.extend(object);
+    binary.extend(7i32.to_le_bytes());
+
+    let mut ascii = b"ZenGin Archive\nver 1\nzCArchiverGeneric\nASCII\nsaveGame 0\nEND\n\
+                      objects 1\nEND\n\n[MeshAndBsp % 0 0]\n"
+        .to_vec();
+    ascii.extend(BLOB);
+    ascii.extend(b"\t[]\nafter=int:7\n");
+
+    for data in [binsafe, binary, ascii] {
+        let mut ar = Archive::new(&data).unwrap();
+        assert_eq!(ar.begin_object().unwrap().unwrap().name, b"MeshAndBsp");
+
+        assert!(ar.read_stream(|r| r.skip(1 << 20)).is_err());
+        assert_eq!(ar.read_stream(|r| r.u32()).unwrap(), 0xDDCC_BBAA, "{:?}", ar.format());
+
+        assert!(ar.end_object().unwrap(), "{:?}", ar.format());
+        assert_eq!(ar.int().unwrap(), 7);
+    }
+}
+
 #[test]
 fn walks_self_describing_archives() {
     let data = binsafe_sample();

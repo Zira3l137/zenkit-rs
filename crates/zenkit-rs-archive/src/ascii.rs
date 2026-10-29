@@ -200,6 +200,10 @@ impl<'a> Decode<'a> for Ascii<'a> {
         }
         Ok(Cow::Owned(bytes))
     }
+
+    fn stream(&mut self) -> &mut Reader<'a> {
+        &mut self.r
+    }
 }
 
 /// Parses `name class version index]`, the part after the opening bracket.

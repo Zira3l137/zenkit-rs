@@ -145,6 +145,9 @@ trait Decode<'a> {
     fn aabb(&mut self) -> Result<Aabb>;
     fn mat3(&mut self) -> Result<Mat3>;
     fn raw(&mut self, len: usize) -> Result<Cow<'a, [u8]>>;
+
+    /// The underlying bytes, positioned at the next read.
+    fn stream(&mut self) -> &mut Reader<'a>;
 }
 
 fn skip_levels<'a, D: Decode<'a> + ?Sized>(d: &mut D, mut level: usize) -> Result<()> {
@@ -362,6 +365,19 @@ impl<'a> Archive<'a> {
     /// binary encodings borrow them from the input.
     pub fn raw(&mut self, len: usize) -> Result<Cow<'a, [u8]>> {
         decode!(self.raw(len))
+    }
+
+    /// Reads data the engine wrote straight into the stream instead of as values, like the mesh
+    /// and BSP tree of a world. `read` gets the bytes from the current position on, and the
+    /// archive continues wherever it leaves them; if it fails, the archive is left untouched.
+    ///
+    /// The bytes are the same in every encoding, because the engine bypasses the encoder.
+    pub fn read_stream<T>(&mut self, read: impl FnOnce(&mut Reader<'a>) -> Result<T>) -> Result<T> {
+        match &mut self.backend {
+            Backend::Ascii(d) => atomic(d, |d| read(d.stream())),
+            Backend::Binary(d) => atomic(d, |d| read(d.stream())),
+            Backend::Binsafe(d) => atomic(d, |d| read(d.stream())),
+        }
     }
 
     fn mark(&self) -> Mark {
