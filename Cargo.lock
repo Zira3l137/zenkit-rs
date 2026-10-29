@@ -313,6 +313,7 @@ dependencies = [
  "zenkit-rs-animation",
  "zenkit-rs-archive",
  "zenkit-rs-core",
+ "zenkit-rs-cutscene",
  "zenkit-rs-material",
  "zenkit-rs-mesh",
  "zenkit-rs-model",
@@ -350,6 +351,15 @@ dependencies = [
  "thiserror",
  "tracing",
  "zerocopy",
+]
+
+[[package]]
+name = "zenkit-rs-cutscene"
+version = "0.1.0"
+dependencies = [
+ "tracing",
+ "zenkit-rs-archive",
+ "zenkit-rs-core",
 ]
 
 [[package]]

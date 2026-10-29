@@ -32,6 +32,8 @@ pub use zenkit_rs_core::Result;
 pub use zenkit_rs_core::ResultExt;
 pub use zenkit_rs_core::io;
 pub use zenkit_rs_core::math;
+#[cfg(feature = "cutscene")]
+pub use zenkit_rs_cutscene as cutscene;
 #[cfg(feature = "material")]
 pub use zenkit_rs_material as material;
 #[cfg(feature = "mesh")]

@@ -1,0 +1,16 @@
+[package]
+name = "zenkit-rs-cutscene"
+description = "Reader for ZenGin cutscene libraries (OU.BIN, OU.CSL), the game's lines of dialogue"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+zenkit-rs-archive.workspace = true
+zenkit-rs-core.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true

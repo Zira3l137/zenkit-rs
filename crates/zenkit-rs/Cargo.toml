@@ -28,6 +28,7 @@ default = [
     "animation",
     "model-script",
     "world",
+    "cutscene",
     "parallel",
 ]
 vfs = ["dep:zenkit-rs-vfs"]
@@ -42,6 +43,7 @@ morph = ["mrm", "dep:zenkit-rs-morph"]
 animation = ["dep:zenkit-rs-animation"]
 model-script = ["dep:zenkit-rs-model-script"]
 world = ["mesh", "dep:zenkit-rs-world"]
+cutscene = ["archive", "dep:zenkit-rs-cutscene"]
 parallel = ["zenkit-rs-vfs?/parallel", "zenkit-rs-texture?/parallel", "zenkit-rs-world?/parallel"]
 log = ["zenkit-rs-core/log"]
 
@@ -49,6 +51,7 @@ log = ["zenkit-rs-core/log"]
 zenkit-rs-core.workspace = true
 zenkit-rs-animation = { workspace = true, optional = true }
 zenkit-rs-archive = { workspace = true, optional = true }
+zenkit-rs-cutscene = { workspace = true, optional = true }
 zenkit-rs-material = { workspace = true, optional = true }
 zenkit-rs-mesh = { workspace = true, optional = true }
 zenkit-rs-model = { workspace = true, optional = true }

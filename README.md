@@ -26,6 +26,7 @@ re-exported as a module of `zenkit`, so `zenkit::mrm` is the `zenkit-rs-mrm` cra
 | `animation`    |   yes   | Skeletal animations (`.MAN`)                                             |
 | `model-script` |   yes   | Model scripts, both source (`.MDS`) and compiled (`.MSB`)                |
 | `world`        |   yes   | Worlds (`.ZEN`, or saved in a save game): mesh, BSP, way-net, VOBs       |
+| `cutscene`     |   yes   | Cutscene libraries (`OU.BIN`, `OU.CSL`): every line of dialogue          |
 | `parallel`     |   yes   | Spreads independent work, like reading many files, across all CPU cores  |
 | `mmap`         |         | Memory-maps archives and host files instead of reading them into memory  |
 | `log`          |         | Emits every message as a `log` record too, for applications using `log`  |
@@ -78,7 +79,8 @@ ZENKIT_SAMPLES=../ZenKit/tests/samples cargo test
 ```
 
 Like ZenKit's own tests, the world tests also read Gothic 1's `WORLD.ZEN` when a copy of it sits in
-that directory as `world.proprietary.zen`. It is part of the game, so it cannot ship here.
+that directory as `world.proprietary.zen`, and the cutscene tests read the German Gothic 1 `OU.BIN`
+as `ou.proprietary.bin`. Both are part of the game, so they cannot ship here.
 
 ## Layout
 

@@ -31,6 +31,7 @@ zerocopy = { version = "0.8", default-features = false, features = ["derive"] }
 zenkit-rs-animation = { path = "crates/zenkit-rs-animation", version = "0.1.0" }
 zenkit-rs-archive = { path = "crates/zenkit-rs-archive", version = "0.1.0" }
 zenkit-rs-core = { path = "crates/zenkit-rs-core", version = "0.1.0" }
+zenkit-rs-cutscene = { path = "crates/zenkit-rs-cutscene", version = "0.1.0" }
 zenkit-rs-material = { path = "crates/zenkit-rs-material", version = "0.1.0" }
 zenkit-rs-mesh = { path = "crates/zenkit-rs-mesh", version = "0.1.0" }
 zenkit-rs-model = { path = "crates/zenkit-rs-model", version = "0.1.0" }
