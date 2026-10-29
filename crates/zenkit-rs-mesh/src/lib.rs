@@ -141,9 +141,9 @@ impl Mesh {
         Self::read(&mut Reader::new(data), false)
     }
 
-    /// Reads a mesh. `wide_indices` forces 32-bit vertex indices for Gothic 1 meshes, which XZEN
-    /// worlds need.
-    pub(crate) fn read(r: &mut Reader, wide_indices: bool) -> Result<Self> {
+    /// Reads a mesh and leaves `r` right after its end chunk, where a world's BSP tree starts.
+    /// `wide_indices` forces 32-bit vertex indices for Gothic 1 meshes, which XZEN worlds need.
+    pub fn read(r: &mut Reader, wide_indices: bool) -> Result<Self> {
         let mut mesh = Self { alpha_test: true, ..Self::default() };
         let mut version = 0;
 
@@ -258,14 +258,23 @@ impl Mesh {
     /// Splits every polygon into triangles. Polygons are convex fans, so corner 0 is shared by
     /// all of a polygon's triangles. Polygons with fewer than three corners are skipped.
     pub fn triangles(&self) -> impl Iterator<Item = Triangle> + '_ {
-        self.polygons.iter().enumerate().flat_map(move |(i, polygon)| {
-            let vertices = self.polygon_vertices(polygon);
-            let features = self.polygon_features(polygon);
-            (2..vertices.len()).map(move |b| Triangle {
-                polygon: i,
-                vertices: [vertices[0], vertices[b - 1], vertices[b]],
-                features: [features[0], features[b - 1], features[b]],
-            })
+        (0..self.polygons.len()).flat_map(|i| self.polygon_triangles(i))
+    }
+
+    /// Splits the polygon at `index` into triangles, like [`triangles`](Self::triangles) does
+    /// for all of them.
+    ///
+    /// # Panics
+    ///
+    /// If there is no polygon at `index`.
+    pub fn polygon_triangles(&self, index: usize) -> impl Iterator<Item = Triangle> + '_ {
+        let polygon = &self.polygons[index];
+        let vertices = self.polygon_vertices(polygon);
+        let features = self.polygon_features(polygon);
+        (2..vertices.len()).map(move |b| Triangle {
+            polygon: index,
+            vertices: [vertices[0], vertices[b - 1], vertices[b]],
+            features: [features[0], features[b - 1], features[b]],
         })
     }
 }
