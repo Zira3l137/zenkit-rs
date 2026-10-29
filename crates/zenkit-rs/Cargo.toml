@@ -71,8 +71,43 @@ zenkit-rs-vfs = { workspace = true, optional = true }
 zenkit-rs-world = { workspace = true, optional = true }
 
 [dev-dependencies]
+png.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+# Run with `cargo run --example <name> -- <arguments>`; each one prints how to call it when run
+# without arguments.
+[[example]]
+name = "browse"
+required-features = ["vfs"]
+
+[[example]]
+name = "texture"
+required-features = ["vfs", "texture"]
+
+[[example]]
+name = "mesh"
+required-features = ["vfs", "mrm", "morph"]
+
+[[example]]
+name = "character"
+required-features = ["vfs", "model", "animation", "model-script"]
+
+[[example]]
+name = "world"
+required-features = ["vfs", "world"]
+
+[[example]]
+name = "world_obj"
+required-features = ["vfs", "world"]
+
+[[example]]
+name = "dialogue"
+required-features = ["cutscene"]
+
+[[example]]
+name = "save"
+required-features = ["save", "texture"]
 
 [lints]
 workspace = true

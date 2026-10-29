@@ -69,6 +69,26 @@ tracing_subscriber::fmt().with_env_filter("zenkit=warn").init();
 Every warning raised while loading a file through a `Vfs` sits in a span naming that file. An
 application that logs through `log` instead turns on the `log` feature.
 
+## Examples
+
+`crates/zenkit-rs/examples` holds small programs that read files from a Gothic installation. Each
+prints how to call it when run without arguments:
+
+| Example     | Shows                                                                   |
+|-------------|-------------------------------------------------------------------------|
+| `browse`    | Mounting the game's archives and searching them                         |
+| `texture`   | Decoding a texture and saving it as a PNG                               |
+| `mesh`      | What a static mesh or a morph mesh (a head) is made of                  |
+| `character` | Putting an animated model together from its model script                |
+| `world`     | A world's mesh, objects and way net                                     |
+| `world_obj` | Saving a world's mesh as a Wavefront `.obj` for Blender                 |
+| `dialogue`  | Looking up lines of dialogue in the cutscene library (`OU.BIN`)         |
+| `save`      | A save game: the quest log, the player and the worlds                   |
+
+```sh
+cargo run --release --example world -- "C:\Games\Gothic II" NEWWORLD.ZEN
+```
+
 ## Testing
 
 `cargo test` runs every crate's tests against the small samples in `samples/`. ZenKit ships much

@@ -16,6 +16,8 @@ glam = { version = "0.34", default-features = false, features = ["std"] }
 # ASCII archives store raw bytes as hex.
 hex = { version = "0.4", default-features = false, features = ["std"] }
 memmap2 = { version = "0.9", default-features = false }
+# Only for the examples, which save textures as images.
+png = { version = "0.18", default-features = false }
 rayon = { version = "1.12", default-features = false }
 # DXT texture decoding. Its `rayon` feature decodes large textures on several threads.
 texpresso = { version = "2", default-features = false }
