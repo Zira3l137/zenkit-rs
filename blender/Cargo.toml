@@ -16,9 +16,11 @@ crate-type = ["cdylib"]
 # 5.1 on (Python 3.13).
 pyo3 = { version = "0.30", features = ["extension-module", "abi3-py311"] }
 zenkit = { package = "zenkit-rs", path = "../crates/zenkit-rs", default-features = false, features = [
+    "vfs",
     "texture",
     "mesh",
     "mrm",
+    "model",
     "parallel",
 ] }
 

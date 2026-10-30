@@ -332,6 +332,7 @@ dependencies = [
  "zenkit-rs-core",
  "zenkit-rs-material",
  "zenkit-rs-mesh",
+ "zenkit-rs-model",
  "zenkit-rs-mrm",
  "zenkit-rs-save",
  "zenkit-rs-texture",
@@ -385,6 +386,16 @@ dependencies = [
  "zenkit-rs-core",
  "zenkit-rs-material",
  "zenkit-rs-texture",
+ "zerocopy",
+]
+
+[[package]]
+name = "zenkit-rs-model"
+version = "0.1.0"
+dependencies = [
+ "tracing",
+ "zenkit-rs-core",
+ "zenkit-rs-mrm",
  "zerocopy",
 ]
 

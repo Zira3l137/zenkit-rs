@@ -3,7 +3,7 @@ schema_version = "1.0.0"
 id = "zenkit_io"
 version = "0.1.0"
 name = "ZenKit Import/Export"
-tagline = "Import and export Gothic textures and meshes with zenkit-rs"
+tagline = "Import and export Gothic textures, meshes and models"
 maintainer = "Zira3l137 <raulbairamov2002@gmail.com>"
 type = "add-on"
 website = "https://github.com/Zira3l137/zenkit-rs"
@@ -17,4 +17,4 @@ license = ["SPDX:MIT"]
 # build.py adds `platforms` and `wheels` here, naming the wheel it builds and its platform.
 
 [permissions]
-files = "Import and export Gothic textures and meshes"
+files = "Import and export Gothic files, and read the game's folders"
