@@ -52,31 +52,40 @@ The worlds folder is there for world import and export, which come next.
 
 ## Models
 
-A skeleton becomes an armature, one bone per node of the skeleton. The meshes on it come in two
-kinds, kept apart on export the same way:
+A skeleton's nodes come in three kinds, told apart by their names as Gothic's own tools do:
+
+- **Bones**, most nodes (`BIP01 SPINE`), make up an armature.
+- **Slots** (`ZS_`), the points weapons and items are held at, become small diamond-shaped
+  placeholder meshes hanging from their bone.
+- **Mesh nodes** (`ZM_`), the places of rigid parts like a door, become the object of their
+  mesh, hanging from their bone, or a placeholder while the mesh is not there.
+
+A model's meshes come in two kinds:
 
 - **Soft skins**, the bodies that bend with the bones: meshes parented to the armature, with an
   Armature modifier and a vertex group per bone that moves them.
-- **Attachments**, rigid meshes like a door or a sword: meshes parented to a bone.
+- **Attachments**, rigid meshes: the object of a mesh node, or a mesh parented to a bone.
 
-A `.MDL` holds both the skeleton and its meshes; a `.MDH` only the skeleton and a `.MDM` only the
-meshes. Since a `.MDM` needs a skeleton, it binds to the active armature if that is the right one,
-and otherwise looks for its skeleton next to it, in the models folder and in the game's archives,
-by the checksum that ties a skeleton to its meshes and animations. The checksum is kept on the
-armature, so meshes exported later still fit the skeleton the game has.
+A `.MDL` holds a skeleton and its meshes, a `.MDH` only the skeleton and a `.MDM` only the
+meshes. A `.MDM` brings in just its meshes. They go onto the active armature if that is their
+skeleton, which the checksum that ties a skeleton to its meshes and animations tells. Otherwise
+they come in on their own, their vertex groups named after the skeleton's bones if the skeleton
+is found next to the file, in the models folder or in the game's archives, so that they bind to
+it later. To put a body on a skeleton, import the `.MDH`, then the `.MDM` while the armature is
+still active.
 
 Exporting picks the file by its extension, so one armature can be exported as a whole `.MDL` or
-as a `.MDH` and its `.MDM`.
+as a `.MDH` and its `.MDM`. Bones, slots and mesh nodes go out in the order the file had them,
+since animations refer to nodes by their place, and new ones after.
 
-A skeleton made for animation, a `.MDH`, stores its root at the origin and the root's position,
-usually the hips, apart from it as the root translation, since animations move the root
-themselves. The root bone is put back at that position, where the meshes were skinned, and a
-`.MDH` is exported the same way again.
+The armature keeps the checksum and the **root translation**: an offset files keep apart from
+the root, which the engine moves the root by in the rest pose and which animations replace with
+their own. It usually holds the height of the hips, so the skeleton stands where its meshes do.
 
 Blender bones point along their Y axis, but a node can point along any of its axes; the bones of
 Gothic's skeletons, which come from 3ds Max's Biped, point along X. Each bone is made along the
-axis of its node that points to a child, reaching that child, and remembers which axis that was
-(the `zenkit_axis` property), so the node is exported exactly as it came in. Bones made in
+axis of its node that points to a child bone, reaching that child, and remembers which axis that
+was (the `zenkit_axis` property), so the node is exported exactly as it came in. Bones made in
 Blender are nodes as they are.
 
 ## How it works
