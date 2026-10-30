@@ -134,27 +134,51 @@ def deselect_all():
     bpy.context.view_layer.objects.active = None
 
 
-# A skeleton becomes an armature with a bone at every node, and writes back the same nodes.
+# A skeleton becomes an armature of its bones, with its slots and mesh nodes as objects hanging
+# from them, and writes back the same nodes in the same order.
 deselect_all()
 assert bpy.ops.import_scene.zenkit_model(filepath=str(samples / "hierarchy0.mdh")) == {"FINISHED"}
 mill = bpy.context.active_object
-assert mill.type == "ARMATURE" and len(mill.data.bones) == 7
+assert mill.type == "ARMATURE"
+assert [b.name for b in mill.data.bones] == [
+    "BIP01 MUEHLE",
+    "BIP01 NABE",
+    "BIP01 ROLLERL",
+    "BIP01 ROLLERR",
+]
+nodes = {o["zenkit_node"]: o for o in bpy.context.scene.objects if "zenkit_node" in o}
+assert sorted(nodes) == ["ZM_MUEHLE01", "ZM_RING", "ZS_POS0"]
+assert nodes["ZM_RING"].parent_type == "BONE" and nodes["ZM_RING"].parent_bone == "BIP01 NABE"
+assert nodes["ZS_POS0"].parent_bone == "BIP01 MUEHLE"
 original = zenkit_py.read_model(str(samples / "hierarchy0.mdh"))
-assert [b.name for b in mill.data.bones][0] == original["nodes"][0][0]
 assert bpy.ops.export_scene.zenkit_model(filepath=str(work / "MILL.MDH")) == {"FINISHED"}
 written = zenkit_py.read_model(str(work / "MILL.MDH"))
 assert written["checksum"] == original["checksum"]
-assert sorted(n[0] for n in written["nodes"]) == sorted(n[0] for n in original["nodes"])
-by_name = dict(zip([n[0] for n in written["nodes"]], node_positions(written), strict=True))
-for name, position in zip([n[0] for n in original["nodes"]], node_positions(original), strict=True):
-    assert np.allclose(by_name[name], position, atol=1e-2), (name, by_name[name], position)
-# Skeletons made for animation keep the root at the origin and its position apart. The root
-# bone stands at that position, and exporting stores it apart again.
+assert [n[:2] for n in written["nodes"]] == [n[:2] for n in original["nodes"]]
+for (name, _, ours), (_, _, theirs) in zip(written["nodes"], original["nodes"], strict=True):
+    ours, theirs = np.frombuffer(ours, "<f4"), np.frombuffer(theirs, "<f4")
+    assert np.allclose(ours, theirs, atol=1e-2), (name, ours, theirs)
+# The root translation moves the root, and is stored apart from it again.
 root, root_translation = stored_root(work / "MILL.MDH")
 original_root, original_translation = stored_root(samples / "hierarchy0.mdh")
-assert np.allclose(root, original_root, atol=1e-4) and not root[:3, 3].any()
+assert np.allclose(root, original_root, atol=1e-4)
 assert np.allclose(root_translation, original_translation, atol=1e-2)
 assert np.allclose(mill.data.bones[0].head_local[:], (0, -3.9404, 0), atol=1e-4)
+
+# A mesh node's mesh is its object, at the node, and goes back out as the node's attachment.
+door = zenkit_py.read_model(str(samples / "secretdoor.mdm"))["attachments"][0]["mesh"]
+mill_model = {**original, "attachments": [{"node": "ZM_RING", "mesh": door}]}
+zenkit_py.write_model(str(work / "MILL.MDL"), mill_model, "G2")
+bpy.ops.object.select_all(action="SELECT")
+bpy.ops.object.delete()
+assert bpy.ops.import_scene.zenkit_model(filepath=str(work / "MILL.MDL")) == {"FINISHED"}
+ring = next(o for o in bpy.context.scene.objects if o.get("zenkit_node") == "ZM_RING")
+assert not ring.data.get("zenkit_placeholder") and len(ring.data.vertices) > 6
+assert ring.parent_bone == "BIP01 NABE"
+assert bpy.ops.export_scene.zenkit_model(filepath=str(work / "MILL2.MDL")) == {"FINISHED"}
+mill_again = zenkit_py.read_model(str(work / "MILL2.MDL"))
+assert [a["node"] for a in mill_again["attachments"]] == ["ZM_RING"]
+assert [n[0] for n in mill_again["nodes"]] == [n[0] for n in original["nodes"]]
 print("skeleton ok")
 
 # A soft skin without its skeleton still comes in, its groups named after the nodes.
@@ -167,45 +191,71 @@ assert len(pipe.data.vertices) == 115 and pipe.vertex_groups.get("NODE 0") is no
 print("lone soft skin ok")
 
 
-# A skeleton the way Gothic's are: bones along their node's X axis, the root at the origin and
-# its position, the hips, in the root translation. Its mesh is skinned around the hips.
+# A skeleton the way Gothic's are: bones along their node's X axis, a slot on the head, and the
+# root's position, the hips, mostly in the root translation. Its mesh is skinned around the hips.
 def node(x, y, z, turn=((1, 0, 0), (0, 1, 0), (0, 0, 1))):
     rows = [(*turn[i], (x, y, z)[i]) for i in range(3)] + [(0, 0, 0, 1)]
     return np.array(rows, "<f4").tobytes()
 
 
 biped_nodes = [
-    ("BIP01", -1, node(0, 90, 0, ((0, -1, 0), (1, 0, 0), (0, 0, 1)))),
+    ("BIP01", -1, node(0, 90, 5, ((0, -1, 0), (1, 0, 0), (0, 0, 1)))),
     ("BIP01 SPINE", 0, node(20, 0, 0)),
     ("BIP01 HEAD", 1, node(30, 0, 0)),
     ("BIP01 L ARM", 1, node(25, 0, -15)),
+    ("ZS_HELMET", 2, node(10, 0, 0)),
 ]
+bone_names = {"BIP01", "BIP01 SPINE", "BIP01 HEAD", "BIP01 L ARM"}
 skin = zenkit_py.read_model(str(samples / "smoke_waterpipe.mdm"))["soft_skins"][0]
 vertices = len(skin["mesh"]["positions"]) // 12
 skin["weight_counts"] = np.ones(vertices, "<u4").tobytes()
 skin["weight_nodes"] = (np.arange(vertices) % 4).astype("<u4").tobytes()
 skin["weight_values"] = np.ones(vertices, "<f4").tobytes()
-biped = {"nodes": biped_nodes, "checksum": 1234, "soft_skins": [], "attachments": []}
+biped = {
+    "nodes": biped_nodes,
+    "root_translation": (0, 85, 0),
+    "checksum": 1234,
+    "soft_skins": [],
+    "attachments": [],
+}
 zenkit_py.write_model(str(work / "BIPED.MDH"), biped, "G2")
 zenkit_py.write_model(str(work / "BIPED_BODY.MDM"), {**biped, "soft_skins": [skin]}, "G2")
 root, root_translation = stored_root(work / "BIPED.MDH")
-assert not root[:3, 3].any() and np.allclose(root_translation, (0, 90, 0))
+assert np.allclose(root[:3, 3], (0, 5, 5)) and np.allclose(root_translation, (0, 85, 0))
+expected = np.frombuffer(skin["mesh"]["positions"], "<f4").reshape(-1, 3)[:, [0, 2, 1]] * 0.01
 
+# The mesh alone comes in alone, its groups named after the skeleton found next to it.
 bpy.ops.object.select_all(action="SELECT")
 bpy.ops.object.delete()
 assert bpy.ops.import_scene.zenkit_model(filepath=str(work / "BIPED_BODY.MDM")) == {"FINISHED"}
+assert [o.type for o in bpy.context.scene.objects] == ["MESH"]
+lone = bpy.context.scene.objects[0]
+assert {g.name for g in lone.vertex_groups} == bone_names
+
+# The skeleton stands where the mesh is, and the mesh goes onto it.
+bpy.ops.object.select_all(action="SELECT")
+bpy.ops.object.delete()
+assert bpy.ops.import_scene.zenkit_model(filepath=str(work / "BIPED.MDH")) == {"FINISHED"}
 skeleton = bpy.context.active_object
 bones = skeleton.data.bones
-assert np.allclose(bones["BIP01"].head_local[:], (0, 0, 0.9), atol=1e-5)
+assert {b.name for b in bones} == bone_names
+assert np.allclose(bones["BIP01"].head_local[:], (0, 0.05, 0.9), atol=1e-5)
 assert np.allclose(bones["BIP01 SPINE"].tail_local[:], bones["BIP01 HEAD"].head_local[:], atol=1e-5)
-assert np.allclose(bones["BIP01 HEAD"].head_local[:], (0, 0, 1.4), atol=1e-5)
+assert np.allclose(bones["BIP01 HEAD"].head_local[:], (0, 0.05, 1.4), atol=1e-5)
 assert bones["BIP01 SPINE"]["zenkit_axis"] == "X"
-body = skeleton.children[0]
-expected = np.frombuffer(skin["mesh"]["positions"], "<f4").reshape(-1, 3)[:, [0, 2, 1]] * 0.01
+helmet = next(o for o in bpy.context.scene.objects if o.get("zenkit_node") == "ZS_HELMET")
+assert helmet.parent_type == "BONE" and helmet.parent_bone == "BIP01 HEAD"
+assert np.allclose(helmet.matrix_world.to_translation()[:], (0, 0.05, 1.5), atol=1e-5)
+
+assert bpy.ops.import_scene.zenkit_model(filepath=str(work / "BIPED_BODY.MDM")) == {"FINISHED"}
+assert len([o for o in bpy.context.scene.objects if o.type == "ARMATURE"]) == 1
+(body,) = [o for o in skeleton.children if o.type == "MESH" and "zenkit_node" not in o]
+assert body.modifiers[0].object == skeleton
 assert np.allclose([v.co[:] for v in body.data.vertices], expected, atol=1e-5)
 
 assert bpy.ops.export_scene.zenkit_model(filepath=str(work / "BIPED2.MDH")) == {"FINISHED"}
 again = zenkit_py.read_model(str(work / "BIPED2.MDH"))
+assert [n[:2] for n in again["nodes"]] == [n[:2] for n in biped_nodes]
 for (_, _, ours), (_, _, theirs) in zip(again["nodes"], biped_nodes, strict=True):
     assert np.allclose(np.frombuffer(ours, "<f4"), np.frombuffer(theirs, "<f4"), atol=1e-3)
 assert np.allclose(stored_root(work / "BIPED2.MDH")[0], root, atol=1e-5)
@@ -277,12 +327,13 @@ assert bpy.ops.import_scene.zenkit_model(filepath=str(work / "RIG.MDM")) == {"FI
 assert all(o.parent == skeleton for o in bpy.context.scene.objects if o.type == "MESH")
 assert len([o for o in bpy.context.scene.objects if o.type == "ARMATURE"]) == 1
 
-# Without an armature in the scene, the skeleton is found next to the meshes.
+# Without an armature, the meshes come in alone, the sword where its bone would be.
 bpy.ops.object.select_all(action="SELECT")
 bpy.ops.object.delete()
 assert bpy.ops.import_scene.zenkit_model(filepath=str(work / "RIG.MDM")) == {"FINISHED"}
-found = [o for o in bpy.context.scene.objects if o.type == "ARMATURE"]
-assert len(found) == 1 and found[0].name.startswith("RIG"), [o.name for o in found]
+assert not [o for o in bpy.context.scene.objects if o.type == "ARMATURE"]
+sword = bpy.context.scene.objects["BIP01 ARM"]
+assert np.allclose(sword.matrix_world.to_translation()[:], (0, 0, 1), atol=1e-5)
 print("model ok")
 
 

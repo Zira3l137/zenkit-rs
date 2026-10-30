@@ -1,16 +1,26 @@
 """Gothic models to and from Blender armatures and meshes.
 
-A skeleton (.MDH) becomes an armature, one bone per node. Its meshes (.MDM) hang from it: soft
-skins, the bodies that bend with the bones, as meshes with vertex groups and an Armature
-modifier; attachments, rigid meshes like a door or a sword, as meshes parented to their bone. A
-.MDL holds both. Exporting goes the other way, from an armature and the meshes parented to it.
+A skeleton's nodes come in three kinds, told apart by name as the engine's tools do:
 
-The checksum that ties a skeleton to its meshes and animations is kept on the armature, so that
-meshes exported later still fit the skeleton the game has.
+- bones, most nodes (BIP01 SPINE), which make up the armature;
+- slots (ZS_), the points items are held at, which become small placeholder meshes;
+- mesh nodes (ZM_), which become the object of their rigid mesh, or a placeholder without one.
+
+Slots and mesh nodes hang from their bone. A node named like one stays a bone if bones hang from
+it, as a bone cannot hang from an object.
+
+A model's meshes come in two kinds. Soft skins, the bodies that bend with the bones, become
+meshes with vertex groups and an Armature modifier. Attachments are rigid meshes at a node: the
+object of a mesh node, or a mesh parented to a bone.
+
+The checksum that ties a skeleton to its meshes and animations, the root translation and each
+node's place in the file are kept, so that what is exported still fits the game's animations.
 """
 
 import math
 import zlib
+from dataclasses import dataclass
+from dataclasses import field
 from pathlib import Path
 
 import bpy
@@ -24,7 +34,12 @@ from . import preferences
 from .mesh import link
 
 CHECKSUM = "zenkit_checksum"
+ROOT_TRANSLATION = "zenkit_root_translation"
 AXIS = "zenkit_axis"
+INDEX = "zenkit_index"
+NODE = "zenkit_node"
+ATTACHMENT = "zenkit_attachment"
+PLACEHOLDER = "zenkit_placeholder"
 
 # Blender bones point along their Y axis, while a node may point along any of its axes (the
 # bones of 3ds Max's Biped, which Gothic's skeletons come from, along X). A bone is its node
@@ -37,6 +52,44 @@ TURNS = {
     "Z": Matrix.Rotation(math.pi / 2, 4, "X"),
     "-Z": Matrix.Rotation(-math.pi / 2, 4, "X"),
 }
+
+PLACEHOLDER_FACES = [
+    (0, 1, 2),
+    (0, 2, 3),
+    (0, 3, 4),
+    (0, 4, 1),
+    (5, 2, 1),
+    (5, 3, 2),
+    (5, 4, 3),
+    (5, 1, 4),
+]
+
+
+def node_kinds(nodes):
+    """ "bone", "slot" or "mesh" for each node."""
+    kinds = [""] * len(nodes)
+    holds_bone = [False] * len(nodes)
+    for i in reversed(range(len(nodes))):
+        name, parent, _ = nodes[i]
+        upper = name.upper()
+        if upper.startswith("ZS_") and not holds_bone[i]:
+            kinds[i] = "slot"
+        elif upper.startswith("ZM_") and not holds_bone[i]:
+            kinds[i] = "mesh"
+        else:
+            kinds[i] = "bone"
+            if parent >= 0:
+                holds_bone[parent] = True
+    return kinds
+
+
+def rest_world(nodes, scale):
+    """Every node's transform in the model, in Blender's space."""
+    world = []
+    for _, parent, rows in nodes:
+        local = convert.matrix_to_blender(rows, scale)
+        world.append(world[parent] @ local if parent >= 0 else local)
+    return world
 
 
 def node_frame(bone):
@@ -60,74 +113,169 @@ def bone_axis(frame, offsets):
     return (best[1], best[2]) if best is not None and best[2] > 0 else None
 
 
-def build_armature(context, name, data, scale):
-    """An armature object of the model's nodes, linked to the scene and left in object mode."""
-    nodes = data["nodes"]
-    world = []
-    for _, parent, rows in nodes:
-        local = convert.matrix_to_blender(rows, scale)
-        world.append(world[parent] @ local if parent >= 0 else local)
+def placeholder(scale):
+    """The small diamond that stands for slots, and for mesh nodes without a mesh."""
+    a = 4 * scale
+    mesh = bpy.data.meshes.new("ZenKit Node")
+    vertices = [(0, 0, 1.5 * a), (a, 0, 0), (0, a, 0), (-a, 0, 0), (0, -a, 0), (0, 0, -a)]
+    mesh.from_pydata(vertices, [], PLACEHOLDER_FACES)
+    mesh[PLACEHOLDER] = True
+    return mesh
 
-    shapes = []
+
+@dataclass
+class Rig:
+    """What meshes are bound to: the armature, if there is one, the names of the skeleton's
+    nodes in its order, their transforms in the armature's space, and the objects of its slots
+    and mesh nodes by name."""
+
+    armature: bpy.types.Object | None = None
+    names: list = field(default_factory=list)
+    world: list = field(default_factory=list)
+    objects: dict = field(default_factory=dict)
+
+
+def build_skeleton(context, name, data, scale):
+    """A Rig of a new armature for the model's nodes, with an object for each slot and mesh
+    node, linked to the scene and left in object mode."""
+    nodes = data["nodes"]
+    kinds = node_kinds(nodes)
+    world = rest_world(nodes, scale)
+
+    shapes = {}
     for i, (_, parent, _) in enumerate(nodes):
+        if kinds[i] != "bone":
+            continue
         head = world[i].to_translation()
-        children = [world[j].to_translation() - head for j, (_, p, _) in enumerate(nodes) if p == i]
+        children = [
+            world[j].to_translation() - head
+            for j, (_, p, _) in enumerate(nodes)
+            if p == i and kinds[j] == "bone"
+        ]
         shape = bone_axis(world[i], children)
         if shape is None:
             # A bone with nowhere to point to follows its parent's axis, at half its length.
             axis, length = shapes[parent] if parent >= 0 else ("Y", 0.0)
             shape = (axis, length / 2)
-        shapes.append((shape[0], max(shape[1], 5 * scale)))
+        shapes[i] = (shape[0], max(shape[1], 5 * scale))
 
     armature = bpy.data.armatures.new(name)
     armature[CHECKSUM] = str(data["checksum"])
+    armature[ROOT_TRANSLATION] = list(data["root_translation"])
     obj = bpy.data.objects.new(name, armature)
     link(context, obj)
 
     bpy.ops.object.mode_set(mode="EDIT")
-    bones = []
-    for (node_name, parent, _), (axis, length), frame in zip(nodes, shapes, world, strict=True):
+    edit_bones = {}
+    for i, (axis, length) in shapes.items():
+        node_name, parent, _ = nodes[i]
         bone = armature.edit_bones.new(node_name)
         bone.head = (0.0, 0.0, 0.0)
         bone.tail = (0.0, length, 0.0)
-        bone.matrix = frame @ TURNS[axis]
+        bone.matrix = world[i] @ TURNS[axis]
         if parent >= 0:
-            bone.parent = bones[parent]
-        bones.append(bone)
+            bone.parent = edit_bones[parent]
+        edit_bones[i] = bone
+    # Blender renames bones that share a name, so they are found again by the name they got.
+    bone_names = {i: bone.name for i, bone in edit_bones.items()}
     bpy.ops.object.mode_set(mode="OBJECT")
-    for bone, (axis, _) in zip(armature.bones, shapes, strict=True):
+    for i, (axis, _) in shapes.items():
+        bone = armature.bones[bone_names[i]]
         bone[AXIS] = axis
-    return obj
+        bone[INDEX] = i
+
+    rig = Rig(obj, [n[0] for n in nodes], world)
+    marker = None
+    for i, (node_name, parent, _) in enumerate(nodes):
+        if kinds[i] == "bone":
+            continue
+        marker = marker or placeholder(scale)
+        node_obj = bpy.data.objects.new(node_name, marker)
+        context.collection.objects.link(node_obj)
+        node_obj[NODE] = node_name
+        node_obj[INDEX] = i
+        node_obj.parent = obj
+        if parent >= 0 and kinds[parent] == "bone":
+            node_obj.parent_type = "BONE"
+            node_obj.parent_bone = bone_names[parent]
+        elif parent >= 0:
+            node_obj.parent = rig.objects[nodes[parent][0]]
+        node_obj.matrix_world = obj.matrix_world @ world[i]
+        rig.objects[node_name] = node_obj
+    return rig
 
 
-def node_names(armature):
-    """The bones of an armature in an order the engine accepts: every parent before its
-    children."""
-    order = []
-
-    def visit(bone):
-        order.append(bone)
-        for child in bone.children:
-            visit(child)
-
-    for bone in armature.data.bones:
-        if bone.parent is None:
-            visit(bone)
-    return order
+def is_node_object(obj):
+    """Whether an object hanging from an armature is a slot or mesh node rather than a mesh."""
+    if NODE in obj:
+        return True
+    if ATTACHMENT in obj:
+        return False
+    skinned = any(m.type == "ARMATURE" for m in getattr(obj, "modifiers", []))
+    return obj.name.upper().startswith(("ZS_", "ZM_")) and not skinned
 
 
-def find_skeleton(context, checksum, folder):
-    """The nodes of the skeleton with this checksum, for meshes that come without one.
+def node_objects(armature):
+    """The slots and mesh nodes hanging from an armature, and from each other."""
+    found = []
 
-    The active armature is tried first, then the skeletons next to the meshes and in the models
-    folder, then the game's archives. Gives `(armature object, None)` for an armature in the
-    scene, `(None, model dict)` for a skeleton file, or `(None, None)`.
+    def visit(parent):
+        for child in parent.children:
+            if is_node_object(child):
+                found.append(child)
+                visit(child)
+
+    visit(armature)
+    return found
+
+
+def scene_nodes(armature):
+    """An armature's nodes as (name, parent index or -1, frame in the armature's space, bone or
+    object), in the order the file had them, new ones after, every parent before its children.
     """
-    active = context.active_object
-    if active is not None and active.type == "ARMATURE":
-        if active.data.get(CHECKSUM) == str(checksum):
-            return active, None
+    entries = []
+    for bone in armature.data.bones:
+        parent = bone.parent.name if bone.parent else None
+        entries.append((bone.get(INDEX), bone.name, parent, node_frame(bone), bone))
+    to_armature = armature.matrix_world.inverted()
+    for obj in node_objects(armature):
+        if obj.parent == armature and obj.parent_type == "BONE":
+            parent = obj.parent_bone
+        elif obj.parent != armature:
+            parent = obj.parent.get(NODE, obj.parent.name)
+        else:
+            parent = None
+        frame = to_armature @ obj.matrix_world
+        entries.append((obj.get(INDEX), obj.get(NODE, obj.name), parent, frame, obj))
 
+    entries.sort(key=lambda e: (e[0] is None, e[0] or 0))
+    by_name = {e[1]: e for e in entries}
+    order = {}
+    nodes = []
+
+    def emit(entry):
+        _, name, parent, frame, item = entry
+        if name in order:
+            return
+        if parent in by_name:
+            emit(by_name[parent])
+        order[name] = len(nodes)
+        nodes.append((name, order.get(parent, -1), frame, item))
+
+    for entry in entries:
+        emit(entry)
+    return nodes
+
+
+def rig_of_armature(armature):
+    nodes = scene_nodes(armature)
+    objects = {name: item for name, _, _, item in nodes if isinstance(item, bpy.types.Object)}
+    return Rig(armature, [n[0] for n in nodes], [n[2] for n in nodes], objects)
+
+
+def find_skeleton(checksum, folder):
+    """The model dict of the skeleton with this checksum, looked for next to the meshes, in the
+    models folder and in the game's archives, or `None`."""
     folders = [folder, preferences.folder("anims")]
     for path in (p for f in folders if f for p in sorted(f.iterdir())):
         if path.suffix.lower() in (".mdh", ".mdl"):
@@ -136,60 +284,83 @@ def find_skeleton(context, checksum, folder):
             except zenkit_py.ZenKitError:
                 continue
             if data["checksum"] == checksum and data["nodes"]:
-                data["name"] = path.stem
-                return None, data
+                return data
 
     archives = preferences.archives()
     for name in archives.names(".MDH") if archives is not None else []:
         data = archives.read_model(name)
         if data is not None and data["checksum"] == checksum:
-            data["name"] = Path(name).stem
-            return None, data
-    return None, None
+            return data
+    return None
+
+
+def meshes_rig(context, data, folder, scale):
+    """The Rig for meshes that come without their skeleton: the active armature if it is their
+    skeleton, or else just the names and places of the skeleton's nodes, if it can be found."""
+    active = context.active_object
+    if active is not None and active.type == "ARMATURE":
+        if active.data.get(CHECKSUM) == str(data["checksum"]):
+            return rig_of_armature(active)
+    skeleton = find_skeleton(data["checksum"], folder)
+    if skeleton is None:
+        return Rig()
+    return Rig(names=[n[0] for n in skeleton["nodes"]], world=rest_world(skeleton["nodes"], scale))
 
 
 def import_model(context, path, scale):
+    """Imports a model file. Gives the model dict and the Rig its meshes were bound to."""
     data = zenkit_py.read_model(str(path))
-    armature = None
     if data["nodes"]:
-        armature = build_armature(context, path.stem, data, scale)
-    elif data["soft_skins"] or data["attachments"]:
-        armature, skeleton = find_skeleton(context, data["checksum"], path.parent)
-        if skeleton is not None:
-            armature = build_armature(context, skeleton["name"], skeleton, scale)
+        rig = build_skeleton(context, path.stem, data, scale)
+    else:
+        rig = meshes_rig(context, data, path.parent, scale)
+    add_meshes(context, path, data, rig, scale)
 
+    if rig.armature is not None:
+        for other in context.selected_objects:
+            other.select_set(False)
+        rig.armature.select_set(True)
+        context.view_layer.objects.active = rig.armature
+    return data, rig
+
+
+def add_meshes(context, path, data, rig, scale):
     folders = [path.parent]
-    names = [bone.name for bone in armature.data.bones] if armature else []
+    armature = rig.armature
+    to_world = armature.matrix_world if armature is not None else Matrix.Identity(4)
+
     for i, skin in enumerate(data["soft_skins"]):
         mesh = convert.build_mesh(f"{path.stem}.{i}", skin["mesh"], scale, folders)
         obj = bpy.data.objects.new(mesh.name, mesh)
         link(context, obj)
-        add_weights(obj, skin, names)
+        add_weights(obj, skin, rig.names)
         if armature is not None:
             obj.parent = armature
             obj.modifiers.new("Armature", "ARMATURE").object = armature
 
     for attachment in data["attachments"]:
-        mesh = convert.build_mesh(attachment["node"], attachment["mesh"], scale, folders)
-        obj = bpy.data.objects.new(attachment["node"], mesh)
+        node = attachment["node"]
+        mesh = convert.build_mesh(node, attachment["mesh"], scale, folders)
+        target = rig.objects.get(node)
+        if target is not None and target.type == "MESH" and target.data.get(PLACEHOLDER):
+            target.data = mesh
+            continue
+
+        obj = bpy.data.objects.new(node, mesh)
         link(context, obj)
-        bone = armature.data.bones.get(attachment["node"]) if armature else None
+        bone = armature.data.bones.get(node) if armature is not None else None
         if bone is not None:
+            obj[ATTACHMENT] = node
             obj.parent = armature
             obj.parent_type = "BONE"
             obj.parent_bone = bone.name
-            obj.matrix_world = armature.matrix_world @ node_frame(bone)
-
-    if armature is not None:
-        for other in context.selected_objects:
-            other.select_set(False)
-        armature.select_set(True)
-        context.view_layer.objects.active = armature
-    return armature, data
+            obj.matrix_world = to_world @ node_frame(bone)
+        elif node in rig.names:
+            obj.matrix_world = to_world @ rig.world[rig.names.index(node)]
 
 
 def add_weights(obj, skin, names):
-    """Vertex groups from a soft skin's weights, named after the bones, or after the node
+    """Vertex groups from a soft skin's weights, named after the nodes, or after the node
     indices when there is no skeleton."""
     counts = convert.array(skin, "weight_counts", "<u4")
     nodes = convert.array(skin, "weight_nodes", "<u4")
@@ -208,28 +379,30 @@ def add_weights(obj, skin, names):
 
 
 def gather_model(armature, depsgraph, scale):
-    """A model dict of an armature and the meshes parented to it."""
-    bones = node_names(armature)
-    index = {bone.name: i for i, bone in enumerate(bones)}
-    nodes = []
-    for bone in bones:
-        parent = bone.parent
-        local = node_frame(parent).inverted() @ node_frame(bone) if parent else node_frame(bone)
-        nodes.append(
-            (
-                bone.name,
-                index[parent.name] if parent else -1,
-                convert.matrix_to_engine(local, scale),
-            )
-        )
+    """A model dict of an armature, the slots and mesh nodes hanging from it and its meshes."""
+    nodes = scene_nodes(armature)
+    index = {name: i for i, (name, _, _, _) in enumerate(nodes)}
+    engine_nodes = []
+    for name, parent, frame, _ in nodes:
+        local = nodes[parent][2].inverted() @ frame if parent >= 0 else frame
+        engine_nodes.append((name, parent, convert.matrix_to_engine(local, scale)))
 
     checksum = armature.data.get(CHECKSUM)
     if checksum is None:
-        checksum = zlib.crc32("\n".join(b.name for b in bones).encode("latin-1", "replace"))
-    soft_skins = []
+        joined = "\n".join(n[0] for n in nodes)
+        checksum = zlib.crc32(joined.encode("latin-1", "replace"))
+    root = armature.data.get(ROOT_TRANSLATION)
+
     attachments = []
+    for name, _, _, item in nodes:
+        is_mesh = isinstance(item, bpy.types.Object) and item.type == "MESH"
+        if is_mesh and not item.data.get(PLACEHOLDER):
+            mesh = convert.gather_mesh(item, depsgraph, scale, True, item.matrix_world)
+            attachments.append({"node": name, "mesh": mesh})
+
+    soft_skins = []
     for obj in armature.children:
-        if obj.type != "MESH":
+        if obj.type != "MESH" or is_node_object(obj):
             continue
         if obj.parent_type == "BONE" and obj.parent_bone in index:
             space = armature.matrix_world @ node_frame(armature.data.bones[obj.parent_bone])
@@ -249,7 +422,8 @@ def gather_model(armature, depsgraph, scale):
             )
 
     return {
-        "nodes": nodes,
+        "nodes": engine_nodes,
+        "root_translation": tuple(root) if root is not None else None,
         "checksum": int(checksum),
         "soft_skins": soft_skins,
         "attachments": attachments,
@@ -257,21 +431,21 @@ def gather_model(armature, depsgraph, scale):
 
 
 def armature_of(obj):
-    """The armature an object belongs to: itself, its parent, or its Armature modifier's."""
-    if obj is None:
-        return None
-    if obj.type == "ARMATURE":
-        return obj
-    if obj.parent is not None and obj.parent.type == "ARMATURE":
-        return obj.parent
-    for modifier in getattr(obj, "modifiers", []):
-        if modifier.type == "ARMATURE" and modifier.object is not None:
-            return modifier.object
+    """The armature an object belongs to: itself, the one it hangs from, or its Armature
+    modifier's."""
+    while obj is not None:
+        if obj.type == "ARMATURE":
+            return obj
+        for modifier in getattr(obj, "modifiers", []):
+            if modifier.type == "ARMATURE" and modifier.object is not None:
+                return modifier.object
+        obj = obj.parent
     return None
 
 
 class ImportModel(bpy.types.Operator):
-    """Import a Gothic model (.mdl), skeleton (.mdh) or model mesh (.mdm)"""
+    """Import a Gothic model (.mdl), skeleton (.mdh) or model mesh (.mdm). A model mesh goes
+    onto the active armature if that is its skeleton"""
 
     bl_idname = "import_scene.zenkit_model"
     bl_label = "Import Gothic Model"
@@ -293,12 +467,17 @@ class ImportModel(bpy.types.Operator):
             bpy.ops.object.mode_set(mode="OBJECT")
         path = Path(self.filepath)
         try:
-            armature, data = import_model(context, path, self.scale)
+            data, rig = import_model(context, path, self.scale)
         except zenkit_py.ZenKitError as error:
             self.report({"ERROR"}, str(error))
             return {"CANCELLED"}
-        if armature is None and not data["nodes"]:
+        if rig.armature is None and not rig.names:
             self.report({"WARNING"}, f"No skeleton with checksum {data['checksum']} was found")
+        elif rig.armature is None:
+            self.report(
+                {"INFO"},
+                f"Imported {path.name} on its own; make its skeleton's armature active to bind it",
+            )
         else:
             self.report({"INFO"}, f"Imported {path.name}")
         return {"FINISHED"}
