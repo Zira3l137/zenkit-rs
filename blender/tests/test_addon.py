@@ -101,4 +101,180 @@ assert bpy.ops.export_scene.zenkit_mrm(filepath=str(work / "CUBE.MRM")) == {"FIN
 assert len(np.frombuffer(zenkit_py.read_mrm(str(work / "CUBE.MRM"))["corner_counts"], "<u4")) == 12
 print("cube ok")
 
+
+def node_positions(data):
+    """Every node's position in the model, from the transforms relative to the parents."""
+    world = []
+    for _, parent, rows in data["nodes"]:
+        local = np.frombuffer(rows, "<f4").reshape(4, 4).astype(np.float64)
+        world.append(world[parent] @ local if parent >= 0 else local)
+    return np.array([w[:3, 3] for w in world])
+
+
+def deselect_all():
+    for obj in bpy.context.selected_objects:
+        obj.select_set(False)
+    bpy.context.view_layer.objects.active = None
+
+
+# A skeleton becomes an armature with a bone at every node, and writes back the same nodes.
+deselect_all()
+assert bpy.ops.import_scene.zenkit_model(filepath=str(samples / "hierarchy0.mdh")) == {"FINISHED"}
+mill = bpy.context.active_object
+assert mill.type == "ARMATURE" and len(mill.data.bones) == 7
+original = zenkit_py.read_model(str(samples / "hierarchy0.mdh"))
+assert [b.name for b in mill.data.bones][0] == original["nodes"][0][0]
+assert bpy.ops.export_scene.zenkit_model(filepath=str(work / "MILL.MDH")) == {"FINISHED"}
+written = zenkit_py.read_model(str(work / "MILL.MDH"))
+assert written["checksum"] == original["checksum"]
+assert sorted(n[0] for n in written["nodes"]) == sorted(n[0] for n in original["nodes"])
+by_name = dict(zip([n[0] for n in written["nodes"]], node_positions(written), strict=True))
+for name, position in zip([n[0] for n in original["nodes"]], node_positions(original), strict=True):
+    assert np.allclose(by_name[name], position, atol=1e-2), (name, by_name[name], position)
+print("skeleton ok")
+
+# A soft skin without its skeleton still comes in, its groups named after the nodes.
+deselect_all()
+assert bpy.ops.import_scene.zenkit_model(filepath=str(samples / "smoke_waterpipe.mdm")) == {
+    "FINISHED"
+}
+pipe = [o for o in bpy.context.scene.objects if o.name.startswith("smoke_waterpipe")][0]
+assert len(pipe.data.vertices) == 115 and pipe.vertex_groups.get("NODE 0") is not None
+print("lone soft skin ok")
+
+# A model made in Blender: two bones, a skinned body and a rigid attachment.
+deselect_all()
+bpy.ops.object.armature_add(location=(0, 0, 0))
+rig = bpy.context.active_object
+rig.name = "RIG"
+bpy.ops.object.mode_set(mode="EDIT")
+root = rig.data.edit_bones[0]
+root.name = "BIP01"
+root.head, root.tail = (0, 0, 0), (0, 0, 1)
+arm = rig.data.edit_bones.new("BIP01 ARM")
+arm.head, arm.tail, arm.parent = (0, 0, 1), (1, 0, 1), root
+bpy.ops.object.mode_set(mode="OBJECT")
+
+bpy.ops.mesh.primitive_cube_add(size=1, location=(0.5, 0, 1))
+body = bpy.context.active_object
+body.parent = rig
+body.matrix_world.translation = (0.5, 0, 1)
+body.vertex_groups.new(name="BIP01").add(list(range(4)), 1.0, "REPLACE")
+body.vertex_groups.new(name="BIP01 ARM").add(list(range(4, 8)), 1.0, "REPLACE")
+body.modifiers.new("Armature", "ARMATURE").object = rig
+
+bpy.ops.mesh.primitive_cube_add(size=0.2)
+sword = bpy.context.active_object
+sword.parent = rig
+sword.parent_type = "BONE"
+sword.parent_bone = "BIP01 ARM"
+sword.matrix_world = rig.matrix_world @ rig.data.bones["BIP01 ARM"].matrix_local
+
+deselect_all()
+rig.select_set(True)
+bpy.context.view_layer.objects.active = rig
+for ext in ("MDL", "MDH", "MDM"):
+    assert bpy.ops.export_scene.zenkit_model(filepath=str(work / f"RIG.{ext}")) == {"FINISHED"}
+
+model = zenkit_py.read_model(str(work / "RIG.MDL"))
+assert [n[0] for n in model["nodes"]] == ["BIP01", "BIP01 ARM"]
+assert len(model["soft_skins"]) == 1 and len(model["attachments"]) == 1
+assert model["attachments"][0]["node"] == "BIP01 ARM"
+# The sword sits at its bone, so its vertices are small offsets from it, in centimetres.
+sword_positions = np.frombuffer(model["attachments"][0]["mesh"]["positions"], "<f4")
+assert np.abs(sword_positions).max() <= 10.001, sword_positions
+assert np.allclose(node_positions(model)[1], (0, 100, 0), atol=1e-3)
+assert zenkit_py.read_model(str(work / "RIG.MDM"))["checksum"] == model["checksum"]
+
+# Back in: the whole model, then the meshes alone on the skeleton alone.
+bpy.ops.object.select_all(action="SELECT")
+bpy.ops.object.delete()
+assert bpy.ops.import_scene.zenkit_model(filepath=str(work / "RIG.MDL")) == {"FINISHED"}
+rig = bpy.context.active_object
+skins = [o for o in rig.children if o.parent_type != "BONE"]
+bones = [o for o in rig.children if o.parent_type == "BONE"]
+assert len(skins) == 1 and len(bones) == 1 and bones[0].parent_bone == "BIP01 ARM"
+assert {g.name for g in skins[0].vertex_groups} == {"BIP01", "BIP01 ARM"}
+positions = np.array([v.co[:] for v in skins[0].data.vertices])
+assert np.allclose(positions.min(axis=0), (0, -0.5, 0.5), atol=1e-4), positions.min(axis=0)
+tip = (rig.matrix_world @ rig.data.bones["BIP01 ARM"].matrix_local).to_translation()
+assert np.allclose(bones[0].matrix_world.to_translation()[:], tip[:], atol=1e-5)
+
+bpy.ops.object.select_all(action="SELECT")
+bpy.ops.object.delete()
+assert bpy.ops.import_scene.zenkit_model(filepath=str(work / "RIG.MDH")) == {"FINISHED"}
+skeleton = bpy.context.active_object
+assert bpy.ops.import_scene.zenkit_model(filepath=str(work / "RIG.MDM")) == {"FINISHED"}
+assert all(o.parent == skeleton for o in bpy.context.scene.objects if o.type == "MESH")
+assert len([o for o in bpy.context.scene.objects if o.type == "ARMATURE"]) == 1
+
+# Without an armature in the scene, the skeleton is found next to the meshes.
+bpy.ops.object.select_all(action="SELECT")
+bpy.ops.object.delete()
+assert bpy.ops.import_scene.zenkit_model(filepath=str(work / "RIG.MDM")) == {"FINISHED"}
+found = [o for o in bpy.context.scene.objects if o.type == "ARMATURE"]
+assert len(found) == 1 and found[0].name.startswith("RIG"), [o.name for o in found]
+print("model ok")
+
+
+def write_vdf(path, files):
+    """A .VDF of the given name-to-bytes files, all in its root."""
+    import struct
+
+    entries, data = b"", b""
+    offset = 296 + 80 * len(files)
+    for i, (name, contents) in enumerate(files.items()):
+        last = 0x40000000 if i == len(files) - 1 else 0
+        entries += name.encode().ljust(64, b" ")
+        entries += struct.pack("<IIII", offset + len(data), len(contents), last, 0x20)
+        data += contents
+    header = b"Test".ljust(256, b"\x1a") + b"PSVDSC_V2.00\n\r\n\r"
+    header += struct.pack("<IIIIII", len(files), len(files), 0, len(data), 296, 0x50)
+    path.write_bytes(header + entries + data)
+
+
+# The folders of the preferences, worked out from a game folder, and the archives searched for
+# textures. Only when the extension is installed, since only then are there preferences; the
+# values it finds are put back afterwards.
+addon = next((a for a in bpy.context.preferences.addons if a.module.endswith("zenkit_io")), None)
+if addon is None:
+    print("preferences skipped: the extension is not installed")
+else:
+    prefs = addon.preferences
+    saved = {key: getattr(prefs, key) for key in ("game_folder", "use_custom", "textures", "game")}
+    game = work / "Gothic II"
+    (game / "System").mkdir(parents=True)
+    (game / "System" / "Gothic2.exe").write_bytes(b"")
+    meshes = game / "_WORK" / "data" / "Meshes" / "_COMPILED"
+    meshes.mkdir(parents=True)
+    shutil.copy(samples / "mesh0.mrm", meshes / "CAGE.MRM")
+    (game / "Data").mkdir()
+    texture = (samples / "erz.tex").read_bytes()
+    write_vdf(game / "Data" / "Textures.vdf", {"OCODFLGATELI-C.TEX": texture})
+    try:
+        prefs.game_folder = str(game)
+        prefs.use_custom = False
+        prefs.game = "AUTO"
+        assert prefs.folder("meshes") == meshes, prefs.folder("meshes")
+        assert prefs.folder("textures") is None
+        assert prefs.game_version() == "G2"
+
+        for mat in list(bpy.data.materials):
+            bpy.data.materials.remove(mat)
+        for image in list(bpy.data.images):
+            bpy.data.images.remove(image)
+        assert bpy.ops.import_scene.zenkit_mesh(filepath=str(meshes / "CAGE.MRM")) == {"FINISHED"}
+        mat = bpy.context.active_object.data.materials[0]
+        found = [n.image for n in mat.node_tree.nodes if n.type == "TEX_IMAGE"]
+        assert found and found[0].name == "OCODFLGATELI-C", "the archive's texture was not used"
+
+        prefs.use_custom = True
+        prefs.textures = str(samples)
+        assert prefs.folder("textures") == samples
+        assert prefs.folder("meshes") is None
+    finally:
+        for key, value in saved.items():
+            setattr(prefs, key, value)
+    print("preferences ok")
+
 print("all ok")

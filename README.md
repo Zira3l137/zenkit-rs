@@ -122,7 +122,8 @@ cargo run --release --example world -- "C:\Games\Gothic II" NEWWORLD.ZEN
 ## Blender
 
 `blender/` holds a bare-bones Blender extension, for Blender 4.2 to 5.2, that imports and exports
-textures and meshes through these crates. Its [README](blender/README.md) says how to build it.
+textures, meshes and models through these crates. Its [README](blender/README.md) says how to
+build it.
 
 ## Testing
 
