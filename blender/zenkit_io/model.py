@@ -9,12 +9,14 @@ The checksum that ties a skeleton to its meshes and animations is kept on the ar
 meshes exported later still fit the skeleton the game has.
 """
 
+import math
 import zlib
 from pathlib import Path
 
 import bpy
 import numpy as np
 import zenkit_py
+from mathutils import Matrix
 from mathutils import Vector
 
 from . import convert
@@ -22,37 +24,79 @@ from . import preferences
 from .mesh import link
 
 CHECKSUM = "zenkit_checksum"
-ROOT_TRANSLATION = "zenkit_root_translation"
+AXIS = "zenkit_axis"
+
+# Blender bones point along their Y axis, while a node may point along any of its axes (the
+# bones of 3ds Max's Biped, which Gothic's skeletons come from, along X). A bone is its node
+# turned so that Y is the node's axis named here; the turn is kept on the bone to undo it.
+TURNS = {
+    "Y": Matrix.Identity(4),
+    "-Y": Matrix.Rotation(math.pi, 4, "Z"),
+    "X": Matrix.Rotation(-math.pi / 2, 4, "Z"),
+    "-X": Matrix.Rotation(math.pi / 2, 4, "Z"),
+    "Z": Matrix.Rotation(math.pi / 2, 4, "X"),
+    "-Z": Matrix.Rotation(-math.pi / 2, 4, "X"),
+}
+
+
+def node_frame(bone):
+    """A bone's node in the armature's space, its turn undone."""
+    return bone.matrix_local @ TURNS[bone.get(AXIS, "Y")].inverted()
+
+
+def bone_axis(frame, offsets):
+    """The axis of a node that best points at one of its children, and the length along it
+    that reaches that child. `None` if no child stands apart from the node."""
+    best = None
+    for offset in offsets:
+        if offset.length < 1e-6:
+            continue
+        for name, turn in TURNS.items():
+            axis = (frame.to_3x3() @ turn.to_3x3() @ Vector((0, 1, 0))).normalized()
+            along = axis.dot(offset)
+            fit = along / offset.length
+            if best is None or fit > best[0]:
+                best = (fit, name, along)
+    return (best[1], best[2]) if best is not None and best[2] > 0 else None
 
 
 def build_armature(context, name, data, scale):
     """An armature object of the model's nodes, linked to the scene and left in object mode."""
+    nodes = data["nodes"]
     world = []
-    for _, parent, rows in data["nodes"]:
+    for _, parent, rows in nodes:
         local = convert.matrix_to_blender(rows, scale)
         world.append(world[parent] @ local if parent >= 0 else local)
 
+    shapes = []
+    for i, (_, parent, _) in enumerate(nodes):
+        head = world[i].to_translation()
+        children = [world[j].to_translation() - head for j, (_, p, _) in enumerate(nodes) if p == i]
+        shape = bone_axis(world[i], children)
+        if shape is None:
+            # A bone with nowhere to point to follows its parent's axis, at half its length.
+            axis, length = shapes[parent] if parent >= 0 else ("Y", 0.0)
+            shape = (axis, length / 2)
+        shapes.append((shape[0], max(shape[1], 5 * scale)))
+
     armature = bpy.data.armatures.new(name)
     armature[CHECKSUM] = str(data["checksum"])
-    armature[ROOT_TRANSLATION] = list(data["root_translation"])
     obj = bpy.data.objects.new(name, armature)
     link(context, obj)
 
     bpy.ops.object.mode_set(mode="EDIT")
     bones = []
-    for i, (node_name, parent, _) in enumerate(data["nodes"]):
-        # Nodes are only transforms; a bone reaches to its first child, or is short.
-        children = [world[j] for j, (_, p, _) in enumerate(data["nodes"]) if p == i]
-        head = world[i].to_translation()
-        length = (children[0].to_translation() - head).length if children else 0.0
+    for (node_name, parent, _), (axis, length), frame in zip(nodes, shapes, world, strict=True):
         bone = armature.edit_bones.new(node_name)
         bone.head = (0.0, 0.0, 0.0)
-        bone.tail = (0.0, max(length, 0.05), 0.0)
-        bone.matrix = world[i]
+        bone.tail = (0.0, length, 0.0)
+        bone.matrix = frame @ TURNS[axis]
         if parent >= 0:
             bone.parent = bones[parent]
         bones.append(bone)
     bpy.ops.object.mode_set(mode="OBJECT")
+    for bone, (axis, _) in zip(armature.bones, shapes, strict=True):
+        bone[AXIS] = axis
     return obj
 
 
@@ -134,7 +178,7 @@ def import_model(context, path, scale):
             obj.parent = armature
             obj.parent_type = "BONE"
             obj.parent_bone = bone.name
-            obj.matrix_world = armature.matrix_world @ bone.matrix_local
+            obj.matrix_world = armature.matrix_world @ node_frame(bone)
 
     if armature is not None:
         for other in context.selected_objects:
@@ -170,7 +214,7 @@ def gather_model(armature, depsgraph, scale):
     nodes = []
     for bone in bones:
         parent = bone.parent
-        local = parent.matrix_local.inverted() @ bone.matrix_local if parent else bone.matrix_local
+        local = node_frame(parent).inverted() @ node_frame(bone) if parent else node_frame(bone)
         nodes.append(
             (
                 bone.name,
@@ -182,18 +226,13 @@ def gather_model(armature, depsgraph, scale):
     checksum = armature.data.get(CHECKSUM)
     if checksum is None:
         checksum = zlib.crc32("\n".join(b.name for b in bones).encode("latin-1", "replace"))
-    root = armature.data.get(ROOT_TRANSLATION)
-    if root is None:
-        head = bones[0].head_local / scale if bones else Vector()
-        root = (head.x, head.z, head.y)
-
     soft_skins = []
     attachments = []
     for obj in armature.children:
         if obj.type != "MESH":
             continue
         if obj.parent_type == "BONE" and obj.parent_bone in index:
-            space = armature.matrix_world @ armature.data.bones[obj.parent_bone].matrix_local
+            space = armature.matrix_world @ node_frame(armature.data.bones[obj.parent_bone])
             mesh = convert.gather_mesh(obj, depsgraph, scale, True, space)
             attachments.append({"node": obj.parent_bone, "mesh": mesh})
         else:
@@ -212,7 +251,6 @@ def gather_model(armature, depsgraph, scale):
     return {
         "nodes": nodes,
         "checksum": int(checksum),
-        "root_translation": tuple(root),
         "soft_skins": soft_skins,
         "attachments": attachments,
     }
