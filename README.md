@@ -44,12 +44,16 @@ the files.
 
 Writing is being added format by format. So far these can be written:
 
-| Format         | How                                                                       |
-|----------------|---------------------------------------------------------------------------|
-| `.VDF`         | `Vfs::write_disk`, or `Node::write_disk` for one directory                |
-| ZenGin archive | `archive::ArchiveWriter`, in all three encodings                          |
-| Materials      | `Material::write`, `write_list` for the material lists of meshes          |
-| Textures       | `Texture::to_bytes`, and `Texture::from_rgba8` to make one from pixels    |
+| Format                 | How                                                                    |
+|------------------------|------------------------------------------------------------------------|
+| `.VDF`                 | `Vfs::write_disk`, or `Node::write_disk` for one directory             |
+| ZenGin archive         | `archive::ArchiveWriter`, in all three encodings                       |
+| Materials              | `Material::write`, `write_list` for the material lists of meshes       |
+| Textures               | `Texture::to_bytes`, and `Texture::from_rgba8` to make one from pixels |
+| `.MSH`                 | `Mesh::to_bytes`, or `Mesh::write` for the mesh inside a world         |
+| `.MRM`                 | `MultiResolutionMesh::to_bytes`                                        |
+| `.MDH`, `.MDM`, `.MDL` | `ModelHierarchy`, `ModelMesh` and `Model::to_bytes`                    |
+| Cutscene libraries     | `CutsceneLibrary::to_bytes`, as `OU.BIN` or `OU.CSL`                   |
 
 Writers follow the engine where it and ZenKit differ, so that the game reads what they write, and
 where a sample of the game's own files exists, the tests check that rewriting it gives the same
