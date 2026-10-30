@@ -15,6 +15,7 @@ use std::borrow::Cow;
 use tracing::warn;
 use zenkit_rs_core::Result;
 use zenkit_rs_core::io::Reader;
+use zenkit_rs_core::io::Writer;
 use zenkit_rs_core::math::Aabb;
 use zenkit_rs_core::math::Color;
 use zenkit_rs_core::math::Mat3;
@@ -29,18 +30,18 @@ use super::le_floats;
 use super::malformed;
 use super::mat3_from_rows;
 
-const STRING: u8 = 0x01;
-const INTEGER: u8 = 0x02;
-const FLOAT: u8 = 0x03;
-const BYTE: u8 = 0x04;
-const WORD: u8 = 0x05;
-const BOOL: u8 = 0x06;
-const VEC3: u8 = 0x07;
-const COLOR: u8 = 0x08;
-const RAW: u8 = 0x09;
-const RAW_FLOAT: u8 = 0x10;
-const ENUM: u8 = 0x11;
-const HASH: u8 = 0x12;
+pub(super) const STRING: u8 = 0x01;
+pub(super) const INTEGER: u8 = 0x02;
+pub(super) const FLOAT: u8 = 0x03;
+pub(super) const BYTE: u8 = 0x04;
+pub(super) const WORD: u8 = 0x05;
+pub(super) const BOOL: u8 = 0x06;
+pub(super) const VEC3: u8 = 0x07;
+pub(super) const COLOR: u8 = 0x08;
+pub(super) const RAW: u8 = 0x09;
+pub(super) const RAW_FLOAT: u8 = 0x10;
+pub(super) const ENUM: u8 = 0x11;
+pub(super) const HASH: u8 = 0x12;
 
 fn type_name(tag: u8) -> &'static str {
     match tag {
@@ -78,7 +79,7 @@ impl<'a> Binsafe<'a> {
         });
 
         // The key table follows the objects, so the objects end where it starts.
-        if table_offset > r.position() && r.limit(table_offset).is_err() {
+        if table_offset >= r.position() && r.limit(table_offset).is_err() {
             warn!("key table offset {table_offset} lies past the end");
         }
 
@@ -277,6 +278,19 @@ fn read_keys(mut table: Reader<'_>, offset: usize) -> Result<Vec<&[u8]>> {
         *slot = key;
     }
     Ok(keys)
+}
+
+/// Writes the key table: the keys in index order, each with the hash the engine files it under.
+pub(super) fn write_keys(w: &mut Writer, keys: &[String]) {
+    w.u32(keys.len() as u32);
+    for (index, key) in keys.iter().enumerate() {
+        // The hash of a key table bucket, with the bytes taken as signed like MSVC's `char`.
+        let hash = key.bytes().fold(0u32, |h, b| h.wrapping_mul(0x21).wrapping_add(b as i8 as u32));
+        w.u16(key.len() as u16);
+        w.u16(index as u16);
+        w.u32(hash % 0x61);
+        w.bytes(key.as_bytes());
+    }
 }
 
 /// Parses `name class version index]`. Tokens are separated by spaces or `]`, as with C's

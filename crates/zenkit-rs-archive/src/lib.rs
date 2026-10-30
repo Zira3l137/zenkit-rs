@@ -27,10 +27,14 @@
 //!
 //! A read that fails leaves the archive exactly where it was, so a caller can recover by trying a
 //! different type or skipping the object.
+//!
+//! [`ArchiveWriter`] writes archives in any encoding, through the same positional interface with
+//! a name for every value.
 
 mod ascii;
 mod binary;
 mod binsafe;
+mod write;
 
 use std::borrow::Cow;
 use std::fmt;
@@ -45,6 +49,8 @@ use zenkit_rs_core::math::Mat3;
 use zenkit_rs_core::math::Vec2;
 use zenkit_rs_core::math::Vec3;
 use zenkit_rs_core::text;
+
+pub use write::ArchiveWriter;
 
 const FORMAT: &str = "ZenGin archive";
 

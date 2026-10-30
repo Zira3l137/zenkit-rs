@@ -1,6 +1,6 @@
 [package]
 name = "zenkit-rs-archive"
-description = "Reader for ZenGin archives, the object format behind worlds, saves and materials"
+description = "Reader and writer for ZenGin archives, the object format behind worlds, saves and materials"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
