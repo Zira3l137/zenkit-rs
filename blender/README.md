@@ -68,6 +68,17 @@ armature, so meshes exported later still fit the skeleton the game has.
 Exporting picks the file by its extension, so one armature can be exported as a whole `.MDL` or
 as a `.MDH` and its `.MDM`.
 
+A skeleton made for animation, a `.MDH`, stores its root at the origin and the root's position,
+usually the hips, apart from it as the root translation, since animations move the root
+themselves. The root bone is put back at that position, where the meshes were skinned, and a
+`.MDH` is exported the same way again.
+
+Blender bones point along their Y axis, but a node can point along any of its axes; the bones of
+Gothic's skeletons, which come from 3ds Max's Biped, point along X. Each bone is made along the
+axis of its node that points to a child, reaching that child, and remembers which axis that was
+(the `zenkit_axis` property), so the node is exported exactly as it came in. Bones made in
+Blender are nodes as they are.
+
 ## How it works
 
 `src/` is the Python module `zenkit_py`, made with [PyO3](https://pyo3.rs). Every mesh crosses
@@ -93,4 +104,5 @@ itself, which turns that shape into Blender meshes and back.
 - Exported materials get the engine's defaults for everything Blender has no equivalent for, like
   the material group that decides footstep sounds.
 - Animations (`.MAN`), morph meshes (`.MMB`) and worlds are not covered yet.
-- Bones are made as long as the distance to their first child; the engine's nodes have no length.
+- The engine's nodes have no length: bones reach the child they point to, and bones without one
+  are half as long as their parent's.

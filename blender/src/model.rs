@@ -1,17 +1,21 @@
 //! Models: skeletons (`.MDH`), their meshes (`.MDM`) or both (`.MDL`), as one dict:
 //!
 //! ```text
-//! nodes             list of (name, parent index or -1, transform): the transform relative to
-//!                   the parent, 16 f32 row by row
-//! checksum          ties a skeleton to its meshes and animations
-//! root_translation  (x, y, z)
-//! soft_skins        list of {"mesh": mesh dict, "weight_counts", "weight_nodes",
-//!                   "weight_values"}: per vertex, how many bones move it (u32), then per bone
-//!                   its node index (u32) and weight (f32)
-//! attachments       list of {"node": name, "mesh": mesh dict}, each mesh in its node's space
+//! nodes        list of (name, parent index or -1, transform): the transform relative to the
+//!              parent, 16 f32 row by row, in the rest pose the meshes were skinned in
+//! checksum     ties a skeleton to its meshes and animations
+//! soft_skins   list of {"mesh": mesh dict, "weight_counts", "weight_nodes", "weight_values"}:
+//!              per vertex, how many bones move it (u32), then per bone its node index (u32)
+//!              and weight (f32)
+//! attachments  list of {"node": name, "mesh": mesh dict}, each mesh in its node's space
 //! ```
 //!
 //! A `.MDH` has no meshes and a `.MDM` no nodes; the dict has empty lists for them.
+//!
+//! Skeletons made for animation (a `.MDH`, and the `.MDM` beside it) keep the root's position
+//! apart from its transform, as the root translation, since animations move the root
+//! themselves. The dict has it back in the root's transform, where the meshes expect it; writing
+//! takes it out again for those files.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -74,16 +78,15 @@ pub(crate) fn to_dict<'py>(
     };
 
     let dict = PyDict::new(py);
-    let nodes = hierarchy.iter().flat_map(|h| &h.nodes).map(|node| {
-        let rows: Vec<f32> = node.transform.transpose().to_cols_array().to_vec();
+    let rest = hierarchy.as_ref().map(rest_pose).unwrap_or_default();
+    let nodes = hierarchy.iter().flat_map(|h| &h.nodes).zip(rest).map(|(node, transform)| {
+        let rows: Vec<f32> = transform.transpose().to_cols_array().to_vec();
         let parent = node.parent.map_or(-1, i32::from);
         (node.name.clone(), parent, PyBytes::new(py, &mesh::le_bytes(&rows, f32::to_le_bytes)))
     });
     dict.set_item("nodes", nodes.collect::<Vec<_>>())?;
     let checksum = hierarchy.as_ref().map(|h| h.checksum).or(mesh.as_ref().map(|m| m.checksum));
     dict.set_item("checksum", checksum.unwrap_or(0))?;
-    let root = hierarchy.as_ref().map_or(Vec3::ZERO, |h| h.root_translation);
-    dict.set_item("root_translation", root.to_array())?;
 
     let mut soft_skins = Vec::new();
     let mut attachments = Vec::new();
@@ -131,7 +134,6 @@ pub(crate) fn to_dict<'py>(
 pub(crate) struct ModelData {
     nodes: Vec<(String, i32, Vec<u8>)>,
     checksum: u32,
-    root_translation: (f32, f32, f32),
     soft_skins: Vec<SkinData>,
     attachments: Vec<AttachmentData>,
 }
@@ -183,6 +185,7 @@ pub(crate) fn write_model(path: PathBuf, data: ModelData, game_name: &str) -> Py
 
     let hierarchy = ModelHierarchy { bbox: model_bounds(&hierarchy, &world, &mesh), ..hierarchy };
     let hierarchy = ModelHierarchy { collision_bbox: hierarchy.bbox, ..hierarchy };
+    let hierarchy = if with_mesh { hierarchy } else { for_animation(hierarchy) };
     let bytes = match (with_hierarchy, with_mesh) {
         (true, true) => Model { hierarchy, mesh }.to_bytes(game),
         (true, false) => hierarchy.to_bytes(),
@@ -212,13 +215,38 @@ fn hierarchy(data: &ModelData) -> PyResult<ModelHierarchy> {
             transform: Mat4::from_cols_array(&rows).transpose(),
         });
     }
-    let (x, y, z) = data.root_translation;
+    let root_translation = nodes.first().map_or(Vec3::ZERO, |n| n.transform.w_axis.truncate());
     Ok(ModelHierarchy {
         nodes,
-        root_translation: Vec3::new(x, y, z),
+        root_translation,
         checksum: data.checksum,
         ..ModelHierarchy::default()
     })
+}
+
+/// Every node's transform relative to its parent in the rest pose: roots without a position of
+/// their own stand at the root translation.
+fn rest_pose(hierarchy: &ModelHierarchy) -> Vec<Mat4> {
+    hierarchy
+        .nodes
+        .iter()
+        .map(|node| {
+            let mut transform = node.transform;
+            if node.parent.is_none() && transform.w_axis.truncate().length() < 1e-4 {
+                transform.w_axis = hierarchy.root_translation.extend(1.0);
+            }
+            transform
+        })
+        .collect()
+}
+
+/// The hierarchy as skeletons made for animation are stored: roots at the origin, their
+/// position kept as the root translation.
+fn for_animation(mut hierarchy: ModelHierarchy) -> ModelHierarchy {
+    for node in hierarchy.nodes.iter_mut().filter(|n| n.parent.is_none()) {
+        node.transform.w_axis = Vec3::ZERO.extend(1.0);
+    }
+    hierarchy
 }
 
 /// Every node's transform in the model's space. Parents come before their children.

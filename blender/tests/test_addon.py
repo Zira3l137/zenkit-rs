@@ -7,6 +7,7 @@ The library's sample files come from the repository's samples/ folder.
 """
 
 import shutil
+import struct
 import sys
 import tempfile
 from pathlib import Path
@@ -111,6 +112,22 @@ def node_positions(data):
     return np.array([w[:3, 3] for w in world])
 
 
+def stored_root(path):
+    """The root node's transform and the root translation, as a skeleton file stores them."""
+    data = Path(path).read_bytes()
+    at = 0
+    while struct.unpack_from("<H", data, at)[0] != 0xD100:
+        at += 6 + struct.unpack_from("<I", data, at + 2)[0]
+    (count,) = struct.unpack_from("<H", data, at + 10)
+    at += 12
+    for i in range(count):
+        at = data.index(b"\n", at) + 3
+        if i == 0:
+            root = np.frombuffer(data, "<f4", 16, at).reshape(4, 4)
+        at += 64
+    return root, np.frombuffer(data, "<f4", 3, at + 48)
+
+
 def deselect_all():
     for obj in bpy.context.selected_objects:
         obj.select_set(False)
@@ -131,6 +148,13 @@ assert sorted(n[0] for n in written["nodes"]) == sorted(n[0] for n in original["
 by_name = dict(zip([n[0] for n in written["nodes"]], node_positions(written), strict=True))
 for name, position in zip([n[0] for n in original["nodes"]], node_positions(original), strict=True):
     assert np.allclose(by_name[name], position, atol=1e-2), (name, by_name[name], position)
+# Skeletons made for animation keep the root at the origin and its position apart. The root
+# bone stands at that position, and exporting stores it apart again.
+root, root_translation = stored_root(work / "MILL.MDH")
+original_root, original_translation = stored_root(samples / "hierarchy0.mdh")
+assert np.allclose(root, original_root, atol=1e-4) and not root[:3, 3].any()
+assert np.allclose(root_translation, original_translation, atol=1e-2)
+assert np.allclose(mill.data.bones[0].head_local[:], (0, -3.9404, 0), atol=1e-4)
 print("skeleton ok")
 
 # A soft skin without its skeleton still comes in, its groups named after the nodes.
@@ -141,6 +165,51 @@ assert bpy.ops.import_scene.zenkit_model(filepath=str(samples / "smoke_waterpipe
 pipe = [o for o in bpy.context.scene.objects if o.name.startswith("smoke_waterpipe")][0]
 assert len(pipe.data.vertices) == 115 and pipe.vertex_groups.get("NODE 0") is not None
 print("lone soft skin ok")
+
+
+# A skeleton the way Gothic's are: bones along their node's X axis, the root at the origin and
+# its position, the hips, in the root translation. Its mesh is skinned around the hips.
+def node(x, y, z, turn=((1, 0, 0), (0, 1, 0), (0, 0, 1))):
+    rows = [(*turn[i], (x, y, z)[i]) for i in range(3)] + [(0, 0, 0, 1)]
+    return np.array(rows, "<f4").tobytes()
+
+
+biped_nodes = [
+    ("BIP01", -1, node(0, 90, 0, ((0, -1, 0), (1, 0, 0), (0, 0, 1)))),
+    ("BIP01 SPINE", 0, node(20, 0, 0)),
+    ("BIP01 HEAD", 1, node(30, 0, 0)),
+    ("BIP01 L ARM", 1, node(25, 0, -15)),
+]
+skin = zenkit_py.read_model(str(samples / "smoke_waterpipe.mdm"))["soft_skins"][0]
+vertices = len(skin["mesh"]["positions"]) // 12
+skin["weight_counts"] = np.ones(vertices, "<u4").tobytes()
+skin["weight_nodes"] = (np.arange(vertices) % 4).astype("<u4").tobytes()
+skin["weight_values"] = np.ones(vertices, "<f4").tobytes()
+biped = {"nodes": biped_nodes, "checksum": 1234, "soft_skins": [], "attachments": []}
+zenkit_py.write_model(str(work / "BIPED.MDH"), biped, "G2")
+zenkit_py.write_model(str(work / "BIPED_BODY.MDM"), {**biped, "soft_skins": [skin]}, "G2")
+root, root_translation = stored_root(work / "BIPED.MDH")
+assert not root[:3, 3].any() and np.allclose(root_translation, (0, 90, 0))
+
+bpy.ops.object.select_all(action="SELECT")
+bpy.ops.object.delete()
+assert bpy.ops.import_scene.zenkit_model(filepath=str(work / "BIPED_BODY.MDM")) == {"FINISHED"}
+skeleton = bpy.context.active_object
+bones = skeleton.data.bones
+assert np.allclose(bones["BIP01"].head_local[:], (0, 0, 0.9), atol=1e-5)
+assert np.allclose(bones["BIP01 SPINE"].tail_local[:], bones["BIP01 HEAD"].head_local[:], atol=1e-5)
+assert np.allclose(bones["BIP01 HEAD"].head_local[:], (0, 0, 1.4), atol=1e-5)
+assert bones["BIP01 SPINE"]["zenkit_axis"] == "X"
+body = skeleton.children[0]
+expected = np.frombuffer(skin["mesh"]["positions"], "<f4").reshape(-1, 3)[:, [0, 2, 1]] * 0.01
+assert np.allclose([v.co[:] for v in body.data.vertices], expected, atol=1e-5)
+
+assert bpy.ops.export_scene.zenkit_model(filepath=str(work / "BIPED2.MDH")) == {"FINISHED"}
+again = zenkit_py.read_model(str(work / "BIPED2.MDH"))
+for (_, _, ours), (_, _, theirs) in zip(again["nodes"], biped_nodes, strict=True):
+    assert np.allclose(np.frombuffer(ours, "<f4"), np.frombuffer(theirs, "<f4"), atol=1e-3)
+assert np.allclose(stored_root(work / "BIPED2.MDH")[0], root, atol=1e-5)
+print("game skeleton ok")
 
 # A model made in Blender: two bones, a skinned body and a rigid attachment.
 deselect_all()
