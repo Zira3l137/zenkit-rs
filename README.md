@@ -18,7 +18,7 @@ re-exported as a module of `zenkit`, so `zenkit::mrm` is the `zenkit-rs-mrm` cra
 |----------------|:-------:|--------------------------------------------------------------------------|
 | `vfs`          |   yes   | `.VDF` archives: mounting them with host directories, and writing them   |
 | `archive`      |   yes   | ZenGin archives, the object format behind worlds, saves and more         |
-| `material`     |   yes   | Materials (`zCMaterial`), as found in meshes, worlds and `.MAT` files    |
+| `material`     |   yes   | Materials (`zCMaterial`), which compiled meshes and worlds embed         |
 | `texture`      |   yes   | Textures (`.TEX`), converting every pixel format to and from RGBA8       |
 | `mesh`         |   yes   | Static meshes (`.MSH`), the format of world geometry                     |
 | `mrm`          |   yes   | Multi-resolution meshes (`.MRM`), the format of props, items and armour  |
@@ -48,7 +48,7 @@ Writing is being added format by format. So far these can be written:
 |----------------|---------------------------------------------------------------------------|
 | `.VDF`         | `Vfs::write_disk`, or `Node::write_disk` for one directory                |
 | ZenGin archive | `archive::ArchiveWriter`, in all three encodings                          |
-| Materials      | `Material::write`, `write_list` for `.MAT` files                          |
+| Materials      | `Material::write`, `write_list` for the material lists of meshes          |
 | Textures       | `Texture::to_bytes`, and `Texture::from_rgba8` to make one from pixels    |
 
 Writers follow the engine where it and ZenKit differ, so that the game reads what they write, and

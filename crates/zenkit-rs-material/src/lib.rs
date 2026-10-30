@@ -1,8 +1,13 @@
 //! Materials (`zCMaterial`), which describe how a surface is textured and how it behaves.
 //!
-//! Materials never come on their own: meshes and worlds embed them as archive objects, and the
-//! rare `.MAT` file is just a list of them. They are read from an [`Archive`] and written to an
-//! [`ArchiveWriter`].
+//! Materials never come on their own. When the engine compiles a model, it turns each material of
+//! the `.3DS` or `.ASC` file into a `zCMaterial`, and the compiled mesh (`.MSH`, `.MRM`, `.MDM`)
+//! keeps the whole material in a material list; worlds keep theirs in the world mesh. The fields a
+//! modelling tool cannot express, like the [group](Material::group) that decides footstep sounds,
+//! start out with defaults and are set in the Spacer.
+//!
+//! Materials are read from an [`Archive`] and written to an [`ArchiveWriter`]. The `.MAT` samples
+//! in the tests are material lists cut out of compiled meshes, not files the game uses.
 
 use tracing::warn;
 use zenkit_rs_archive::Archive;
@@ -122,8 +127,8 @@ impl Material {
         Ok(material)
     }
 
-    /// Reads a material list: a count, then a name and a material for each. This is the layout
-    /// of `.MAT` files and of the material section in meshes.
+    /// Reads a material list: a count, then a name and a material for each. This is how
+    /// compiled meshes store their materials.
     pub fn read_list(archive: &mut Archive) -> Result<Vec<Self>> {
         let count = archive.int()?.max(0) as usize;
         let mut materials = Vec::with_capacity(count.min(4096));

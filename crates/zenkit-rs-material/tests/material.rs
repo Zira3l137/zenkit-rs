@@ -20,8 +20,8 @@ fn demon_body(game: &str) -> Material {
     let mut list = Material::read_list(&mut archive).unwrap();
     assert_eq!(list.len(), 1);
 
-    // The G2 sample was cut from a mesh: the material list is followed by the mesh's alpha-test
-    // byte and the start of its vertex chunk (0xB030).
+    // Both samples are material lists cut out of compiled meshes. The G2 one goes on with the
+    // mesh's alpha-test byte and the start of its next chunk (0xB030).
     let rest = &data[archive.position()..];
     match game {
         "G1" => assert!(rest.is_empty()),
