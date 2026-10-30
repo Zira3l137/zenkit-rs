@@ -1,0 +1,20 @@
+schema_version = "1.0.0"
+
+id = "zenkit_io"
+version = "0.1.0"
+name = "ZenKit Import/Export"
+tagline = "Import and export Gothic textures and meshes with zenkit-rs"
+maintainer = "Zira3l137 <raulbairamov2002@gmail.com>"
+type = "add-on"
+website = "https://github.com/Zira3l137/zenkit-rs"
+
+blender_version_min = "4.2.0"
+# The first version that is not supported.
+blender_version_max = "5.3.0"
+
+license = ["SPDX:MIT"]
+
+# build.py adds `platforms` and `wheels` here, naming the wheel it builds and its platform.
+
+[permissions]
+files = "Import and export Gothic textures and meshes"
