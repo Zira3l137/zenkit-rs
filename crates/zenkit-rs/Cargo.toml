@@ -1,6 +1,6 @@
 [package]
 name = "zenkit-rs"
-description = "Pure Rust reader for ZenGin (Gothic, Gothic II) asset formats, ported from ZenKit"
+description = "Pure Rust reader and writer for ZenGin (Gothic, Gothic II) asset formats, ported from ZenKit"
 keywords = ["gothic", "zengin", "gamedev", "parser"]
 categories = ["game-development", "parser-implementations"]
 readme = "../../README.md"
@@ -108,6 +108,14 @@ required-features = ["cutscene"]
 [[example]]
 name = "save"
 required-features = ["save", "texture"]
+
+[[example]]
+name = "pack"
+required-features = ["vfs"]
+
+[[example]]
+name = "make_texture"
+required-features = ["texture"]
 
 [lints]
 workspace = true

@@ -1,7 +1,8 @@
 # zenkit-rs
 
-A pure Rust reader for the asset formats of the ZenGin, the engine behind *Gothic* and *Gothic II*.
-It is a port of [ZenKit](https://github.com/GothicKit/ZenKit) and needs no C++ toolchain.
+A pure Rust reader and writer for the asset formats of the ZenGin, the engine behind *Gothic* and
+*Gothic II*. It is a port of [ZenKit](https://github.com/GothicKit/ZenKit) and needs no C++
+toolchain.
 
 ```toml
 [dependencies]
@@ -15,10 +16,10 @@ re-exported as a module of `zenkit`, so `zenkit::mrm` is the `zenkit-rs-mrm` cra
 
 | Feature        | Default | What it enables                                                          |
 |----------------|:-------:|--------------------------------------------------------------------------|
-| `vfs`          |   yes   | Reading `.VDF` archives and mounting them together with host directories |
-| `archive`      |   yes   | Reading ZenGin archives, the object format behind worlds, saves and more |
+| `vfs`          |   yes   | `.VDF` archives: mounting them with host directories, and writing them   |
+| `archive`      |   yes   | ZenGin archives, the object format behind worlds, saves and more         |
 | `material`     |   yes   | Materials (`zCMaterial`), as found in meshes, worlds and `.MAT` files    |
-| `texture`      |   yes   | Textures (`.TEX`), including decoding every pixel format to RGBA8        |
+| `texture`      |   yes   | Textures (`.TEX`), converting every pixel format to and from RGBA8       |
 | `mesh`         |   yes   | Static meshes (`.MSH`), the format of world geometry                     |
 | `mrm`          |   yes   | Multi-resolution meshes (`.MRM`), the format of props, items and armour  |
 | `model`        |   yes   | Skeletons (`.MDH`), skinned meshes (`.MDM`) and models (`.MDL`)          |
@@ -38,6 +39,21 @@ plain `wasm32`; results are the same either way.
 `mmap` saves memory and start-up time with large archives, but if another program changes a mapped
 file while it is mounted, the data you are reading changes with it. Leave it off unless you control
 the files.
+
+## Writing
+
+Writing is being added format by format. So far these can be written:
+
+| Format         | How                                                                       |
+|----------------|---------------------------------------------------------------------------|
+| `.VDF`         | `Vfs::write_disk`, or `Node::write_disk` for one directory                |
+| ZenGin archive | `archive::ArchiveWriter`, in all three encodings                          |
+| Materials      | `Material::write`, `write_list` for `.MAT` files                          |
+| Textures       | `Texture::to_bytes`, and `Texture::from_rgba8` to make one from pixels    |
+
+Writers follow the engine where it and ZenKit differ, so that the game reads what they write, and
+where a sample of the game's own files exists, the tests check that rewriting it gives the same
+bytes.
 
 ## Errors
 
@@ -71,19 +87,21 @@ application that logs through `log` instead turns on the `log` feature.
 
 ## Examples
 
-`crates/zenkit-rs/examples` holds small programs that read files from a Gothic installation. Each
-prints how to call it when run without arguments:
+`crates/zenkit-rs/examples` holds small programs that read files from a Gothic installation, or make
+new ones. Each prints how to call it when run without arguments:
 
-| Example     | Shows                                                                   |
-|-------------|-------------------------------------------------------------------------|
-| `browse`    | Mounting the game's archives and searching them                         |
-| `texture`   | Decoding a texture and saving it as a PNG                               |
-| `mesh`      | What a static mesh or a morph mesh (a head) is made of                  |
-| `character` | Putting an animated model together from its model script                |
-| `world`     | A world's mesh, objects and way net                                     |
-| `world_obj` | Saving a world's mesh as a Wavefront `.obj` for Blender                 |
-| `dialogue`  | Looking up lines of dialogue in the cutscene library (`OU.BIN`)         |
-| `save`      | A save game: the quest log, the player and the worlds                   |
+| Example        | Shows                                                            |
+|----------------|------------------------------------------------------------------|
+| `browse`       | Mounting the game's archives and searching them                  |
+| `texture`      | Decoding a texture and saving it as a PNG                        |
+| `mesh`         | What a static mesh or a morph mesh (a head) is made of           |
+| `character`    | Putting an animated model together from its model script         |
+| `world`        | A world's mesh, objects and way net                              |
+| `world_obj`    | Saving a world's mesh as a Wavefront `.obj` for Blender          |
+| `dialogue`     | Looking up lines of dialogue in the cutscene library (`OU.BIN`)  |
+| `save`         | A save game: the quest log, the player and the worlds            |
+| `pack`         | Packing a folder into a `.VDF` archive, the way mods are shipped |
+| `make_texture` | Turning a PNG into a game texture with mipmaps                   |
 
 ```sh
 cargo run --release --example world -- "C:\Games\Gothic II" NEWWORLD.ZEN

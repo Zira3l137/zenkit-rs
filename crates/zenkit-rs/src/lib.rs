@@ -1,4 +1,5 @@
-//! Pure Rust reader for the asset formats of the ZenGin, the engine behind *Gothic* and *Gothic II*.
+//! Pure Rust reader and writer for the asset formats of the ZenGin, the engine behind *Gothic* and
+//! *Gothic II*.
 //!
 //! This crate is a port of [ZenKit](https://github.com/GothicKit/ZenKit). Each file format is a
 //! crate of its own, pulled in by a cargo feature of the same name and re-exported here as a
