@@ -45,7 +45,9 @@ pub struct Weight {
     pub weight: f32,
     /// The vertex's position relative to the bone.
     pub position: Vec3,
-    /// Index into [`SoftSkinMesh::nodes`].
+    /// The bone: an index into the [hierarchy's](super::ModelHierarchy) nodes, so only the first
+    /// 256 nodes can move a vertex. The engine uses it as it is, not through
+    /// [`SoftSkinMesh::nodes`].
     pub node: u8,
 }
 
@@ -81,7 +83,8 @@ pub struct SoftSkinMesh {
     /// Per position in [`mesh`](Self::mesh), the bones that move it.
     pub weights: Vec<Vec<Weight>>,
     pub wedge_normals: Vec<WedgeNormal>,
-    /// Indices into the [hierarchy's](super::ModelHierarchy) nodes.
+    /// The [hierarchy's](super::ModelHierarchy) nodes that have a box around their part of the
+    /// mesh, as indices; not necessarily every node the weights use, nor in any order.
     pub nodes: Vec<i32>,
     /// One per entry of [`nodes`](Self::nodes).
     pub bboxes: Vec<Obb>,
