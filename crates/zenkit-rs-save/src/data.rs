@@ -164,8 +164,8 @@ impl SaveData {
 
         let raw = r.raw(GUILDS * GUILDS)?;
         let mut guild_attitudes = [[0; GUILDS]; GUILDS];
-        for (row, bytes) in guild_attitudes.iter_mut().zip(raw.chunks_exact(GUILDS)) {
-            row.copy_from_slice(bytes);
+        for (row, bytes) in guild_attitudes.iter_mut().zip(raw.as_chunks::<GUILDS>().0) {
+            *row = *bytes;
         }
 
         Ok(Self {
