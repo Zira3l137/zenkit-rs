@@ -22,6 +22,7 @@ mod disk;
 mod host;
 mod node;
 mod par;
+mod write;
 
 use std::collections::btree_map::Entry;
 use std::path::Path;
@@ -43,6 +44,7 @@ use crate::node::fold;
 use crate::node::trim_name;
 
 pub use node::Node;
+pub use write::DiskOptions;
 
 /// What to do when a mounted node collides with one that is already in the tree.
 ///
@@ -123,6 +125,31 @@ impl Vfs {
             stack.extend(dir.children().filter(|c| c.is_dir()));
         }
         None
+    }
+
+    /// Writes the whole tree as a `.VDF` archive, ready to mount with [`mount_disk`](Self::mount_disk)
+    /// or to drop into the game's `Data` directory:
+    ///
+    /// ```no_run
+    /// use std::fs::File;
+    /// use std::io::BufWriter;
+    ///
+    /// use zenkit_rs_core::GameVersion;
+    /// use zenkit_rs_vfs::DiskOptions;
+    /// use zenkit_rs_vfs::Overwrite;
+    /// use zenkit_rs_vfs::Vfs;
+    ///
+    /// let mut vfs = Vfs::new();
+    /// vfs.mount_host("MyMod/_work", "/_WORK", Overwrite::All)?;
+    /// let out = BufWriter::new(File::create("MyMod.vdf").unwrap());
+    /// vfs.write_disk(out, &DiskOptions::new(GameVersion::Gothic2))?;
+    /// # Ok::<(), zenkit_rs_core::Error>(())
+    /// ```
+    ///
+    /// Names are written in upper case, as the original tools do. Directories without files
+    /// cannot be stored and are left out.
+    pub fn write_disk(&self, out: impl std::io::Write, options: &DiskOptions) -> Result<()> {
+        self.root.write_disk(out, options)
     }
 
     /// Every file in the tree, depth-first.

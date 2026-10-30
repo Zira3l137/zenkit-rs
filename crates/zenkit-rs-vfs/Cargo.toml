@@ -1,6 +1,6 @@
 [package]
 name = "zenkit-rs-vfs"
-description = "The ZenGin's virtual file system: VDF archives and host directories mounted into one tree"
+description = "The ZenGin's virtual file system: VDF archives and host directories mounted into one tree, and VDF writing"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

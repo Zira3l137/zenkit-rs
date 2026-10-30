@@ -34,15 +34,15 @@ use super::node::Storage;
 
 const FORMAT: &str = "VDF archive";
 
-const SIGNATURE_G1: &[u8; 16] = b"PSVDSC_V2.00\r\n\r\n";
-const SIGNATURE_G2: &[u8; 16] = b"PSVDSC_V2.00\n\r\n\r";
+pub(crate) const SIGNATURE_G1: &[u8; 16] = b"PSVDSC_V2.00\r\n\r\n";
+pub(crate) const SIGNATURE_G2: &[u8; 16] = b"PSVDSC_V2.00\n\r\n\r";
 const SIGNATURE_VDFSTOOL: &[u8; 16] = b"PSVDSC_V2.00\x1A\x1A\x1A\x1A";
 
-const FLAGS_NORMAL: u32 = 0x50;
+pub(crate) const FLAGS_NORMAL: u32 = 0x50;
 const FLAGS_ZIPPED: u32 = 0xA0;
 
-const ENTRY_DIR: u32 = 0x8000_0000;
-const ENTRY_LAST: u32 = 0x4000_0000;
+pub(crate) const ENTRY_DIR: u32 = 0x8000_0000;
+pub(crate) const ENTRY_LAST: u32 = 0x4000_0000;
 
 const MAX_DEPTH: usize = 128;
 

@@ -9,6 +9,8 @@ use zenkit_rs_core::Error;
 use zenkit_rs_core::Result;
 use zenkit_rs_core::io::Reader;
 
+use crate::write::DiskOptions;
+
 /// The bytes a file node points into: either a whole archive, or a single host file.
 pub(super) enum Storage {
     Owned(Box<[u8]>),
@@ -111,6 +113,12 @@ impl Node {
             Kind::File(data) => Some(data.bytes()),
             Kind::Dir(_) => None,
         }
+    }
+
+    /// Writes the children of this directory as a `.VDF` archive, as
+    /// [`Vfs::write_disk`](super::Vfs::write_disk) does for the whole tree.
+    pub fn write_disk(&self, mut out: impl std::io::Write, options: &DiskOptions) -> Result<()> {
+        crate::write::write(self, &mut out, options)
     }
 
     pub fn open(&self) -> Option<Reader<'_>> {
