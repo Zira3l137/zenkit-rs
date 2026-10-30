@@ -237,3 +237,84 @@ fn zenkit_gothic1_library() {
     assert_eq!(message.text, "Stimmt genau.");
     assert!(library.block("nonexistent").is_none());
 }
+
+#[test]
+fn libraries_round_trip_in_every_encoding() {
+    use zenkit_rs_archive::Format;
+
+    let library = CutsceneLibrary::from_bytes(&ascii(false)).unwrap();
+    for format in [Format::Ascii, Format::Binary, Format::Binsafe] {
+        let back = CutsceneLibrary::from_bytes(&library.to_bytes(format).unwrap()).unwrap();
+        assert_eq!(back, library, "{format:?}");
+    }
+}
+
+#[test]
+fn csl_looks_like_the_games() {
+    use zenkit_rs_archive::Format;
+
+    let library = CutsceneLibrary {
+        blocks: vec![zenkit_rs_cutscene::CutsceneBlock {
+            name: "DIA_ARTO_PERM_15_00".into(),
+            message: ConversationMessage {
+                sub_type: 0,
+                text: "Du redest nicht viel, was?".into(),
+                name: "DIA_ARTO_PERM_15_00.WAV".into(),
+                state: None,
+            },
+        }],
+    };
+    let expected = "ZenGin Archive\nver 1\nzCArchiverGeneric\nASCII\nsaveGame 0\nEND\n\
+                    objects 4        \nEND\n\n\
+                    [% zCCSLib 0 0]\n\
+                    \tNumOfItems=int:1\n\
+                    \t[% zCCSBlock 0 1]\n\
+                    \t\tblockName=string:DIA_ARTO_PERM_15_00\n\
+                    \t\tnumOfBlocks=int:1\n\
+                    \t\tsubBlock0=float:0\n\
+                    \t\t[% zCCSAtomicBlock 0 2]\n\
+                    \t\t\t[% oCMsgConversation:oCNpcMessage:zCEventMessage 0 3]\n\
+                    \t\t\t\tsubType=enum:0\n\
+                    \t\t\t\ttext=string:Du redest nicht viel, was?\n\
+                    \t\t\t\tname=string:DIA_ARTO_PERM_15_00.WAV\n\
+                    \t\t\t[]\n\
+                    \t\t[]\n\
+                    \t[]\n\
+                    []\n";
+    let written = String::from_utf8(library.to_bytes(Format::Ascii).unwrap()).unwrap();
+    assert_eq!(written, expected);
+}
+
+/// Rewriting the whole Gothic 1 library, if it is there, changes none of its lines.
+#[test]
+fn zenkit_gothic1_library_round_trips() {
+    use zenkit_rs_archive::Format;
+
+    let path =
+        std::env::var_os("ZENKIT_SAMPLES").map(|d| PathBuf::from(d).join("ou.proprietary.bin"));
+    let Some(data) = path.and_then(|path| std::fs::read(path).ok()) else {
+        return;
+    };
+    let library = CutsceneLibrary::from_bytes(&data).unwrap();
+    let back = CutsceneLibrary::from_bytes(&library.to_bytes(Format::Binsafe).unwrap()).unwrap();
+    assert_eq!(back, library);
+}
+
+#[test]
+fn save_games_write_message_state() {
+    use zenkit_rs_archive::ArchiveWriter;
+    use zenkit_rs_archive::Format;
+    use zenkit_rs_archive::Header;
+
+    let library = CutsceneLibrary::from_bytes(&ascii(true)).unwrap();
+    let mut header = Header::new(Format::Binsafe);
+    header.save_game = true;
+    let mut w = ArchiveWriter::with_header(header);
+    w.begin_object("%", "zCCSLib", 0);
+    library.write_fields(&mut w);
+    w.end_object();
+
+    let back = CutsceneLibrary::from_bytes(&w.finish().unwrap()).unwrap();
+    assert_eq!(back, library);
+    assert!(back.blocks.iter().all(|b| b.message.state.is_some()));
+}

@@ -15,11 +15,15 @@
 //! }
 //! # Ok(()) }
 //! ```
+//!
+//! [`CutsceneLibrary::to_bytes`] writes a library back, in any archive encoding.
 
 use std::cmp::Ordering;
 
 use tracing::warn;
 use zenkit_rs_archive::Archive;
+use zenkit_rs_archive::ArchiveWriter;
+use zenkit_rs_archive::Format;
 use zenkit_rs_archive::ObjectHeader;
 use zenkit_rs_core::Asset;
 use zenkit_rs_core::Error;
@@ -28,6 +32,8 @@ use zenkit_rs_core::ResultExt;
 use zenkit_rs_core::text;
 
 const FORMAT: &str = "cutscene library";
+
+const MESSAGE_CLASS: &str = "oCMsgConversation:oCNpcMessage:zCEventMessage";
 
 /// The deepest blocks may nest in each other before the data is taken to be broken.
 const MAX_DEPTH: usize = 64;
@@ -58,6 +64,27 @@ impl CutsceneLibrary {
         }
         blocks.sort_by(|a, b| compare(&a.name, &b.name));
         Ok(Self { blocks })
+    }
+
+    /// Writes the library as a whole archive. `OU.BIN` is a BIN_SAFE archive, `OU.CSL` an
+    /// ASCII one.
+    pub fn to_bytes(&self, format: Format) -> Result<Vec<u8>> {
+        let mut w = ArchiveWriter::new(format);
+        w.begin_object("%", "zCCSLib", 0);
+        self.write_fields(&mut w);
+        w.end_object();
+        w.finish()
+    }
+
+    /// Writes the contents of a `zCCSLib` object whose header has already been written. Each
+    /// block keeps its place in [`blocks`](Self::blocks).
+    pub fn write_fields(&self, w: &mut ArchiveWriter) {
+        w.int("NumOfItems", self.blocks.len() as i32);
+        for block in &self.blocks {
+            w.begin_object("%", "zCCSBlock", 0);
+            block.write_fields(w);
+            w.end_object();
+        }
     }
 
     /// Finds a block by name, ignoring case as the engine does.
@@ -152,6 +179,17 @@ impl CutsceneBlock {
 
         Ok(message.map(|message| Self { name, message }))
     }
+
+    /// Writes the fields of a block whose object header has already been written: its name and
+    /// the one atomic block holding its message, as the games store every block.
+    pub fn write_fields(&self, w: &mut ArchiveWriter) {
+        w.name("blockName", &self.name);
+        w.int("numOfBlocks", 1);
+        w.float("subBlock0", 0.0);
+        w.begin_object("%", "zCCSAtomicBlock", 0);
+        self.message.write(w);
+        w.end_object();
+    }
 }
 
 /// What is said, and the recording of it.
@@ -183,7 +221,7 @@ impl ConversationMessage {
         let Some(object) = archive.begin_object()? else {
             return Err(Error::malformed(FORMAT, format!("expected a message at offset {offset}")));
         };
-        if object.class != b"oCMsgConversation:oCNpcMessage:zCEventMessage" {
+        if object.class != MESSAGE_CLASS.as_bytes() {
             if !object.is_null() {
                 warn!("skipping message of class {:?}", text::latin1(object.class));
             }
@@ -204,6 +242,22 @@ impl ConversationMessage {
         let message = Self { sub_type, text: archive.name()?, name: archive.name()?, state };
         end(archive, &object)?;
         Ok(Some(message))
+    }
+
+    /// Writes the whole message object. Save games store the message's state, and a message
+    /// without one gets the default there.
+    fn write(&self, w: &mut ArchiveWriter) {
+        w.begin_object("%", MESSAGE_CLASS, 0);
+        w.enumeration("subType", self.sub_type);
+        if w.header().save_game {
+            let state = self.state.unwrap_or_default();
+            w.bool("highPriority", state.high_priority);
+            w.bool("inUse", state.in_use);
+            w.bool("deleted", state.deleted);
+        }
+        w.name("text", &self.text);
+        w.name("name", &self.name);
+        w.end_object();
     }
 }
 
