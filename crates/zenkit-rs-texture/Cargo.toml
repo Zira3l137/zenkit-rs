@@ -1,6 +1,6 @@
 [package]
 name = "zenkit-rs-texture"
-description = "Reader for ZenGin textures (.TEX), with decoding of every pixel format to RGBA8"
+description = "Reader and writer for ZenGin textures (.TEX), converting every pixel format to and from RGBA8"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,7 +9,7 @@ repository.workspace = true
 
 [features]
 default = ["parallel"]
-# Decodes large DXT textures on several threads.
+# Decodes and encodes large DXT textures on several threads.
 parallel = ["texpresso/rayon"]
 
 [dependencies]

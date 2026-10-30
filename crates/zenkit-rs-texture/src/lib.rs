@@ -6,12 +6,19 @@
 //! palette   256 BGRA entries, only for TextureFormat::P8
 //! mipmaps   smallest first, each tightly packed in the texture's format
 //! ```
+//!
+//! Textures can also be built from RGBA8 pixels with [`Texture::from_rgba8`] and written with
+//! [`Texture::to_bytes`].
+
+mod write;
 
 use zenkit_rs_core::Asset;
 use zenkit_rs_core::Error;
 use zenkit_rs_core::Result;
 use zenkit_rs_core::io::Reader;
 use zenkit_rs_core::math::Color;
+
+pub use write::max_mipmap_count;
 
 const FORMAT: &str = "texture";
 
