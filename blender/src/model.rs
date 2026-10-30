@@ -6,8 +6,9 @@
 //! root_translation  (x, y, z), or None when writing to take the first root's position
 //! checksum          ties a skeleton to its meshes and animations
 //! soft_skins        list of {"mesh": mesh dict, "weight_counts", "weight_nodes",
-//!                   "weight_values"}: per vertex, how many bones move it (u32), then per bone
-//!                   its node index (u32) and weight (f32)
+//!                   "weight_values", "weight_positions"}: per vertex, how many bones move it
+//!                   (u32), then per bone its node index (u32), weight (f32) and, read only, the
+//!                   vertex's position relative to the node (3 f32)
 //! attachments       list of {"node": name, "mesh": mesh dict}, each mesh in its node's space
 //! ```
 //!
@@ -98,12 +99,13 @@ pub(crate) fn to_dict<'py>(
             let item = PyDict::new(py);
             item.set_item("mesh", mesh::from_mrm(&skin.mesh)?.into_dict(py)?)?;
             let (mut counts, mut nodes, mut values) = (Vec::new(), Vec::new(), Vec::new());
+            let mut positions = Vec::new();
             for weights in &skin.weights {
                 counts.push(weights.len() as u32);
                 for weight in weights {
-                    let node = skin.nodes.get(weight.node as usize).copied().unwrap_or(0);
-                    nodes.push(node.max(0) as u32);
+                    nodes.push(u32::from(weight.node));
                     values.push(weight.weight);
+                    positions.extend(weight.position.to_array());
                 }
             }
             item.set_item(
@@ -117,6 +119,10 @@ pub(crate) fn to_dict<'py>(
             item.set_item(
                 "weight_values",
                 PyBytes::new(py, &mesh::le_bytes(&values, f32::to_le_bytes)),
+            )?;
+            item.set_item(
+                "weight_positions",
+                PyBytes::new(py, &mesh::le_bytes(&positions, f32::to_le_bytes)),
             )?;
             soft_skins.push(item);
         }
@@ -273,12 +279,12 @@ fn soft_skin(data: &SkinData, world: &[Mat4], game: GameVersion) -> PyResult<Sof
     if let Some(&node) = nodes.iter().find(|&&n| n as usize >= world.len()) {
         return Err(invalid(format!("a weight uses node {node}, which the skeleton lacks")));
     }
-
-    // The bones of this mesh, in the order the weights refer to them by.
-    let used: Vec<u32> = nodes.iter().copied().collect::<BTreeSet<_>>().into_iter().collect();
-    if used.len() > 256 {
-        return Err(invalid(format!("{} bones move the mesh; at most 256 can", used.len())));
+    // Weights name their node by its index in the skeleton, in a byte.
+    if let Some(&node) = nodes.iter().find(|&&n| n > u32::from(u8::MAX)) {
+        return Err(invalid(format!("a weight uses node {node}; only the first 256 can move it")));
     }
+
+    let used: Vec<u32> = nodes.iter().copied().collect::<BTreeSet<_>>().into_iter().collect();
     let inverse: Vec<Mat4> = used.iter().map(|&n| world[n as usize].inverse()).collect();
 
     let mut weights = Vec::with_capacity(counts.len());
@@ -292,7 +298,7 @@ fn soft_skin(data: &SkinData, world: &[Mat4], game: GameVersion) -> PyResult<Sof
             let local = inverse[slot].transform_point3(position);
             extents[slot].min = extents[slot].min.min(local);
             extents[slot].max = extents[slot].max.max(local);
-            vertex.push(Weight { weight, position: local, node: slot as u8 });
+            vertex.push(Weight { weight, position: local, node: node as u8 });
         }
         next += count as usize;
         weights.push(vertex);

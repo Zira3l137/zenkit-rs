@@ -188,6 +188,8 @@ assert bpy.ops.import_scene.zenkit_model(filepath=str(samples / "smoke_waterpipe
 }
 pipe = [o for o in bpy.context.scene.objects if o.name.startswith("smoke_waterpipe")][0]
 assert len(pipe.data.vertices) == 115 and pipe.vertex_groups.get("NODE 0") is not None
+# A weight names its node by the node's index in the skeleton: vertex 62's is node 4.
+assert pipe.vertex_groups["NODE 4"].weight(62) == 1.0
 print("lone soft skin ok")
 
 
@@ -252,6 +254,27 @@ assert len([o for o in bpy.context.scene.objects if o.type == "ARMATURE"]) == 1
 (body,) = [o for o in skeleton.children if o.type == "MESH" and "zenkit_node" not in o]
 assert body.modifiers[0].object == skeleton
 assert np.allclose([v.co[:] for v in body.data.vertices], expected, atol=1e-5)
+
+# On a skeleton with a longer spine, the body follows its bones, as the engine draws it: what
+# hangs from the head moves up with it, what hangs from the hips stays.
+tall_nodes = [*biped_nodes]
+tall_nodes[1] = ("BIP01 SPINE", 0, node(25, 0, 0))
+tall = {**biped, "nodes": tall_nodes}
+zenkit_py.write_model(str(work / "TALL.MDH"), tall, "G2")
+bpy.ops.object.select_all(action="SELECT")
+bpy.ops.object.delete()
+assert bpy.ops.import_scene.zenkit_model(filepath=str(work / "TALL.MDH")) == {"FINISHED"}
+tall_skeleton = bpy.context.active_object
+assert bpy.ops.import_scene.zenkit_model(filepath=str(work / "BIPED_BODY.MDM")) == {"FINISHED"}
+(tall_body,) = [o for o in tall_skeleton.children if o.type == "MESH" and "zenkit_node" not in o]
+moved = np.array([v.co[:] for v in tall_body.data.vertices]) - expected
+on_head = np.arange(vertices) % 4 == 2
+assert np.allclose(moved[on_head], (0, 0, 0.05), atol=1e-5)
+assert np.allclose(moved[np.arange(vertices) % 4 == 0], 0, atol=1e-5)
+bpy.ops.object.select_all(action="SELECT")
+bpy.ops.object.delete()
+assert bpy.ops.import_scene.zenkit_model(filepath=str(work / "BIPED.MDH")) == {"FINISHED"}
+skeleton = bpy.context.active_object
 
 assert bpy.ops.export_scene.zenkit_model(filepath=str(work / "BIPED2.MDH")) == {"FINISHED"}
 again = zenkit_py.read_model(str(work / "BIPED2.MDH"))
