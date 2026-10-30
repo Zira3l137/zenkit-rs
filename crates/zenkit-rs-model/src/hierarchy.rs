@@ -5,12 +5,15 @@ use zenkit_rs_core::Date;
 use zenkit_rs_core::Error;
 use zenkit_rs_core::Result;
 use zenkit_rs_core::io::Reader;
+use zenkit_rs_core::io::Writer;
 use zenkit_rs_core::math::Aabb;
 use zenkit_rs_core::math::Mat4;
 use zenkit_rs_core::math::Vec3;
 use zenkit_rs_core::text;
 
 const FORMAT: &str = "model hierarchy";
+
+const VERSION: u32 = 3;
 
 const CHUNK_HIERARCHY: u16 = 0xD100;
 const CHUNK_SOURCE: u16 = 0xD110;
@@ -57,7 +60,7 @@ impl ModelHierarchy {
             match chunk.id {
                 CHUNK_HIERARCHY => {
                     let version = c.u32()?;
-                    if version != 3 {
+                    if version != VERSION {
                         warn!("unsupported version {version}, reading anyway");
                     }
 
@@ -92,6 +95,52 @@ impl ModelHierarchy {
             return Err(Error::malformed(FORMAT, "no hierarchy chunk"));
         }
         Ok(hierarchy)
+    }
+
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
+        let mut w = Writer::new();
+        self.write(&mut w)?;
+        Ok(w.into_inner())
+    }
+
+    /// Writes the hierarchy's chunks, ending with its end chunk. Fails if there are more nodes
+    /// than a `u16` counts, a parent index does not fit an `i16`, or a name has a line break.
+    pub fn write(&self, w: &mut Writer) -> Result<()> {
+        let count = u16::try_from(self.nodes.len()).map_err(|_| {
+            Error::unwritable(FORMAT, format!("{} nodes, at most 65535 fit", self.nodes.len()))
+        })?;
+        let mut nodes = Vec::with_capacity(self.nodes.len());
+        for node in &self.nodes {
+            let parent = match node.parent {
+                None => -1,
+                Some(parent) => i16::try_from(parent).map_err(|_| {
+                    let reason = format!("node {:?} has parent {parent}, past 32767", node.name);
+                    Error::unwritable(FORMAT, reason)
+                })?,
+            };
+            nodes.push((crate::line(FORMAT, &node.name)?, parent, node.transform));
+        }
+        let source_path = crate::line(FORMAT, &self.source_path)?;
+
+        w.chunk(CHUNK_HIERARCHY, |w| {
+            w.u32(VERSION);
+            w.u16(count);
+            for (name, parent, transform) in &nodes {
+                w.line(name);
+                w.i16(*parent);
+                w.mat4(*transform);
+            }
+            self.bbox.write(w);
+            self.collision_bbox.write(w);
+            w.vec3(self.root_translation);
+            w.u32(self.checksum);
+        });
+        w.chunk(CHUNK_SOURCE, |w| {
+            self.source_date.write(w);
+            w.line(&source_path);
+        });
+        w.chunk(CHUNK_END, |_| ());
+        Ok(())
     }
 
     /// Finds a node by name, ignoring ASCII case like the engine does.

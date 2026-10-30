@@ -3,10 +3,12 @@ use tracing::warn;
 use zenkit_rs_core::Asset;
 use zenkit_rs_core::Date;
 use zenkit_rs_core::Error;
+use zenkit_rs_core::GameVersion;
 use zenkit_rs_core::Result;
 use zenkit_rs_core::ResultExt;
 use zenkit_rs_core::io::Reader;
 use zenkit_rs_core::io::WHITESPACE;
+use zenkit_rs_core::io::Writer;
 use zenkit_rs_core::math::Obb;
 use zenkit_rs_core::math::Vec3;
 use zenkit_rs_core::text;
@@ -20,6 +22,9 @@ use zerocopy::little_endian::U32;
 
 const FORMAT: &str = "model mesh";
 
+const VERSION: u32 = 0x0403_0506;
+const SKIN_VERSION: u32 = 4;
+
 const CHUNK_HEADER: u16 = 0xD000;
 const CHUNK_SOURCE: u16 = 0xD010;
 const CHUNK_NODES: u16 = 0xD020;
@@ -31,6 +36,8 @@ const SKIN_CHUNK_HEADER: u16 = 0xE100;
 const SKIN_CHUNK_END: u16 = 0xE110;
 const SKIN_CHUNK_MRM: u16 = 0xB100;
 const SKIN_CHUNK_WEIGHTS: u16 = 0xB1FF;
+/// Closes each attachment's mesh chunk, like the end chunk of a `.MRM` file.
+const CHUNK_MRM_END: u16 = 0xB1FF;
 
 /// How strongly one bone pulls one vertex.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -133,6 +140,56 @@ impl SoftSkinMesh {
         self.bboxes = (0..count).map(|_| Obb::read(c)).collect::<Result<_>>()?;
         Ok(())
     }
+
+    fn write(&self, w: &mut Writer, game: GameVersion) -> Result<()> {
+        if self.weights.len() != self.mesh.positions.len() {
+            let reason = format!(
+                "{} weight lists for {} positions; every position needs one",
+                self.weights.len(),
+                self.mesh.positions.len()
+            );
+            return Err(Error::unwritable(FORMAT, reason));
+        }
+        if self.bboxes.len() != self.nodes.len() {
+            let reason = format!(
+                "{} boxes for {} nodes; every node needs one",
+                self.bboxes.len(),
+                self.nodes.len()
+            );
+            return Err(Error::unwritable(FORMAT, reason));
+        }
+        let node_count = u16::try_from(self.nodes.len()).map_err(|_| {
+            Error::unwritable(FORMAT, format!("{} nodes, at most 65535 fit", self.nodes.len()))
+        })?;
+
+        w.chunk(SKIN_CHUNK_HEADER, |w| w.u32(SKIN_VERSION));
+        w.chunk(SKIN_CHUNK_MRM, |w| self.mesh.write_section(w, game))?;
+        w.chunk(SKIN_CHUNK_WEIGHTS, |w| {
+            let length_at = w.position();
+            w.u32(0);
+            for weights in &self.weights {
+                w.u32(weights.len() as u32);
+                for weight in weights {
+                    w.f32(weight.weight);
+                    w.vec3(weight.position);
+                    w.u8(weight.node);
+                }
+            }
+            w.patch_u32(length_at, (w.position() - length_at - 4) as u32);
+
+            w.u32(self.wedge_normals.len() as u32);
+            for normal in &self.wedge_normals {
+                w.vec3(normal.normal);
+                w.u32(normal.index);
+            }
+
+            w.u16(node_count);
+            self.nodes.iter().for_each(|&node| w.i32(node));
+            self.bboxes.iter().try_for_each(|bbox| bbox.write(w))
+        })?;
+        w.chunk(SKIN_CHUNK_END, |_| ());
+        Ok(())
+    }
 }
 
 /// A rigid mesh that moves with one node of the skeleton, like a door or a weapon.
@@ -151,6 +208,10 @@ pub struct ModelMesh {
     pub attachments: Vec<Attachment>,
     /// Matches [`ModelHierarchy::checksum`](super::ModelHierarchy::checksum).
     pub checksum: u32,
+    /// When the source file was compiled. The shipped files hold nonsense here.
+    pub source_date: Date,
+    /// The `.ASC` file the meshes were compiled from.
+    pub source_path: String,
 }
 
 impl ModelMesh {
@@ -187,9 +248,8 @@ impl ModelMesh {
                     let _version = c.u32()?;
                 }
                 CHUNK_SOURCE => {
-                    // The date holds nonsense in the shipped files; read past it.
-                    Date::read(c)?;
-                    c.line(&[]);
+                    model.source_date = Date::read(c)?;
+                    model.source_path = text::latin1(c.line(&[]));
                 }
                 CHUNK_NODES => {
                     let count = c.u16()? as usize;
@@ -210,6 +270,62 @@ impl ModelMesh {
         }
 
         Ok(model)
+    }
+
+    pub fn to_bytes(&self, game: GameVersion) -> Result<Vec<u8>> {
+        let mut w = Writer::new();
+        self.write(&mut w, game)?;
+        Ok(w.into_inner())
+    }
+
+    /// Writes the model mesh's chunks, ending with its end chunk, as made for `game`.
+    ///
+    /// The engine only writes the list of attachments when there are some, and the soft skin
+    /// meshes along with the checksum when there are some or the checksum is set.
+    pub(crate) fn write(&self, w: &mut Writer, game: GameVersion) -> Result<()> {
+        let source_path = crate::line(FORMAT, &self.source_path)?;
+        let names = (self.attachments.iter())
+            .map(|a| crate::line(FORMAT, &a.node))
+            .collect::<Result<Vec<_>>>()?;
+        let too_many = |count: usize, what: &str| {
+            Error::unwritable(FORMAT, format!("{count} {what}, at most 65535 fit"))
+        };
+        let attachment_count =
+            u16::try_from(names.len()).map_err(|_| too_many(names.len(), "attachments"))?;
+        let mesh_count = u16::try_from(self.meshes.len())
+            .map_err(|_| too_many(self.meshes.len(), "soft skin meshes"))?;
+
+        w.chunk(CHUNK_HEADER, |w| w.u32(VERSION));
+        w.chunk(CHUNK_SOURCE, |w| {
+            self.source_date.write(w);
+            w.line(&source_path);
+        });
+
+        if !names.is_empty() {
+            w.chunk(CHUNK_NODES, |w| {
+                w.u16(attachment_count);
+                names.iter().for_each(|name| w.line(name));
+            });
+            for attachment in &self.attachments {
+                w.chunk(CHUNK_MRM, |w| attachment.mesh.write_section(w, game))
+                    .context(|| format!("attachment {:?}", attachment.node))?;
+                w.chunk(CHUNK_MRM_END, |_| ());
+            }
+        }
+
+        if !self.meshes.is_empty() || self.checksum != 0 {
+            // As when reading, the chunk only covers the checksum and the count.
+            w.chunk(CHUNK_SOFT_SKINS, |w| {
+                w.u32(self.checksum);
+                w.u16(mesh_count);
+            });
+            for (i, mesh) in self.meshes.iter().enumerate() {
+                mesh.write(w, game).context(|| format!("soft skin mesh {i}"))?;
+            }
+        }
+
+        w.chunk(CHUNK_END, |_| ());
+        Ok(())
     }
 }
 

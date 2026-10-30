@@ -1,6 +1,6 @@
 [package]
 name = "zenkit-rs-model"
-description = "Reader for ZenGin skeletons (.MDH), skinned meshes (.MDM) and models (.MDL)"
+description = "Reader and writer for ZenGin skeletons (.MDH), skinned meshes (.MDM) and models (.MDL)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
