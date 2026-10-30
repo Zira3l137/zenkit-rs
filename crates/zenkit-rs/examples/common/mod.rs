@@ -86,7 +86,7 @@ pub(crate) fn compiled_name(name: &str) -> String {
 
 /// Saves 8-bit RGBA pixels as a PNG.
 pub(crate) fn save_png(path: &Path, width: u32, height: u32, rgba: &[u8]) -> Result<()> {
-    let file = File::create(path).map_err(Error::io(path))?;
+    let file = File::create(path).map_err(Error::io_write(path))?;
     let mut encoder = png::Encoder::new(BufWriter::new(file), width, height);
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
@@ -96,5 +96,5 @@ pub(crate) fn save_png(path: &Path, width: u32, height: u32, rgba: &[u8]) -> Res
 }
 
 fn png_error(path: &Path) -> impl Fn(png::EncodingError) -> Error + '_ {
-    move |e| Error::io(path)(std::io::Error::other(e))
+    move |e| Error::io_write(path)(std::io::Error::other(e))
 }

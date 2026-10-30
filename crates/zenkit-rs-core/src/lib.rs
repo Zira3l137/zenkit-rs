@@ -1,5 +1,6 @@
-//! The foundations every zenkit-rs format crate builds on: a bounds-checked byte [`Reader`](io::Reader),
-//! the shared [`Error`], math types, the engine's [`Date`], and text helpers.
+//! The foundations every zenkit-rs format crate builds on: a bounds-checked byte
+//! [`Reader`](io::Reader) and its counterpart [`Writer`](io::Writer), the shared [`Error`], math
+//! types, the engine's [`Date`], and text helpers.
 //!
 //! Applications use these through the `zenkit-rs` crate, which re-exports them.
 

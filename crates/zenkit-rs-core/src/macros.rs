@@ -1,4 +1,4 @@
-/// Declares a fieldless enum read from a raw integer.
+/// Declares a fieldless enum read from and written as a raw integer.
 ///
 /// The engine never validates these values and mods occasionally store odd ones, so an unknown
 /// value logs a warning and falls back to the given default instead of failing the whole file.
@@ -34,6 +34,11 @@ macro_rules! raw_enum {
                         Self::$default
                     }
                 }
+            }
+
+            /// The value as stored in a file.
+            pub fn raw(self) -> u32 {
+                self as u32
             }
         }
     };

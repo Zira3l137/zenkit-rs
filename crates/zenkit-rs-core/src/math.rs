@@ -6,6 +6,7 @@
 use crate::Error;
 use crate::Result;
 use crate::io::Reader;
+use crate::io::Writer;
 
 pub use glam;
 pub use glam::Mat3;
@@ -40,6 +41,11 @@ impl Aabb {
     /// Reads `min` then `max`.
     pub fn read(r: &mut Reader) -> Result<Self> {
         Ok(Self { min: r.vec3()?, max: r.vec3()? })
+    }
+
+    pub fn write(&self, w: &mut Writer) {
+        w.vec3(self.min);
+        w.vec3(self.max);
     }
 }
 
@@ -96,6 +102,20 @@ impl Obb {
 
         Ok(Self { center, axes, half_width, children })
     }
+
+    /// Writes the box and its children. Fails if a box has more children than its `u16` count
+    /// can hold.
+    pub fn write(&self, w: &mut Writer) -> Result<()> {
+        w.vec3(self.center);
+        self.axes.iter().for_each(|&axis| w.vec3(axis));
+        w.vec3(self.half_width);
+        let count = u16::try_from(self.children.len()).map_err(|_| {
+            let reason = format!("{} children, at most {} fit", self.children.len(), u16::MAX);
+            Error::unwritable("bounding box", reason)
+        })?;
+        w.u16(count);
+        self.children.iter().try_for_each(|child| child.write(w))
+    }
 }
 
 #[cfg(test)]
@@ -113,6 +133,24 @@ mod tests {
         let aabb = obb.to_aabb();
         assert_eq!(aabb.min, Vec3::new(-11.0, -12.0, -13.0));
         assert_eq!(aabb.max, Vec3::new(-9.0, -8.0, -7.0));
+    }
+
+    #[test]
+    fn obb_round_trips() {
+        let leaf = |x| Obb { center: Vec3::splat(x), half_width: Vec3::ONE, ..Obb::default() };
+        let obb = Obb {
+            center: Vec3::new(1.0, 2.0, 3.0),
+            axes: [Vec3::X, Vec3::Y, Vec3::Z],
+            half_width: Vec3::new(4.0, 5.0, 6.0),
+            children: vec![leaf(1.0), Obb { children: vec![leaf(2.0)], ..leaf(3.0) }],
+        };
+        let mut w = Writer::new();
+        obb.write(&mut w).unwrap();
+        let data = w.into_inner();
+        assert_eq!(data.len(), 62 * 4);
+        let mut r = Reader::new(&data);
+        assert_eq!(Obb::read(&mut r).unwrap(), obb);
+        assert!(r.is_eof());
     }
 
     #[test]

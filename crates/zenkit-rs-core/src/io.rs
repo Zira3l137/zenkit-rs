@@ -2,6 +2,7 @@ use std::fmt;
 
 use zerocopy::FromBytes;
 use zerocopy::Immutable;
+use zerocopy::IntoBytes;
 use zerocopy::KnownLayout;
 use zerocopy::Unaligned;
 use zerocopy::little_endian::F32;
@@ -234,6 +235,119 @@ impl<'a> Reader<'a> {
     }
 }
 
+/// A growing little-endian byte buffer, the counterpart of [`Reader`].
+///
+/// Writing into memory cannot fail, so neither can these methods. Formats check that their values
+/// fit the fields they go into before writing them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Writer {
+    data: Vec<u8>,
+}
+
+macro_rules! write_le {
+    ($($name:ident: $ty:ty),* $(,)?) => {
+        $(
+            pub fn $name(&mut self, value: $ty) {
+                self.data.extend_from_slice(&value.to_le_bytes());
+            }
+        )*
+    };
+}
+
+impl Writer {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self { data: Vec::with_capacity(capacity) }
+    }
+
+    /// How many bytes have been written, which is where the next write goes.
+    pub fn position(&self) -> usize {
+        self.data.len()
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.data
+    }
+
+    pub fn into_inner(self) -> Vec<u8> {
+        self.data
+    }
+
+    pub fn bytes(&mut self, bytes: &[u8]) {
+        self.data.extend_from_slice(bytes);
+    }
+
+    /// Writes `count` zero bytes.
+    pub fn zeros(&mut self, count: usize) {
+        self.data.resize(self.data.len() + count, 0);
+    }
+
+    /// Writes a fixed-layout record as it lies in memory.
+    pub fn record<T: IntoBytes + Immutable + ?Sized>(&mut self, record: &T) {
+        self.bytes(record.as_bytes());
+    }
+
+    /// Overwrites a `u32` written earlier, at `offset`.
+    pub fn patch_u32(&mut self, offset: usize, value: u32) {
+        self.data[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    }
+
+    /// Writes `text` followed by a `\0`, which [`Reader::line`] stops at.
+    pub fn string0(&mut self, text: &[u8]) {
+        self.bytes(text);
+        self.u8(0);
+    }
+
+    /// Writes `text` followed by a `\n`.
+    pub fn line(&mut self, text: &[u8]) {
+        self.bytes(text);
+        self.u8(b'\n');
+    }
+
+    /// Writes a chunk: its id, its length and whatever `contents` writes, the length being filled
+    /// in once `contents` is done.
+    pub fn chunk<T>(&mut self, id: u16, contents: impl FnOnce(&mut Self) -> T) -> T {
+        self.u16(id);
+        let length_at = self.position();
+        self.u32(0);
+        let result = contents(self);
+        let length = self.position() - length_at - 4;
+        self.patch_u32(length_at, length as u32);
+        result
+    }
+
+    pub fn vec2(&mut self, v: Vec2) {
+        v.to_array().into_iter().for_each(|x| self.f32(x));
+    }
+
+    pub fn vec3(&mut self, v: Vec3) {
+        v.to_array().into_iter().for_each(|x| self.f32(x));
+    }
+
+    /// A 4×4 matrix, row by row as the engine stores it.
+    pub fn mat4(&mut self, m: Mat4) {
+        m.transpose().to_cols_array().into_iter().for_each(|x| self.f32(x));
+    }
+
+    pub fn vec3s(&mut self, values: &[Vec3]) {
+        self.data.reserve(values.len() * 12);
+        values.iter().for_each(|&v| self.vec3(v));
+    }
+
+    write_le! {
+        u8: u8,
+        i8: i8,
+        u16: u16,
+        i16: i16,
+        u32: u32,
+        i32: i32,
+        f32: f32,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use zerocopy::FromBytes;
@@ -352,6 +466,53 @@ mod tests {
         assert_eq!(sub.u16().unwrap(), 1);
         assert!(sub.u8().is_err());
         assert_eq!(r.u8().unwrap(), 7);
+    }
+
+    #[test]
+    fn written_values_read_back() {
+        let m = Mat4::from_cols_array(&std::array::from_fn(|i| i as f32));
+        let mut w = Writer::new();
+        w.u8(1);
+        w.i16(-2);
+        w.u32(3);
+        w.f32(4.5);
+        w.string0(b"five");
+        w.line(b"six");
+        w.vec2(Vec2::new(7.0, 8.0));
+        w.vec3s(&[Vec3::splat(9.0)]);
+        w.mat4(m);
+        w.zeros(2);
+        let data = w.into_inner();
+
+        let mut r = Reader::new(&data);
+        assert_eq!(r.u8().unwrap(), 1);
+        assert_eq!(r.i16().unwrap(), -2);
+        assert_eq!(r.u32().unwrap(), 3);
+        assert_eq!(r.f32().unwrap(), 4.5);
+        assert_eq!(r.line(&[]), b"five");
+        assert_eq!(r.line(&[]), b"six");
+        assert_eq!(r.vec2().unwrap(), Vec2::new(7.0, 8.0));
+        assert_eq!(r.vec3().unwrap(), Vec3::splat(9.0));
+        assert_eq!(r.mat4().unwrap(), m);
+        assert_eq!(r.rest(), [0, 0]);
+    }
+
+    #[test]
+    fn chunks_get_their_length_filled_in() {
+        let mut w = Writer::new();
+        let inner = w.chunk(0xB000, |w| {
+            w.u16(7);
+            w.chunk(0xB100, |w| w.u8(8));
+            42
+        });
+        assert_eq!(inner, 42);
+        assert_eq!(w.as_bytes(), [0x00, 0xB0, 9, 0, 0, 0, 7, 0, 0x00, 0xB1, 1, 0, 0, 0, 8]);
+
+        let data = w.into_inner();
+        let mut outer = Reader::new(&data).chunk().unwrap();
+        assert_eq!(outer.data.u16().unwrap(), 7);
+        assert_eq!(outer.data.chunk().unwrap().data.u8().unwrap(), 8);
+        assert!(outer.data.is_eof());
     }
 
     #[test]

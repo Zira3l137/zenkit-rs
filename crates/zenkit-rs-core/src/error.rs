@@ -21,6 +21,17 @@ pub enum Error {
         source: io::Error,
     },
 
+    #[error("cannot write {}", path.display())]
+    Write {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+
+    /// Writing to an output that is not a host file, like any `std::io::Write`, failed.
+    #[error("cannot write the output")]
+    Output(#[source] io::Error),
+
     /// A read needed more bytes than were left. Offsets count from the start of the file, even
     /// when the read happened inside a chunk or an embedded mesh.
     #[error("the data ends early: {needed} bytes needed at offset {offset}, {available} left")]
@@ -37,6 +48,11 @@ pub enum Error {
     /// The data is valid but uses a feature this crate does not read.
     #[error("unsupported {format}: {reason}")]
     Unsupported { format: &'static str, reason: String },
+
+    /// A value cannot be stored in the format, like a string longer than its length field
+    /// allows.
+    #[error("cannot write {format}: {reason}")]
+    Unwritable { format: &'static str, reason: String },
 
     #[error("{0:?} does not exist")]
     NotFound(String),
@@ -62,10 +78,20 @@ impl Error {
         Self::Unsupported { format, reason: reason.into() }
     }
 
-    /// A `map_err` adapter for I/O on the host file system.
+    pub fn unwritable(format: &'static str, reason: impl Into<String>) -> Self {
+        Self::Unwritable { format, reason: reason.into() }
+    }
+
+    /// A `map_err` adapter for reading from the host file system.
     pub fn io(path: impl Into<PathBuf>) -> impl FnOnce(io::Error) -> Self {
         let path = path.into();
         move |source| Self::Io { path, source }
+    }
+
+    /// A `map_err` adapter for writing to the host file system.
+    pub fn io_write(path: impl Into<PathBuf>) -> impl FnOnce(io::Error) -> Self {
+        let path = path.into();
+        move |source| Self::Write { path, source }
     }
 
     /// The error under every [`Context`](Self::Context), to match on what actually went wrong.
@@ -134,5 +160,8 @@ mod tests {
         let err = Error::io("Data/Anims.vdf")(io::Error::from(io::ErrorKind::NotFound));
         assert_eq!(err.to_string(), "cannot read Data/Anims.vdf");
         assert!(err.report().to_string().starts_with("cannot read Data/Anims.vdf: "));
+
+        let err = Error::io_write("out.vdf")(io::Error::from(io::ErrorKind::PermissionDenied));
+        assert_eq!(err.to_string(), "cannot write out.vdf");
     }
 }

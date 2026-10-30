@@ -1,5 +1,6 @@
 use crate::Result;
 use crate::io::Reader;
+use crate::io::Writer;
 
 /// A calendar date and time as the engine stores it, for example as a mesh's source file date.
 /// The fields are kept as written; the engine never checks that they form a valid date.
@@ -26,5 +27,12 @@ impl Date {
         };
         r.skip(2)?;
         Ok(date)
+    }
+
+    pub fn write(&self, w: &mut Writer) {
+        w.u32(self.year);
+        for field in [self.month, self.day, self.hour, self.minute, self.second, 0] {
+            w.u16(field);
+        }
     }
 }

@@ -10,6 +10,12 @@ pub fn latin1(bytes: &[u8]) -> String {
     bytes.iter().map(|&b| char::from(b)).collect()
 }
 
+/// Encodes text as Latin-1, the reverse of [`latin1`]. Gives `None` if a character lies beyond
+/// U+00FF and so has no Latin-1 byte.
+pub fn to_latin1(text: &str) -> Option<Vec<u8>> {
+    text.chars().map(|c| u8::try_from(c).ok()).collect()
+}
+
 /// Parses an integer like C's `strtol`: leading whitespace is skipped and parsing stops at the
 /// first character that cannot continue the number, so `"12]"` is 12.
 pub fn int(s: &[u8]) -> Option<i64> {
@@ -20,9 +26,21 @@ pub fn int(s: &[u8]) -> Option<i64> {
 }
 
 /// Parses a float like C's `strtof`: leading whitespace is skipped and the longest prefix that
-/// forms a number counts, so `"1.5e"` is 1.5.
+/// forms a number counts, so `"1.5e"` is 1.5. `inf` and `nan` count too, in any case.
 pub fn float(s: &[u8]) -> Option<f32> {
     let s = s.trim_ascii_start();
+    let (negative, unsigned) = match s.first() {
+        Some(b'-') => (true, &s[1..]),
+        Some(b'+') => (false, &s[1..]),
+        _ => (false, s),
+    };
+    let special = |word: &[u8]| unsigned.get(..3).is_some_and(|w| w.eq_ignore_ascii_case(word));
+    if special(b"inf") {
+        return Some(if negative { f32::NEG_INFINITY } else { f32::INFINITY });
+    }
+    if special(b"nan") {
+        return Some(if negative { -f32::NAN } else { f32::NAN });
+    }
     let candidate = s
         .iter()
         .take_while(|b| b.is_ascii_digit() || matches!(b, b'+' | b'-' | b'.' | b'e' | b'E'))
@@ -46,6 +64,9 @@ mod tests {
         let text = latin1(&bytes);
         let back: Vec<u8> = text.chars().map(|c| c as u8).collect();
         assert_eq!(back, bytes);
+        assert_eq!(to_latin1(&text), Some(bytes));
+        assert_eq!(to_latin1("Gr\u{fc}\u{df}e"), Some(b"Gr\xFC\xDFe".to_vec()));
+        assert_eq!(to_latin1("\u{416}"), None);
     }
 
     #[test]
@@ -64,6 +85,10 @@ mod tests {
         assert_eq!(float(b"1.5e"), Some(1.5));
         assert_eq!(float(b"-3x"), Some(-3.0));
         assert_eq!(float(b"abc"), None);
+        assert_eq!(float(b"-inf"), Some(f32::NEG_INFINITY));
+        assert_eq!(float(b"Infinity"), Some(f32::INFINITY));
+        assert!(float(b"NaN").unwrap().is_nan());
+        assert!(float(b"-nan(ind)").unwrap().is_sign_negative());
     }
 
     #[test]

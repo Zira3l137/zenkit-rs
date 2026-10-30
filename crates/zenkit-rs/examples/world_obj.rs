@@ -30,8 +30,8 @@ fn run(gothic: &Path, name: &str, output: &Path) -> Result<()> {
     let vfs = common::mount_game(gothic)?;
     let world: World = vfs.load(name)?;
     let mtl = output.with_extension("mtl");
-    write_obj(&world, output, &mtl).map_err(Error::io(output))?;
-    write_mtl(&world, &mtl).map_err(Error::io(&mtl))?;
+    write_obj(&world, output, &mtl).map_err(Error::io_write(output))?;
+    write_mtl(&world, &mtl).map_err(Error::io_write(&mtl))?;
     println!("saved {} and {}", output.display(), mtl.display());
     Ok(())
 }
