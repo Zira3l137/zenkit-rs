@@ -39,7 +39,7 @@ fn run(gothic: &Path, pattern: &str) -> Result<()> {
         vfs.files().filter(|f| f.name().to_ascii_uppercase().contains(&pattern)).collect();
     println!("\n{} files have {pattern:?} in their name:", matches.len());
     for file in matches.iter().take(50) {
-        println!("  {:<40} {:>10} bytes", file.name(), file.data().map_or(0, <[u8]>::len));
+        println!("  {:<60} {:>10} bytes", file.path(), file.data().map_or(0, <[u8]>::len));
     }
     if matches.len() > 50 {
         println!("  ...");

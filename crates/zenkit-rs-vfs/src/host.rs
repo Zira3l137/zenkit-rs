@@ -42,11 +42,11 @@ fn load_entry(path: PathBuf) -> Result<Option<Node>> {
         return Ok(None);
     };
 
-    Ok(Some(Node {
-        name: path.file_name().unwrap_or_default().to_string_lossy().into_owned(),
-        time: meta.modified().unwrap_or(UNIX_EPOCH),
+    Ok(Some(Node::new(
+        path.file_name().unwrap_or_default().to_string_lossy().into_owned(),
+        meta.modified().unwrap_or(UNIX_EPOCH),
         kind,
-    }))
+    )))
 }
 
 #[cfg(not(feature = "mmap"))]

@@ -152,18 +152,15 @@ impl Vfs {
         self.root.write_disk(out, options)
     }
 
-    /// Every file in the tree, depth-first.
+    /// Every node in the tree but the root, directories and files alike: depth-first, each
+    /// directory before its contents, and children in name order.
+    pub fn nodes(&self) -> impl Iterator<Item = &Node> {
+        self.root.descendants()
+    }
+
+    /// Every file in the tree, in the order of [`nodes`](Self::nodes).
     pub fn files(&self) -> impl Iterator<Item = &Node> {
-        let mut stack = vec![&self.root];
-        std::iter::from_fn(move || {
-            while let Some(node) = stack.pop() {
-                if node.is_file() {
-                    return Some(node);
-                }
-                stack.extend(node.children().rev());
-            }
-            None
-        })
+        self.nodes().filter(|node| node.is_file())
     }
 
     /// [Finds](Self::find) a file by name and parses it.
@@ -186,9 +183,15 @@ impl Vfs {
     pub fn mkdir(&mut self, path: &str) -> Result<&mut Node> {
         let mut dir = &mut self.root;
         for name in components(path) {
-            let parent = dir.name.clone();
-            let children = dir.entries_mut().ok_or(Error::NotADirectory(parent))?;
-            dir = children.entry(fold(name)).or_insert_with(|| Node::dir(name, SystemTime::now()));
+            let Node { name: parent, path, kind, .. } = dir;
+            let Kind::Dir(children) = kind else {
+                return Err(Error::NotADirectory(parent.clone()));
+            };
+            dir = children.entry(fold(name)).or_insert_with(|| {
+                let mut dir = Node::dir(name, SystemTime::now());
+                dir.place(path);
+                dir
+            });
         }
 
         if dir.is_dir() { Ok(dir) } else { Err(Error::NotADirectory(dir.name.clone())) }
@@ -202,7 +205,8 @@ impl Vfs {
 
     /// Mounts `node` into the directory at `parent`.
     pub fn mount(&mut self, node: Node, parent: &str, overwrite: Overwrite) -> Result<()> {
-        merge(self.dir_mut(parent)?, node, overwrite);
+        let incoming = Children::from([(fold(&node.name), node)]);
+        self.dir_mut(parent)?.merge_children(incoming, overwrite);
         Ok(())
     }
 
@@ -234,9 +238,8 @@ impl Vfs {
             Ok(archive)
         })?;
 
-        let root = self.root_children();
         for archive in archives {
-            merge_all(root, archive, overwrite);
+            self.root.merge_children(archive, overwrite);
         }
         Ok(())
     }
@@ -247,7 +250,7 @@ impl Vfs {
         overwrite: Overwrite,
     ) -> Result<()> {
         let archive = disk::parse(Arc::new(Storage::Owned(bytes.into())), overwrite)?;
-        merge_all(self.root_children(), archive, overwrite);
+        self.root.merge_children(archive, overwrite);
         Ok(())
     }
 
@@ -264,17 +267,25 @@ impl Vfs {
         self.dir_mut(mount_point)?;
         let nodes = host::load_dir(path)?;
         debug!("read {} top-level entries", nodes.len());
-        merge_all(self.dir_mut(mount_point)?, nodes, overwrite);
+        self.dir_mut(mount_point)?.merge_children(nodes, overwrite);
         Ok(())
     }
 
-    fn root_children(&mut self) -> &mut Children {
-        self.root.entries_mut().expect("root is a directory")
-    }
-
-    fn dir_mut(&mut self, path: &str) -> Result<&mut Children> {
+    fn dir_mut(&mut self, path: &str) -> Result<&mut Node> {
         let node = self.resolve_mut(path).ok_or_else(|| Error::NotFound(path.into()))?;
-        node.entries_mut().ok_or_else(|| Error::NotADirectory(path.into()))
+        if !node.is_dir() {
+            return Err(Error::NotADirectory(path.into()));
+        }
+        Ok(node)
+    }
+}
+
+impl Node {
+    /// Merges `incoming` into this directory's children, giving them their paths in it.
+    fn merge_children(&mut self, incoming: Children, overwrite: Overwrite) {
+        if let Node { path, kind: Kind::Dir(children), .. } = self {
+            merge_all(children, Some(path), incoming, overwrite);
+        }
     }
 }
 
@@ -282,31 +293,51 @@ fn components(path: &str) -> impl Iterator<Item = &str> {
     path.split('/').map(trim_name).filter(|c| !c.is_empty())
 }
 
-fn merge_all(children: &mut Children, incoming: Children, overwrite: Overwrite) {
+fn merge_all(
+    children: &mut Children,
+    parent: Option<&str>,
+    incoming: Children,
+    overwrite: Overwrite,
+) {
     for node in incoming.into_values() {
-        merge(children, node, overwrite);
+        merge(children, parent, node, overwrite);
     }
 }
 
 /// Inserts `incoming` into a directory's children, merging directories and resolving file
 /// collisions with `overwrite`.
-pub(crate) fn merge(children: &mut Children, incoming: Node, overwrite: Overwrite) {
+///
+/// `parent` is the path of the directory the children are in, which the nodes put there take
+/// their paths from. While a tree is being built before it is mounted, there is none yet; its
+/// nodes get their paths when the tree is mounted.
+pub(crate) fn merge(
+    children: &mut Children,
+    parent: Option<&str>,
+    mut incoming: Node,
+    overwrite: Overwrite,
+) {
     let existing = match children.entry(fold(&incoming.name)) {
         Entry::Vacant(slot) => {
+            if let Some(parent) = parent {
+                incoming.place(parent);
+            }
             slot.insert(incoming);
             return;
         }
         Entry::Occupied(slot) => slot.into_mut(),
     };
 
-    let Node { name, time, kind } = incoming;
-    match (&mut existing.kind, kind) {
+    match (&mut existing.kind, incoming.kind) {
         (Kind::Dir(existing_children), Kind::Dir(incoming_children)) => {
-            merge_all(existing_children, incoming_children, overwrite);
+            let path = parent.map(|_| existing.path.as_str());
+            merge_all(existing_children, path, incoming_children, overwrite);
         }
         (_, kind) => {
-            if overwrite.replaces(existing.time, time) {
-                *existing = Node { name, time, kind };
+            if overwrite.replaces(existing.time, incoming.time) {
+                *existing = Node::new(incoming.name, incoming.time, kind);
+                if let Some(parent) = parent {
+                    existing.place(parent);
+                }
             }
         }
     }

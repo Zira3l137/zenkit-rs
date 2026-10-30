@@ -140,18 +140,15 @@ fn read_dir(catalog: &mut Catalog, first: usize, depth: usize, out: &mut Childre
         if kind & ENTRY_DIR != 0 {
             let mut children = Children::new();
             read_dir(catalog, entry.offset.get() as usize, depth + 1, &mut children)?;
-            let node = Node { name, time: catalog.time, kind: Kind::Dir(children) };
-            merge(out, node, catalog.overwrite);
+            let node = Node::new(name, catalog.time, Kind::Dir(children));
+            merge(out, None, node, catalog.overwrite);
         } else {
             let start = entry.offset.get() as usize;
             let end = start.checked_add(entry.size.get() as usize);
             if let Some(end) = end.filter(|&end| end <= catalog.storage.len()) {
-                let node = Node {
-                    name,
-                    time: catalog.time,
-                    kind: Kind::File(FileData::new(Arc::clone(catalog.storage), start, end)),
-                };
-                merge(out, node, catalog.overwrite);
+                let data = FileData::new(Arc::clone(catalog.storage), start, end);
+                let node = Node::new(name, catalog.time, Kind::File(data));
+                merge(out, None, node, catalog.overwrite);
             } else {
                 warn!("skipping {name:?}, its contents lie outside the archive");
             }

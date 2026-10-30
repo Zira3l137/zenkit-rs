@@ -74,25 +74,49 @@ pub(super) enum Kind {
 #[derive(Clone)]
 pub struct Node {
     pub(super) name: String,
+    /// Kept up to date whenever the node is put somewhere, see [`path`](Self::path).
+    pub(super) path: String,
     pub(super) time: SystemTime,
     pub(super) kind: Kind,
 }
 
 impl Node {
     pub fn dir(name: impl Into<String>, time: SystemTime) -> Self {
-        Self { name: name.into(), time, kind: Kind::Dir(Children::new()) }
+        Self::new(name.into(), time, Kind::Dir(Children::new()))
     }
 
     pub fn file(name: impl Into<String>, data: impl Into<Box<[u8]>>, time: SystemTime) -> Self {
-        Self {
-            name: name.into(),
-            time,
-            kind: Kind::File(FileData::whole(Storage::Owned(data.into()))),
-        }
+        Self::new(name.into(), time, Kind::File(FileData::whole(Storage::Owned(data.into()))))
+    }
+
+    /// A node that is not in a tree yet, so its path is its name.
+    pub(super) fn new(name: String, time: SystemTime, kind: Kind) -> Self {
+        Self { path: name.clone(), name, time, kind }
     }
 
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// Where the node is in its [`Vfs`](super::Vfs), with the names it was stored under, like
+    /// `/_WORK/DATA/TEXTURES/OWODWATSTOP-C.TEX`. The root is `/`.
+    ///
+    /// A node that is not in a `Vfs`, like one just made with [`dir`](Self::dir) or taken out
+    /// with [`remove`](Self::remove), has paths relative to itself: its own is its name, and its
+    /// children's are `NAME/CHILD`.
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+
+    /// Every node below this one, depth-first, each directory before its contents, and children
+    /// in name order.
+    pub fn descendants(&self) -> impl Iterator<Item = &Node> {
+        let mut stack: Vec<&Node> = self.children().rev().collect();
+        std::iter::from_fn(move || {
+            let node = stack.pop()?;
+            stack.extend(node.children().rev());
+            Some(node)
+        })
     }
 
     pub fn time(&self) -> SystemTime {
@@ -139,8 +163,9 @@ impl Node {
     }
 
     /// Adds `node` as a child, replacing any existing child with the same name.
-    pub fn insert(&mut self, node: Node) -> Result<&mut Node> {
+    pub fn insert(&mut self, mut node: Node) -> Result<&mut Node> {
         let parent = self.name.clone();
+        node.place(&self.path);
         let children = self.entries_mut().ok_or(Error::NotADirectory(parent))?;
         Ok(match children.entry(fold(&node.name)) {
             Entry::Vacant(slot) => slot.insert(node),
@@ -152,8 +177,26 @@ impl Node {
         })
     }
 
+    /// Takes a child out. It keeps its contents, and its paths become relative to it.
     pub fn remove(&mut self, name: &str) -> Option<Node> {
-        self.entries_mut()?.remove(&fold(name))
+        let mut node = self.entries_mut()?.remove(&fold(name))?;
+        node.place("");
+        Some(node)
+    }
+
+    /// Sets the paths of this node and everything below it for a parent at `parent`, or for no
+    /// parent if it is empty.
+    pub(super) fn place(&mut self, parent: &str) {
+        self.path = match parent {
+            "" => self.name.clone(),
+            "/" => format!("/{}", self.name),
+            _ => format!("{parent}/{}", self.name),
+        };
+        if let Kind::Dir(children) = &mut self.kind {
+            for child in children.values_mut() {
+                child.place(&self.path);
+            }
+        }
     }
 
     pub(super) fn entries(&self) -> &Children {
@@ -174,7 +217,7 @@ impl Node {
 impl fmt::Debug for Node {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut s = f.debug_struct("Node");
-        s.field("name", &self.name).field("time", &self.time);
+        s.field("path", &self.path).field("time", &self.time);
         match &self.kind {
             Kind::Dir(children) => s.field("children", &children.values()),
             Kind::File(data) => s.field("size", &(data.end - data.start)),

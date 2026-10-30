@@ -2,6 +2,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use zenkit_rs_core::Error;
+use zenkit_rs_vfs::Node;
 use zenkit_rs_vfs::Overwrite;
 use zenkit_rs_vfs::Vfs;
 
@@ -152,4 +153,71 @@ fn self_referencing_directory_is_rejected() {
 
     let err = Vfs::new().mount_disk_bytes(bytes, Overwrite::Older).unwrap_err();
     assert!(matches!(err, Error::Malformed { .. }), "{err}");
+}
+
+#[test]
+fn every_node_knows_its_path() {
+    let mut disk = Vfs::new();
+    disk.mount_disk(sample("basic.vdf"), Overwrite::Older).unwrap();
+    let mut host = Vfs::new();
+    host.mkdir("/_WORK").unwrap();
+    host.mount_host(sample("basic.vdf.dir"), "/_WORK", Overwrite::All).unwrap();
+
+    assert_eq!(disk.root().path(), "/");
+    assert_eq!(disk.find("gpl-3.0.md").unwrap().path(), "/LICENSES/GPL/GPL-3.0.MD");
+    assert_eq!(disk.resolve("licenses").unwrap().path(), "/LICENSES");
+    assert_eq!(host.find("gpl-3.0.md").unwrap().path(), "/_WORK/licenses/gpl/GPL-3.0.md");
+
+    // Every path leads back to its node.
+    for vfs in [&disk, &host] {
+        for node in vfs.nodes() {
+            assert!(std::ptr::eq(vfs.resolve(node.path()).unwrap(), node), "{}", node.path());
+        }
+    }
+}
+
+#[test]
+fn paths_follow_nodes_around() {
+    let time = std::time::UNIX_EPOCH;
+    let mut vfs = Vfs::new();
+    vfs.mount_disk(sample("basic.vdf"), Overwrite::Older).unwrap();
+
+    let mut licenses = vfs.remove("/LICENSES").unwrap();
+    assert_eq!(licenses.path(), "LICENSES");
+    assert_eq!(licenses.child("gpl").unwrap().path(), "LICENSES/GPL");
+    licenses.insert(Node::file("NEW.MD", *b"", time)).unwrap();
+    assert_eq!(licenses.child("new.md").unwrap().path(), "LICENSES/NEW.MD");
+
+    vfs.mkdir("/docs/old").unwrap().insert(licenses).unwrap();
+    assert_eq!(vfs.resolve("docs").unwrap().path(), "/docs");
+    assert_eq!(vfs.find("mit.md").unwrap().path(), "/docs/old/LICENSES/MIT.MD");
+    assert_eq!(vfs.find("new.md").unwrap().path(), "/docs/old/LICENSES/NEW.MD");
+
+    vfs.mount(Node::file("readme.md", *b"newer", time), "/docs", Overwrite::All).unwrap();
+    assert_eq!(vfs.resolve("docs/readme.md").unwrap().path(), "/docs/readme.md");
+}
+
+#[test]
+fn nodes_lists_directories_and_files() {
+    let mut vfs = Vfs::new();
+    vfs.mount_disk(sample("basic.vdf"), Overwrite::Older).unwrap();
+
+    let paths: Vec<&str> = vfs.nodes().map(|n| n.path()).collect();
+    assert_eq!(
+        paths,
+        [
+            "/CONFIG.YML",
+            "/LICENSES",
+            "/LICENSES/GPL",
+            "/LICENSES/GPL/GPL-3.0.MD",
+            "/LICENSES/GPL/LGPL-3.0.MD",
+            "/LICENSES/MIT.MD",
+            "/README.MD",
+        ]
+    );
+    assert_eq!(vfs.nodes().filter(|n| n.is_dir()).count(), 2);
+    let files: Vec<&str> = vfs.files().map(|n| n.path()).collect();
+    let from_nodes: Vec<&str> = vfs.nodes().filter(|n| n.is_file()).map(|n| n.path()).collect();
+    assert_eq!(files, from_nodes);
+    assert_eq!(vfs.resolve("licenses").unwrap().descendants().count(), 4);
 }
