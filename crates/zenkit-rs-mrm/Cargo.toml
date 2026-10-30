@@ -1,6 +1,6 @@
 [package]
 name = "zenkit-rs-mrm"
-description = "Reader for ZenGin multi-resolution meshes (.MRM), the format of props, items and armour"
+description = "Reader and writer for ZenGin multi-resolution meshes (.MRM), the format of props, items and armour"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

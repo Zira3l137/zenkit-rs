@@ -9,18 +9,24 @@
 //! version: u16 | content length: u32 | content...
 //! sub-mesh count: u8 | positions (offset, count) | normals (offset, count)
 //! per sub-mesh: ten (offset, count) pairs, see SubMesh
-//! materials (binary archive) | alpha test: u8, after Gothic 1 | Aabb | Obb | 16 unknown bytes
+//! materials (binary archive) | alpha test: u8, after Gothic 1 | Aabb | Obb | LodParams
 //! ```
+//!
+//! [`MultiResolutionMesh::to_bytes`] writes a mesh back, laying the arrays out in the order the
+//! engine does.
 
 use tracing::debug;
 use tracing::warn;
 use zenkit_rs_archive::Archive;
+use zenkit_rs_archive::ArchiveWriter;
+use zenkit_rs_archive::Format;
 use zenkit_rs_core::Asset;
 use zenkit_rs_core::Error;
 use zenkit_rs_core::GameVersion;
 use zenkit_rs_core::Result;
 use zenkit_rs_core::io::Reader;
 use zenkit_rs_core::io::Record;
+use zenkit_rs_core::io::Writer;
 use zenkit_rs_core::math::Aabb;
 use zenkit_rs_core::math::Obb;
 use zenkit_rs_core::math::Vec2;
@@ -61,6 +67,31 @@ pub struct Plane {
     pub normal: Vec3,
 }
 
+/// How many of a sub-mesh's triangles and wedges the engine draws at one level of detail, the
+/// engine's `zTPMVertexUpdate`. A sub-mesh has one for every number of positions from none to all
+/// of them, so the last one covers the whole sub-mesh.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct VertexUpdate {
+    pub triangles: u16,
+    pub wedges: u16,
+}
+
+/// How strongly the engine reduces a mesh's detail with distance, as its `zTLODParams`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LodParams {
+    pub strength: f32,
+    pub z_displacement: f32,
+    pub morph_percentage: f32,
+    pub min_vertices: i32,
+}
+
+/// The values the engine's own meshes mostly carry.
+impl Default for LodParams {
+    fn default() -> Self {
+        Self { strength: 1.0, z_displacement: 0.0, morph_percentage: 0.0, min_vertices: 0 }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SubMesh {
     pub material: Material,
@@ -74,6 +105,7 @@ pub struct SubMesh {
     pub edges: Vec<[u16; 2]>,
     pub edge_scores: Vec<f32>,
     pub wedge_map: Vec<u16>,
+    pub vertex_updates: Vec<VertexUpdate>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -85,6 +117,7 @@ pub struct MultiResolutionMesh {
     pub alpha_test: bool,
     pub bbox: Aabb,
     pub obb: Obb,
+    pub lod: LodParams,
 }
 
 #[derive(FromBytes, KnownLayout, Immutable, Unaligned, Clone, Copy)]
@@ -175,7 +208,12 @@ impl MultiResolutionMesh {
         let alpha_test = if version > VERSION_G1 { r.u8()? != 0 } else { true };
         let bbox = Aabb::read(r)?;
         let obb = Obb::read(r)?;
-        r.skip(16)?;
+        let lod = LodParams {
+            strength: r.f32()?,
+            z_displacement: r.f32()?,
+            morph_percentage: r.f32()?,
+            min_vertices: r.i32()?,
+        };
 
         let positions = array::<[F32; 3]>(content, positions)?.iter().map(vec3).collect();
         let normals = array::<[F32; 3]>(content, normals)?.iter().map(vec3).collect();
@@ -186,8 +224,115 @@ impl MultiResolutionMesh {
             .map(|(s, material)| read_sub_mesh(content, s, material))
             .collect::<Result<_>>()?;
 
-        Ok(Self { game, positions, normals, sub_meshes, alpha_test, bbox, obb })
+        Ok(Self { game, positions, normals, sub_meshes, alpha_test, bbox, obb, lod })
     }
+
+    /// Writes the mesh as a `.MRM` file: the mesh chunk and an empty end chunk.
+    pub fn to_bytes(&self, game: GameVersion) -> Result<Vec<u8>> {
+        let mut w = Writer::new();
+        w.chunk(CHUNK_MESH, |w| self.write_section(w, game))?;
+        w.chunk(CHUNK_END, |_| ());
+        Ok(w.into_inner())
+    }
+
+    /// Writes the mesh section on its own, the counterpart of
+    /// [`read_section`](Self::read_section). Fails if there are more than 255 sub-meshes or a
+    /// material cannot be written.
+    pub fn write_section(&self, w: &mut Writer, game: GameVersion) -> Result<()> {
+        let sub_mesh_count = u8::try_from(self.sub_meshes.len()).map_err(|_| {
+            let reason = format!("{} sub-meshes, at most 255 fit", self.sub_meshes.len());
+            Error::unwritable(FORMAT, reason)
+        })?;
+
+        let mut materials = ArchiveWriter::new(Format::Binary);
+        for sub in &self.sub_meshes {
+            sub.material.write_named(&mut materials, game);
+        }
+        let materials = materials.finish()?;
+
+        // Every array goes into one block, and a table after it says where each one starts.
+        let mut content = Writer::new();
+        let positions = section(&mut content, &self.positions, |w, &v| w.vec3(v));
+        let normals = section(&mut content, &self.normals, |w, &v| w.vec3(v));
+        let sections: Vec<[[u32; 2]; 10]> =
+            self.sub_meshes.iter().map(|sub| write_sub_mesh(&mut content, sub)).collect();
+
+        w.u16(match game {
+            GameVersion::Gothic1 => VERSION_G1,
+            GameVersion::Gothic2 => VERSION_G2,
+        });
+        w.u32(content.position() as u32);
+        w.bytes(content.as_bytes());
+
+        w.u8(sub_mesh_count);
+        for [offset, count] in
+            [positions, normals].into_iter().chain(sections.into_iter().flatten())
+        {
+            w.u32(offset);
+            w.u32(count);
+        }
+
+        w.bytes(&materials);
+        if game == GameVersion::Gothic2 {
+            w.u8(self.alpha_test.into());
+        }
+        self.bbox.write(w);
+        self.obb.write(w)?;
+        w.f32(self.lod.strength);
+        w.f32(self.lod.z_displacement);
+        w.f32(self.lod.morph_percentage);
+        w.i32(self.lod.min_vertices);
+        Ok(())
+    }
+}
+
+/// Writes an array into the content block and returns its `(offset, count)`.
+fn section<T>(w: &mut Writer, items: &[T], mut write: impl FnMut(&mut Writer, &T)) -> [u32; 2] {
+    let offset = w.position() as u32;
+    items.iter().for_each(|item| write(w, item));
+    [offset, items.len() as u32]
+}
+
+/// Writes a sub-mesh's arrays in the engine's order and returns their sections in the order of
+/// the table.
+fn write_sub_mesh(w: &mut Writer, sub: &SubMesh) -> [[u32; 2]; 10] {
+    let u16s = |w: &mut Writer, values: &[u16]| values.iter().for_each(|&v| w.u16(v));
+
+    let triangles = section(w, &sub.triangles, |w, t| u16s(w, t));
+    let wedges = section(w, &sub.wedges, |w, wedge| {
+        w.vec3(wedge.normal);
+        w.vec2(wedge.texture);
+        w.u16(wedge.index);
+        // Padding, which the engine leaves uninitialised.
+        w.u16(0);
+    });
+    let wedge_map = section(w, &sub.wedge_map, |w, &v| w.u16(v));
+    let colors = section(w, &sub.colors, |w, &v| w.f32(v));
+    let vertex_updates = section(w, &sub.vertex_updates, |w, update| {
+        w.u16(update.triangles);
+        w.u16(update.wedges);
+    });
+    let plane_indices = section(w, &sub.triangle_plane_indices, |w, &v| w.u16(v));
+    let planes = section(w, &sub.triangle_planes, |w, plane| {
+        w.f32(plane.distance);
+        w.vec3(plane.normal);
+    });
+    let triangle_edges = section(w, &sub.triangle_edges, |w, e| u16s(w, e));
+    let edges = section(w, &sub.edges, |w, e| u16s(w, e));
+    let edge_scores = section(w, &sub.edge_scores, |w, &v| w.f32(v));
+
+    [
+        triangles,
+        wedges,
+        colors,
+        plane_indices,
+        planes,
+        wedge_map,
+        vertex_updates,
+        triangle_edges,
+        edges,
+        edge_scores,
+    ]
 }
 
 /// Views a `(offset, count)` section of the content block as a slice of records.
@@ -235,6 +380,13 @@ fn read_sub_mesh(content: &[u8], s: &SubMeshSections, material: Material) -> Res
         edges: array::<[U16; 2]>(content, s.edges)?.iter().map(|e| e.map(|v| v.get())).collect(),
         edge_scores: f32s(s.edge_scores)?,
         wedge_map: u16s(s.wedge_map)?,
+        vertex_updates: array::<[U16; 2]>(content, s.vertex_updates)?
+            .iter()
+            .map(|&[triangles, wedges]| VertexUpdate {
+                triangles: triangles.get(),
+                wedges: wedges.get(),
+            })
+            .collect(),
     })
 }
 

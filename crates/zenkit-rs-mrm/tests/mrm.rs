@@ -3,10 +3,14 @@
 
 use std::path::Path;
 
+use zenkit_rs_core::GameVersion;
 use zenkit_rs_core::math::Vec2;
 use zenkit_rs_core::math::Vec3;
+use zenkit_rs_mrm::LodParams;
 use zenkit_rs_mrm::MultiResolutionMesh;
 use zenkit_rs_mrm::Plane;
+use zenkit_rs_mrm::SubMesh;
+use zenkit_rs_mrm::VertexUpdate;
 use zenkit_rs_mrm::Wedge;
 
 fn sample(name: &str) -> Vec<u8> {
@@ -74,4 +78,52 @@ fn truncated_meshes_fail_cleanly() {
         assert!(MultiResolutionMesh::from_bytes(&data[..len]).is_err(), "{len}");
     }
     assert!(MultiResolutionMesh::from_bytes(&data[..mesh_chunk_end]).is_ok());
+}
+
+#[test]
+fn mesh0_keeps_its_level_of_detail() {
+    let mesh = MultiResolutionMesh::from_bytes(&sample("mesh0.mrm")).unwrap();
+    let sub = &mesh.sub_meshes[0];
+    assert_eq!(sub.vertex_updates.len(), mesh.positions.len() + 1);
+    assert_eq!(sub.vertex_updates[0], VertexUpdate { triangles: 0, wedges: 16 });
+    let all = VertexUpdate { triangles: 16, wedges: 32 };
+    assert_eq!(sub.vertex_updates.last(), Some(&all));
+    assert_eq!((sub.triangles.len(), sub.wedges.len()), (16, 32));
+    assert_eq!(mesh.lod, LodParams::default());
+}
+
+#[test]
+fn mesh0_writes_back_byte_for_byte() {
+    let mut data = sample("mesh0.mrm");
+    let mesh = MultiResolutionMesh::from_bytes(&data).unwrap();
+    // The engine leaves the two bytes of padding after each wedge uninitialised; they are
+    // written as zeros. The wedges start 192 bytes into the content, which starts at 12.
+    for wedge in 0..32 {
+        let padding = 12 + 192 + wedge * 24 + 22;
+        data[padding..padding + 2].fill(0);
+    }
+    assert!(mesh.to_bytes(GameVersion::Gothic1).unwrap() == data);
+}
+
+#[test]
+fn gothic_2_meshes_store_the_alpha_test_flag() {
+    let mut mesh = MultiResolutionMesh::from_bytes(&sample("mesh0.mrm")).unwrap();
+    mesh.alpha_test = false;
+    mesh.lod.morph_percentage = 0.03;
+    mesh.normals = mesh.positions.iter().map(|p| p.normalize()).collect();
+
+    let back =
+        MultiResolutionMesh::from_bytes(&mesh.to_bytes(GameVersion::Gothic2).unwrap()).unwrap();
+    assert_eq!(back.game, Some(GameVersion::Gothic2));
+    assert_eq!(MultiResolutionMesh { game: mesh.game, ..back }, mesh);
+}
+
+#[test]
+fn too_many_sub_meshes_cannot_be_written() {
+    let mesh = MultiResolutionMesh {
+        sub_meshes: vec![SubMesh::default(); 256],
+        ..MultiResolutionMesh::default()
+    };
+    let error = mesh.to_bytes(GameVersion::Gothic2).unwrap_err();
+    assert!(error.to_string().contains("256 sub-meshes"), "{error}");
 }
