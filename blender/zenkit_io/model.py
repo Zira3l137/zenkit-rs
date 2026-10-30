@@ -331,6 +331,7 @@ def add_meshes(context, path, data, rig, scale):
 
     for i, skin in enumerate(data["soft_skins"]):
         mesh = convert.build_mesh(f"{path.stem}.{i}", skin["mesh"], scale, folders)
+        place_skin(mesh, skin, rig.world, scale)
         obj = bpy.data.objects.new(mesh.name, mesh)
         link(context, obj)
         add_weights(obj, skin, rig.names)
@@ -357,6 +358,37 @@ def add_meshes(context, path, data, rig, scale):
             obj.matrix_world = to_world @ node_frame(bone)
         elif node in rig.names:
             obj.matrix_world = to_world @ rig.world[rig.names.index(node)]
+
+
+def place_skin(mesh, skin, world, scale):
+    """Puts a soft skin's vertices where the engine draws them on the skeleton in `world`.
+
+    The engine ignores the positions a mesh stores: it places each vertex by the bones that move
+    it, from where the vertex lies relative to each, so a mesh made for a slightly different
+    skeleton fits the one it is drawn with. Vertices without weights, and meshes whose weights
+    name nodes the skeleton lacks, keep their stored positions.
+    """
+    counts = convert.array(skin, "weight_counts", "<u4")
+    nodes = convert.array(skin, "weight_nodes", "<u4")
+    if len(nodes) == 0 or nodes.max() >= len(world):
+        return
+    values = convert.array(skin, "weight_values", "<f4").astype(np.float64)
+    local = convert.array(skin, "weight_positions", "<f4", 3)[:, convert.SWAP_YZ] * scale
+
+    matrices = np.array([np.array(m) for m in world])[nodes]
+    placed = np.einsum("wij,wj->wi", matrices[:, :3, :3], local) + matrices[:, :3, 3]
+    vertex = np.repeat(np.arange(len(counts)), counts)
+    totals = np.bincount(vertex, values, len(counts))
+    sums = np.zeros((len(counts), 3))
+    np.add.at(sums, vertex, placed * values[:, None])
+
+    positions = np.empty(len(mesh.vertices) * 3, np.float32)
+    mesh.vertices.foreach_get("co", positions)
+    positions = positions.reshape(-1, 3)
+    weighted = totals > 0
+    positions[weighted] = sums[weighted] / totals[weighted, None]
+    mesh.vertices.foreach_set("co", positions.ravel())
+    mesh.update()
 
 
 def add_weights(obj, skin, names):

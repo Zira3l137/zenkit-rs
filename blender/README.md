@@ -102,7 +102,9 @@ itself, which turns that shape into Blender meshes and back.
   `NAME.TGA`, into the material, found as the preferences say. Exporting names each material's
   texture after its first image node.
 - **Skinning.** Soft skins store, for every vertex, each bone's weight and where the vertex lies
-  relative to that bone. Export works those positions out from the armature's rest pose.
+  relative to that bone. The engine draws a skin from those alone, ignoring the positions the mesh
+  stores, so a body fits whatever skeleton it is drawn on. Import does the same whenever the
+  skeleton is there, and export works the relative positions out from the armature's rest pose.
 - **Double-sided faces** are kept: the engine stores them as two triangles on the same corners,
   which Blender would merge if the mesh were validated, so it is not.
 
