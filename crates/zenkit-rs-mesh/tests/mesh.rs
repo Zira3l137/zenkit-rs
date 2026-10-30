@@ -4,6 +4,7 @@ use zenkit_rs_archive::Archive;
 use zenkit_rs_core::GameVersion;
 use zenkit_rs_core::math::Vec2;
 use zenkit_rs_core::math::Vec3;
+use zenkit_rs_material::AlphaFunction;
 use zenkit_rs_material::Material;
 use zenkit_rs_mesh::Mesh;
 use zenkit_rs_mesh::Triangle;
@@ -158,4 +159,74 @@ fn truncated_meshes_fail_cleanly() {
     for len in 0..data.len() {
         let _ = Mesh::from_bytes(&data[..len]);
     }
+}
+
+#[test]
+fn gothic2_mesh_writes_back_byte_for_byte() {
+    let data = mesh(265);
+    let written = Mesh::from_bytes(&data).unwrap().to_bytes(GameVersion::Gothic2).unwrap();
+    assert!(written == data);
+}
+
+#[test]
+fn meshes_round_trip_in_both_games() {
+    let mut original = Mesh::from_bytes(&mesh(265)).unwrap();
+    original.polygons[0].flags.normal_axis = 0;
+    for game in [GameVersion::Gothic1, GameVersion::Gothic2] {
+        let mut expected = original.clone();
+        expected.game = Some(game);
+        if game == GameVersion::Gothic1 {
+            // Gothic 1 has no alpha-test flag and none of the materials' Gothic 2 fields, nor
+            // these two polygon flags; it has its own.
+            expected.alpha_test = true;
+            expected.materials[0] = Material {
+                name: expected.materials[0].name.clone(),
+                color: expected.materials[0].color,
+                smooth_angle: expected.materials[0].smooth_angle,
+                texture: expected.materials[0].texture.clone(),
+                texture_scale: expected.materials[0].texture_scale,
+                default_mapping: expected.materials[0].default_mapping,
+                alpha_func: AlphaFunction::Default,
+                ..Material::default()
+            };
+            expected.polygons[1].flags.is_lod = true;
+            expected.polygons[1].flags.normal_axis = 0b10;
+        }
+
+        let written = expected.to_bytes(game).unwrap();
+        assert_eq!(Mesh::from_bytes(&written).unwrap(), expected, "{game:?}");
+    }
+}
+
+#[test]
+fn gothic1_lightmaps_keep_their_own_textures() {
+    let mut mesh = Mesh::from_bytes(&mesh(265)).unwrap();
+    mesh.lightmaps.push(mesh.lightmaps[0]);
+    let written = mesh.to_bytes(GameVersion::Gothic1).unwrap();
+    let back = Mesh::from_bytes(&written).unwrap();
+    // The shared texture is stored once per lightmap.
+    assert_eq!(back.lightmap_textures.len(), 2);
+    assert_eq!(back.lightmaps[1].texture, 1);
+    assert_eq!(back.lightmap_textures[1], mesh.lightmap_textures[0]);
+}
+
+#[test]
+fn refuses_what_does_not_fit() {
+    let error = |mesh: &Mesh, game| mesh.to_bytes(game).unwrap_err().to_string();
+    let original = Mesh::from_bytes(&mesh(265)).unwrap();
+
+    let mut wide = original.clone();
+    wide.polygon_vertex_indices[0] = 70_000;
+    assert!(error(&wide, GameVersion::Gothic1).contains("vertex 70000"));
+    assert!(wide.to_bytes(GameVersion::Gothic2).is_ok());
+    let mut w = zenkit_rs_core::io::Writer::new();
+    assert!(wide.write(&mut w, GameVersion::Gothic1, true).is_ok());
+
+    let mut broken = original.clone();
+    broken.polygons[0].index_count = 9;
+    assert!(error(&broken, GameVersion::Gothic2).contains("past the end"));
+
+    let mut broken = original.clone();
+    broken.lightmaps[0].texture = 3;
+    assert!(error(&broken, GameVersion::Gothic2).contains("texture 3"));
 }

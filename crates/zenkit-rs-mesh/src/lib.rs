@@ -2,10 +2,11 @@
 //!
 //! A mesh is a sequence of chunks: a header with the format version, bounding boxes, a material
 //! list stored as a binary archive, lightmaps, vertices, per-corner vertex features, polygons and
-//! an end marker.
+//! an end marker. [`Mesh::to_bytes`] writes one back.
 
 use tracing::debug;
 use zenkit_rs_archive::Archive;
+use zenkit_rs_archive::ArchiveWriter;
 use zenkit_rs_archive::Format;
 use zenkit_rs_core::Asset;
 use zenkit_rs_core::Date;
@@ -13,6 +14,7 @@ use zenkit_rs_core::Error;
 use zenkit_rs_core::GameVersion;
 use zenkit_rs_core::Result;
 use zenkit_rs_core::io::Reader;
+use zenkit_rs_core::io::Writer;
 use zenkit_rs_core::math::Aabb;
 use zenkit_rs_core::math::Obb;
 use zenkit_rs_core::math::Vec2;
@@ -241,6 +243,163 @@ impl Mesh {
         }
 
         Ok(mesh)
+    }
+
+    pub fn to_bytes(&self, game: GameVersion) -> Result<Vec<u8>> {
+        let mut w = Writer::new();
+        self.write(&mut w, game, false)?;
+        Ok(w.into_inner())
+    }
+
+    /// Writes the mesh's chunks, ending with its end chunk, as made for `game`. `wide_indices`
+    /// writes 32-bit vertex indices for Gothic 1 too, as XZEN worlds have them; Gothic 2 always
+    /// has them.
+    ///
+    /// Lightmaps go into the chunk each game reads: Gothic 1 keeps a texture with every lightmap,
+    /// Gothic 2 lets lightmaps share textures.
+    pub fn write(&self, w: &mut Writer, game: GameVersion, wide_indices: bool) -> Result<()> {
+        let name = text::to_latin1(&self.name)
+            .filter(|name| !name.iter().any(|b| matches!(b, 0 | b'\r' | b'\n')))
+            .ok_or_else(|| {
+                Error::unwritable(FORMAT, format!("the name {:?} cannot be stored", self.name))
+            })?;
+        let gothic2 = game == GameVersion::Gothic2;
+        let polygons = self.polygon_bytes(gothic2, gothic2 || wide_indices)?;
+        if let Some(lightmap) =
+            self.lightmaps.iter().find(|l| l.texture >= self.lightmap_textures.len())
+        {
+            let reason =
+                format!("a lightmap uses texture {}, which does not exist", lightmap.texture);
+            return Err(Error::unwritable(FORMAT, reason));
+        }
+
+        let mut materials = ArchiveWriter::new(Format::Binary);
+        Material::write_list(&self.materials, &mut materials, game);
+        let materials = materials.finish()?;
+
+        w.chunk(CHUNK_HEADER, |w| {
+            w.u16(if gothic2 { VERSION_G2 } else { VERSION_G1 });
+            self.date.write(w);
+            w.line(&name);
+        });
+        w.chunk(CHUNK_BBOX, |w| {
+            self.bbox.write(w);
+            self.obb.write(w)
+        })?;
+        w.chunk(CHUNK_MATERIALS, |w| {
+            w.bytes(&materials);
+            if gothic2 {
+                w.u8(self.alpha_test.into());
+            }
+        });
+
+        if !self.lightmaps.is_empty() {
+            let lightmap = |w: &mut Writer, l: &Lightmap| {
+                w.vec3(l.origin);
+                l.normals.iter().for_each(|&n| w.vec3(n));
+            };
+            if gothic2 {
+                w.chunk(CHUNK_LIGHTMAPS_SHARED, |w| {
+                    w.u32(self.lightmap_textures.len() as u32);
+                    self.lightmap_textures.iter().for_each(|t| t.write(w));
+                    w.u32(self.lightmaps.len() as u32);
+                    for l in &self.lightmaps {
+                        lightmap(w, l);
+                        w.u32(l.texture as u32);
+                    }
+                });
+            } else {
+                w.chunk(CHUNK_LIGHTMAPS, |w| {
+                    w.u32(self.lightmaps.len() as u32);
+                    for l in &self.lightmaps {
+                        lightmap(w, l);
+                        self.lightmap_textures[l.texture].write(w);
+                    }
+                });
+            }
+        }
+
+        w.chunk(CHUNK_VERTICES, |w| {
+            w.u32(self.vertices.len() as u32);
+            w.vec3s(&self.vertices);
+        });
+        w.chunk(CHUNK_FEATURES, |w| {
+            w.u32(self.features.len() as u32);
+            for f in &self.features {
+                w.vec2(f.texture);
+                w.u32(f.light);
+                w.vec3(f.normal);
+            }
+        });
+        w.chunk(CHUNK_POLYGONS, |w| w.bytes(&polygons));
+        w.chunk(CHUNK_END, |_| ());
+        Ok(())
+    }
+
+    /// The contents of the polygon chunk, checked against what the format can hold.
+    fn polygon_bytes(&self, gothic2: bool, wide: bool) -> Result<Vec<u8>> {
+        let unwritable =
+            |i: usize, reason: String| Error::unwritable(FORMAT, format!("polygon {i} {reason}"));
+        let mut w = Writer::new();
+        w.u32(self.polygons.len() as u32);
+        for (i, polygon) in self.polygons.iter().enumerate() {
+            let end = polygon.index_offset.checked_add(polygon.index_count);
+            if end.is_none_or(|end| {
+                end > self.polygon_vertex_indices.len() || end > self.polygon_feature_indices.len()
+            }) {
+                return Err(unwritable(i, "has corners past the end of the index lists".into()));
+            }
+            let corners = u8::try_from(polygon.index_count).map_err(|_| {
+                unwritable(i, format!("has {} corners, at most 255 fit", polygon.index_count))
+            })?;
+            let lightmap = match polygon.lightmap {
+                None => -1,
+                Some(l) => i16::try_from(l)
+                    .map_err(|_| unwritable(i, format!("uses lightmap {l}, past 32767")))?,
+            };
+
+            w.u16(polygon.material);
+            w.i16(lightmap);
+            w.f32(polygon.plane_distance);
+            w.vec3(polygon.plane_normal);
+
+            let f = polygon.flags;
+            let common = (f.portal & 0b11)
+                | (u8::from(f.is_occluder) << 2)
+                | (u8::from(f.is_sector) << 3)
+                | (u8::from(f.is_outdoor) << 5)
+                | (u8::from(f.is_ghost_occluder) << 6);
+            if gothic2 {
+                w.u8(common
+                    | (u8::from(f.should_relight) << 4)
+                    | (u8::from(f.is_dynamically_lit) << 7));
+            } else {
+                w.u8(common | (u8::from(f.is_lod) << 4) | ((f.normal_axis & 1) << 7));
+                w.u8((f.normal_axis >> 1) & 1);
+            }
+            w.i16(f.sector_index);
+
+            w.u8(corners);
+            let range = polygon.index_offset..polygon.index_offset + polygon.index_count;
+            for (&vertex, &feature) in self.polygon_vertex_indices[range.clone()]
+                .iter()
+                .zip(&self.polygon_feature_indices[range])
+            {
+                if wide {
+                    w.u32(vertex);
+                } else {
+                    let vertex = u16::try_from(vertex).map_err(|_| {
+                        unwritable(
+                            i,
+                            format!("uses vertex {vertex}, past the 65535 Gothic 1 can index"),
+                        )
+                    })?;
+                    w.u16(vertex);
+                }
+                w.u32(feature);
+            }
+        }
+        Ok(w.into_inner())
     }
 
     /// The vertex indices of a polygon's corners.
