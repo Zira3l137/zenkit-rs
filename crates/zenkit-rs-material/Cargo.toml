@@ -1,6 +1,6 @@
 [package]
 name = "zenkit-rs-material"
-description = "Reader for ZenGin materials (zCMaterial)"
+description = "Reader and writer for ZenGin materials (zCMaterial)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -92,3 +92,47 @@ fn wrong_object_class_is_an_error() {
     let err = Material::read(&mut archive).unwrap_err().to_string();
     assert!(err.contains("oCSavegameInfo"), "{err}");
 }
+
+#[test]
+fn material_lists_write_back_like_the_engine() {
+    use zenkit_rs_archive::ArchiveWriter;
+    use zenkit_rs_archive::Format;
+    use zenkit_rs_core::GameVersion;
+
+    for (game, version) in [("G1", GameVersion::Gothic1), ("G2", GameVersion::Gothic2)] {
+        let original = sample(&format!("{game}/DEMON_DIE_BODY.MAT"));
+        let material = demon_body(game);
+
+        let mut w = ArchiveWriter::new(Format::Binary);
+        Material::write_list(std::slice::from_ref(&material), &mut w, version);
+        let written = w.finish().unwrap();
+        // The G2 sample goes on with the rest of the mesh it was cut from.
+        assert!(original.starts_with(&written), "{game}");
+        assert_eq!(written.len() == original.len(), game == "G1");
+    }
+}
+
+#[test]
+fn materials_round_trip_in_every_encoding() {
+    use zenkit_rs_archive::ArchiveWriter;
+    use zenkit_rs_archive::Format;
+    use zenkit_rs_core::GameVersion;
+
+    let g1 = demon_body("G1");
+    let mut g2 = demon_body("G2");
+    g2.alpha_func = AlphaFunction::Add;
+    g2.group = MaterialGroup::Snow;
+    g2.texture_scale = Vec2::new(1.0 / 3.0, 1e20);
+
+    for format in [Format::Ascii, Format::Binary, Format::Binsafe] {
+        for (material, game) in [(&g1, GameVersion::Gothic1), (&g2, GameVersion::Gothic2)] {
+            let mut w = ArchiveWriter::new(format);
+            material.write(&mut w, game);
+            let data = w.finish().unwrap();
+            let mut archive = Archive::new(&data).unwrap();
+            let back = Material::read(&mut archive).unwrap();
+            assert!(archive.is_eof());
+            assert_eq!(&back, material, "{format:?} {game:?}");
+        }
+    }
+}

@@ -48,6 +48,35 @@ pub fn float(s: &[u8]) -> Option<f32> {
     (1..=candidate).rev().find_map(|end| std::str::from_utf8(&s[..end]).ok()?.parse().ok())
 }
 
+/// Formats a float like C's `%.{precision}g` in the runtime the game was built with: the shorter
+/// of fixed and exponential notation, trailing zeros dropped, exponents with at least three
+/// digits. The engine writes the floats it stores as text this way, like `9.9999997e-005`.
+pub fn float_g(value: f32, precision: usize) -> String {
+    let precision = precision.max(1);
+    if !value.is_finite() {
+        return value.to_string();
+    }
+    if value == 0.0 {
+        return if value.is_sign_negative() { "-0".into() } else { "0".into() };
+    }
+
+    let scientific = format!("{:.*e}", precision - 1, value);
+    let (mantissa, exponent) = scientific.split_once('e').expect("{:e} always has an exponent");
+    let exponent: i32 = exponent.parse().expect("{:e} exponents are integers");
+
+    if (-4..precision as i32).contains(&exponent) {
+        let decimals = (precision as i32 - 1 - exponent) as usize;
+        trim_zeros(&format!("{value:.decimals$}")).into()
+    } else {
+        let sign = if exponent < 0 { '-' } else { '+' };
+        format!("{}e{sign}{:03}", trim_zeros(mantissa), exponent.abs())
+    }
+}
+
+fn trim_zeros(number: &str) -> &str {
+    if number.contains('.') { number.trim_end_matches('0').trim_end_matches('.') } else { number }
+}
+
 /// Whitespace-separated floats; missing ones read as zero, like a failed C++ stream read.
 pub fn floats<const N: usize>(s: &[u8]) -> [f32; N] {
     let mut parts = s.split(u8::is_ascii_whitespace).filter(|p| !p.is_empty());
@@ -89,6 +118,22 @@ mod tests {
         assert_eq!(float(b"Infinity"), Some(f32::INFINITY));
         assert!(float(b"NaN").unwrap().is_nan());
         assert!(float(b"-nan(ind)").unwrap().is_sign_negative());
+    }
+
+    #[test]
+    fn floats_print_like_printf() {
+        assert_eq!(float_g(1e-4, 8), "9.9999997e-005");
+        assert_eq!(float_g(512.0, 8), "512");
+        assert_eq!(float_g(0.0, 8), "0");
+        assert_eq!(float_g(-0.5, 8), "-0.5");
+        assert_eq!(float_g(2.34375, 8), "2.34375");
+        assert_eq!(float_g(123456789.0, 8), "1.2345679e+008");
+        assert_eq!(float_g(12345678.0, 8), "12345678");
+        assert_eq!(float_g(0.0001, 6), "0.0001");
+        assert_eq!(float_g(0.00001, 6), "1e-005");
+        assert_eq!(float_g(1e9, 8), "1e+009");
+        assert_eq!(float_g(999.99999, 5), "1000");
+        assert_eq!(float(float_g(1.0 / 3.0, 9).as_bytes()), Some(1.0 / 3.0));
     }
 
     #[test]

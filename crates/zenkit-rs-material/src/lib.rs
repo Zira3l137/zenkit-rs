@@ -1,10 +1,12 @@
 //! Materials (`zCMaterial`), which describe how a surface is textured and how it behaves.
 //!
 //! Materials never come on their own: meshes and worlds embed them as archive objects, and the
-//! rare `.MAT` file is just a list of them.
+//! rare `.MAT` file is just a list of them. They are read from an [`Archive`] and written to an
+//! [`ArchiveWriter`].
 
 use tracing::warn;
 use zenkit_rs_archive::Archive;
+use zenkit_rs_archive::ArchiveWriter;
 use zenkit_rs_core::GameVersion;
 use zenkit_rs_core::Result;
 use zenkit_rs_core::ResultExt;
@@ -13,8 +15,8 @@ use zenkit_rs_core::math::Vec2;
 use zenkit_rs_core::raw_enum;
 use zenkit_rs_core::text;
 
-/// The class version Gothic 1 writes. Gothic 2 writes `0x9C03`.
 const VERSION_G1: u16 = 17408;
+const VERSION_G2: u16 = 0x9C03;
 
 raw_enum! {
     /// What a surface is made of, which decides footstep sounds and hit effects.
@@ -176,6 +178,70 @@ impl Material {
         m.default_mapping = archive.vec2()?;
         Ok(m)
     }
+
+    /// Writes a whole `zCMaterial` object, with the class version and fields of `game`.
+    pub fn write(&self, w: &mut ArchiveWriter, game: GameVersion) {
+        let version = match game {
+            GameVersion::Gothic1 => VERSION_G1,
+            GameVersion::Gothic2 => VERSION_G2,
+        };
+        w.begin_object("%", "zCMaterial", version);
+        self.write_fields(w, game);
+        w.end_object();
+    }
+
+    /// Writes a material list, the counterpart of [`read_list`](Self::read_list).
+    pub fn write_list(materials: &[Self], w: &mut ArchiveWriter, game: GameVersion) {
+        w.int("", materials.len() as i32);
+        for material in materials {
+            material.write_named(w, game);
+        }
+    }
+
+    /// Writes the material's name followed by the whole material, the counterpart of
+    /// [`read_named`](Self::read_named).
+    pub fn write_named(&self, w: &mut ArchiveWriter, game: GameVersion) {
+        w.name("", &self.name);
+        self.write(w, game);
+    }
+
+    /// Writes the fields of a material whose object header has already been written.
+    pub fn write_fields(&self, w: &mut ArchiveWriter, game: GameVersion) {
+        w.name("name", &self.name);
+        w.enumeration("matGroup", self.group.raw());
+        w.color("color", self.color);
+        w.float("smoothAngle", self.smooth_angle);
+        w.name("texture", &self.texture);
+        w.string("texScale", &pair(self.texture_scale));
+        w.float("texAniFPS", self.texture_anim_fps);
+        w.enumeration("texAniMapMode", self.texture_anim_map_mode.raw());
+        w.string("texAniMapDir", &pair(self.texture_anim_map_dir));
+        w.bool("noCollDet", self.disable_collision);
+        w.bool("noLightmap", self.disable_lightmap);
+        w.bool("losDontCollapse", self.dont_collapse);
+        w.name("detailObject", &self.detail_object);
+
+        if game == GameVersion::Gothic2 {
+            w.float("detailObjectScale", self.detail_object_scale);
+            w.bool("forceOccluder", self.force_occluder);
+            w.bool("environmentalMapping", self.environment_mapping);
+            w.float("environmentalMappingStrength", self.environment_mapping_strength);
+            w.enumeration("waveMode", self.wave_mode.raw());
+            w.enumeration("waveSpeed", self.wave_speed.raw());
+            w.float("waveMaxAmplitude", self.wave_max_amplitude);
+            w.float("waveGridSize", self.wave_grid_size);
+            w.bool("ignoreSunLight", self.ignore_sun);
+            w.enumeration("alphaFunc", self.alpha_func.raw());
+        }
+
+        w.vec2("defaultMapping", self.default_mapping);
+    }
+}
+
+/// Two floats as text, the way the engine stores a texture's scale and animation direction. Eight
+/// digits can round away the last bit of a float, as they do in the engine.
+fn pair(v: Vec2) -> Vec<u8> {
+    format!("{} {}", text::float_g(v.x, 8), text::float_g(v.y, 8)).into_bytes()
 }
 
 #[cfg(test)]
