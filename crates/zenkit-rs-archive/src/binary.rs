@@ -6,6 +6,8 @@
 //!
 //! `size` counts from the start of the object, so the reader knows where every object ends even
 //! though values carry no length. Enums are a single byte here.
+//!
+//! The data starts right after the header's last `END` line and an optional blank line.
 
 use std::borrow::Cow;
 
@@ -39,12 +41,36 @@ impl<'a> Binary<'a> {
         if super::field(objects, "objects").and_then(text::int).is_none() {
             return Err(malformed(r.offset(), "missing \"objects\" line"));
         }
-        // Only newlines may follow, because the binary data starts right after them.
-        if r.line(b"\n") != b"END" {
-            return Err(malformed(r.offset(), "missing second \"END\" line"));
-        }
+        let offset = r.offset();
+        let rest = r.rest();
+        let after = rest
+            .strip_prefix(b"END")
+            .map(|rest| rest.strip_prefix(b"\r").unwrap_or(rest))
+            .and_then(|rest| rest.strip_prefix(b"\n"))
+            .ok_or_else(|| malformed(offset, "missing second \"END\" line"))?;
+        // Writers like ZenKit add a blank line, but when the data starts with an object, its
+        // first byte is the low byte of the object's size and can just as well be 0x0A. The
+        // newline is only taken as data if that alone leaves an object that fits.
+        let blank = after.strip_prefix(b"\r\n").or(after.strip_prefix(b"\n"));
+        let after = match blank {
+            Some(blank) if !(fits_object(after) && !fits_object(blank)) => blank,
+            _ => after,
+        };
+        r.skip(rest.len() - after.len())?;
         Ok(Self { r, ends: Vec::new() })
     }
+}
+
+/// Whether `data` starts with an object header whose size, name and class fit inside it.
+fn fits_object(data: &[u8]) -> bool {
+    let Some(size) = data.get(..4).map(|b| u32::from_le_bytes(b.try_into().unwrap()) as usize)
+    else {
+        return false;
+    };
+    let Some(object) = data.get(..size).and_then(|object| object.get(10..)) else {
+        return false;
+    };
+    object.iter().filter(|&&b| b == 0).count() >= 2
 }
 
 impl<'a> Decode<'a> for Binary<'a> {

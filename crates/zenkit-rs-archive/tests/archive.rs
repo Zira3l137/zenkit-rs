@@ -286,6 +286,28 @@ fn reads_data_written_straight_into_the_stream() {
 }
 
 #[test]
+fn binary_data_may_start_with_a_newline_byte() {
+    // An object of 266 bytes starts with 0x0A, a newline, which must not be taken as part of
+    // the header's blank line.
+    let name = "N".repeat(253);
+    for header_end in [&b"END\n\n"[..], b"END\r\n\r\n", b"END\n"] {
+        let mut data = b"ZenGin Archive\nver 1\nzCArchiverGeneric\nBINARY\nsaveGame 0\nEND\n\
+                         objects 1\n"
+            .to_vec();
+        data.extend(header_end);
+        data.extend(266u32.to_le_bytes());
+        data.extend([0; 6]);
+        data.extend(format!("{name}\0%\0").as_bytes());
+
+        let mut ar = Archive::new(&data).unwrap();
+        let object = ar.begin_object().unwrap().unwrap();
+        assert_eq!(object.name, name.as_bytes());
+        assert!(ar.end_object().unwrap());
+        assert!(ar.is_eof());
+    }
+}
+
+#[test]
 fn walks_self_describing_archives() {
     let data = binsafe_sample();
     assert_eq!(walk(&mut Archive::new(&data).unwrap()).unwrap(), (3, 0));
