@@ -286,14 +286,17 @@ fn write_visual<'a>(w: &mut WriteCtx<'a, '_>, visual: &'a Visual) {
         w.reference("visual", index);
         return;
     }
+    // Gothic II's NEWWORLD.ZEN gives meshes and decals 64513 and models, particle effects and
+    // morph meshes 0. Gothic 1's samples show 0 for every visual they hold.
+    let g2_only = if w.gothic2() { 64513 } else { 0 };
     let (class, version) = match &visual.kind {
-        VisualKind::Mesh => ("zCMesh", 0),
-        VisualKind::MultiResolutionMesh => ("zCProgMeshProto", if w.gothic2() { 64513 } else { 0 }),
+        VisualKind::Mesh => ("zCMesh", g2_only),
+        VisualKind::MultiResolutionMesh => ("zCProgMeshProto", g2_only),
         VisualKind::ParticleEffect => ("zCParticleFX", 0),
         VisualKind::Camera => ("zCAICamera", 0),
         VisualKind::Model => ("zCModel", 0),
         VisualKind::MorphMesh => ("zCMorphMesh", 0),
-        VisualKind::Decal(_) => ("zCDecal", 0),
+        VisualKind::Decal(_) => ("zCDecal", g2_only),
         VisualKind::Unknown => return,
     };
     let index = w.begin_object("visual", class, version);

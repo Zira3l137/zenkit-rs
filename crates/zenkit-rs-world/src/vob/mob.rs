@@ -167,7 +167,7 @@ impl Container {
 
     pub(crate) fn write(&self, w: &mut WriteCtx) {
         self.interactive.write(w);
-        w.bool("locked", self.locked);
+        w.bit("locked", self.locked);
         w.name("keyInstance", &self.key);
         w.name("pickLockStr", &self.pick_string);
         w.name("contains", &self.contents);
@@ -196,7 +196,7 @@ impl Door {
 
     pub(crate) fn write(&self, w: &mut WriteCtx) {
         self.interactive.write(w);
-        w.bool("locked", self.locked);
+        w.bit("locked", self.locked);
         w.name("keyInstance", &self.key);
         w.name("pickLockStr", &self.pick_string);
     }

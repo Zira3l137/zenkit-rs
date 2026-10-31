@@ -37,6 +37,7 @@ fn write(format: Format) -> Vec<u8> {
     w.enumeration("enum", 3);
     w.bool("yes", true);
     w.bool("no", false);
+    w.bit("bit", true);
     w.color("color", Color::new(1, 2, 3, 255));
     w.vec2("vec2", Vec2::new(0.5, -0.25));
     w.vec3("vec3", Vec3::new(1.0, 0.1, -1e-7));
@@ -79,6 +80,7 @@ fn every_value_reads_back() {
         assert_eq!(r.enumeration().unwrap(), 3);
         assert!(r.bool().unwrap());
         assert!(!r.bool().unwrap());
+        assert!(r.bool().unwrap(), "a bit reads as a bool");
         assert_eq!(r.color().unwrap(), Color::new(1, 2, 3, 255));
         assert_eq!(r.vec2().unwrap(), Vec2::new(0.5, -0.25));
         assert_eq!(r.vec3().unwrap(), Vec3::new(1.0, 0.1, -1e-7));
@@ -191,6 +193,20 @@ fn binsafe_lists_every_key_once() {
         expected.extend(key.as_bytes());
     }
     assert_eq!(&data[table..], expected);
+}
+
+#[test]
+fn set_bits_are_stored_with_every_bit_set() {
+    for (format, stored) in [
+        (Format::Binary, &[0xFF][..]),
+        (Format::Binsafe, &[0x06, 0xFF, 0xFF, 0xFF, 0xFF][..]),
+        (Format::Ascii, b"locked=bool:1\n"),
+    ] {
+        let mut w = ArchiveWriter::new(format);
+        w.bit("locked", true);
+        let data = w.finish().unwrap();
+        assert!(data.windows(stored.len()).any(|w| w == stored), "{format:?}");
+    }
 }
 
 #[test]

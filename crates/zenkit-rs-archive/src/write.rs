@@ -256,6 +256,20 @@ impl ArchiveWriter {
         }
     }
 
+    /// A bool the engine keeps in a one-bit field of its object, like a mob's `locked`. A signed
+    /// one-bit field holds -1 when set, so binary and BIN_SAFE archives store true with every bit
+    /// set, as the games' worlds do. ASCII archives get `1`, as for any bool.
+    pub fn bit(&mut self, key: &str, value: bool) {
+        match self.header.format {
+            Format::Ascii => self.bool(key, value),
+            Format::Binary => self.body.u8(if value { 0xFF } else { 0 }),
+            Format::Binsafe => {
+                self.tag(key, binsafe::BOOL);
+                self.body.u32(if value { u32::MAX } else { 0 });
+            }
+        }
+    }
+
     pub fn color(&mut self, key: &str, value: Color) {
         let Color { r, g, b, a } = value;
         match self.header.format {
