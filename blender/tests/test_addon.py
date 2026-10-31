@@ -43,6 +43,12 @@ assert (w2, h2) == (w, h) and written == original, "texture changed on its way t
 assert bpy.ops.export_image.zenkit_texture(
     filepath=str(work / "DXT.TEX"), image="erz", format="DXT1"
 ) == {"FINISHED"}
+assert bpy.ops.export_image.zenkit_texture(
+    filepath=str(work / "FAST.TEX"), image="erz", format="DXT1", quality="FAST"
+) == {"FINISHED"}
+assert zenkit_py.read_texture(str(work / "FAST.TEX"))[:2] == (128, 128)
+# Imported textures are packed into the .blend as they came.
+assert image.packed_file is not None
 
 # A texture's alpha reaches the material's shader when it has any; erz is opaque.
 package = bpy.types.IMPORT_SCENE_OT_zenkit_mesh.__module__.rsplit(".", 1)[0]
@@ -445,5 +451,18 @@ else:
         for key, value in saved.items():
             setattr(prefs, key, value)
     print("preferences ok")
+
+# Packed textures come back with the .blend. Opening it replaces everything, so this goes last.
+convert.material("ERZ_SAVED", "ERZ.TGA", [work]).use_fake_user = True
+saved_image = next(i for i in bpy.data.images if i.name.startswith("ERZ-C"))
+erz_name = saved_image.name
+erz_pixels = np.empty(128 * 128 * 4, np.float32)
+saved_image.pixels.foreach_get(erz_pixels)
+bpy.ops.wm.save_as_mainfile(filepath=str(work / "saved.blend"))
+bpy.ops.wm.open_mainfile(filepath=str(work / "saved.blend"))
+reopened = np.empty(128 * 128 * 4, np.float32)
+bpy.data.images[erz_name].pixels.foreach_get(reopened)
+assert np.array_equal(reopened, erz_pixels), "the packed texture changed in the .blend"
+print("saved ok")
 
 print("all ok")

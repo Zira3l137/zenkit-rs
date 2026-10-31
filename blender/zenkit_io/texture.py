@@ -1,5 +1,7 @@
 """Gothic textures (.TEX) to and from Blender images."""
 
+import struct
+import tempfile
 from pathlib import Path
 
 import bpy
@@ -13,14 +15,30 @@ from . import preferences
 ALPHA = "zenkit_alpha"
 
 
+def tga(width, height, rgba):
+    """RGBA8 pixels, rows top to bottom, as an uncompressed 32-bit TGA file."""
+    # Image type 2 is uncompressed true color; descriptor 0x28 is 8 alpha bits, rows top first.
+    header = struct.pack("<BBBHHBHHHHBB", 0, 0, 2, 0, 0, 0, 0, 0, width, height, 32, 0x28)
+    pixels = np.frombuffer(rgba, np.uint8).reshape(-1, 4)[:, [2, 1, 0, 3]]
+    return header + pixels.tobytes()
+
+
 def image(name, width, height, rgba):
-    """A new Blender image of RGBA8 pixels, rows top to bottom, packed into the .blend."""
-    result = bpy.data.images.new(name, width, height, alpha=True)
-    # Blender stores rows bottom to top, as floats.
-    pixels = np.frombuffer(rgba, np.uint8).reshape(height, width, 4)[::-1]
-    result.pixels.foreach_set((pixels.astype(np.float32) / 255.0).ravel())
-    result.pack()
-    result[ALPHA] = bool((pixels[..., 3] < 255).any())
+    """A new Blender image of RGBA8 pixels, rows top to bottom, packed into the .blend.
+
+    Packing an image Blender made itself encodes it as PNG, which takes most of the time an
+    import of a large texture does. So the pixels are written as an uncompressed TGA instead,
+    which takes none, and Blender packs that file as it is: a little larger, many times faster.
+    """
+    with tempfile.TemporaryDirectory() as folder:
+        path = Path(folder) / "texture.tga"
+        path.write_bytes(tga(width, height, rgba))
+        result = bpy.data.images.load(str(path))
+        result.pack()
+    result.name = name
+    result.filepath_raw = name + ".tga"
+    alpha = np.frombuffer(rgba, np.uint8)[3::4]
+    result[ALPHA] = bool((alpha < 255).any())
     return result
 
 
@@ -61,13 +79,13 @@ def find(name, folders=()):
     return image(stem, *found) if found is not None else None
 
 
-def save(source, path, format, mipmaps):
+def save(source, path, format, mipmaps, quality="HIGH"):
     width, height = source.size
     pixels = np.empty(width * height * 4, np.float32)
     source.pixels.foreach_get(pixels)
     pixels = pixels.reshape(height, width, 4)[::-1]
     rgba = (np.clip(pixels, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
-    zenkit_py.write_texture(str(path), width, height, rgba.tobytes(), format, mipmaps)
+    zenkit_py.write_texture(str(path), width, height, rgba.tobytes(), format, mipmaps, quality)
 
 
 class ImportTexture(bpy.types.Operator):
@@ -115,6 +133,15 @@ class ExportTexture(bpy.types.Operator):
         default="DXT1",
     )
     mipmaps: bpy.props.BoolProperty(name="Mipmaps", default=True)
+    quality: bpy.props.EnumProperty(
+        name="Quality",
+        description="How hard DXT compression tries to keep the picture as it was",
+        items=[
+            ("HIGH", "High", "Best picture; slow on large, detailed images"),
+            ("FAST", "Fast", "Many times faster, with somewhat blotchier detail"),
+        ],
+        default="HIGH",
+    )
 
     def invoke(self, context, event):
         space = context.space_data
@@ -132,6 +159,8 @@ class ExportTexture(bpy.types.Operator):
     def draw(self, context):
         self.layout.prop_search(self, "image", bpy.data, "images")
         self.layout.prop(self, "format")
+        if self.format.startswith("DXT"):
+            self.layout.prop(self, "quality")
         self.layout.prop(self, "mipmaps")
 
     def execute(self, context):
@@ -140,7 +169,7 @@ class ExportTexture(bpy.types.Operator):
             self.report({"ERROR"}, "Choose an image to export")
             return {"CANCELLED"}
         try:
-            save(source, self.filepath, self.format, self.mipmaps)
+            save(source, self.filepath, self.format, self.mipmaps, self.quality)
         except zenkit_py.ZenKitError as error:
             self.report({"ERROR"}, str(error))
             return {"CANCELLED"}
