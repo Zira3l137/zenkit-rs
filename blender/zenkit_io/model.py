@@ -464,10 +464,12 @@ def gather_model(armature, depsgraph, scale):
         checksum = zlib.crc32(joined.encode("latin-1", "replace"))
     root = armature.data.get(ROOT_TRANSLATION)
 
+    # Mesh nodes bring their meshes; slots are only places, whatever shape stands for them.
     attachments = []
     for name, _, _, item in nodes:
         is_mesh = isinstance(item, bpy.types.Object) and item.type == "MESH"
-        if is_mesh and not item.data.get(PLACEHOLDER):
+        is_slot = name.upper().startswith("ZS_")
+        if is_mesh and not is_slot and not item.data.get(PLACEHOLDER):
             mesh = convert.gather_mesh(item, depsgraph, scale, True, item.matrix_world)
             attachments.append({"node": name, "mesh": mesh})
 

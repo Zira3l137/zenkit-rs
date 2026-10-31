@@ -349,8 +349,11 @@ sword.matrix_world = rig.matrix_world @ rig.data.bones["BIP01 ARM"].matrix_local
 # Named like the engine's tools name meshes on a bone, it stays a mesh rather than a node.
 sword.name = "ZM_FRILL_7"
 
-# A slot of one's own: anything named ZS_ hanging from a bone.
-hand = bpy.data.objects.new("ZS_HAND", None)
+# A slot of one's own: anything named ZS_ hanging from a bone. A shape standing for it is not
+# exported as a mesh.
+hand_shape = bpy.data.meshes.new("hand")
+hand_shape.from_pydata([(0, 0, 0), (0.1, 0, 0), (0, 0.1, 0)], [], [(0, 1, 2)])
+hand = bpy.data.objects.new("ZS_HAND", hand_shape)
 bpy.context.collection.objects.link(hand)
 hand.parent = rig
 hand.parent_type = "BONE"
