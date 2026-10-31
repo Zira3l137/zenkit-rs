@@ -48,6 +48,11 @@ case), or tick Custom Folders and give each one yourself. They are used to:
 - find the skeleton a `.MDM` belongs to (see below);
 - choose the game exported files are for, which the game folder tells unless set.
 
+The archives are mounted once and memory-mapped, so only the parts that are looked up are read,
+however large they are. On Windows a mapped file cannot be changed, so while Blender holds them,
+a mod's `.vdf` cannot be rebuilt in place; changing the archive preferences, or turning Search the
+Archives off, lets go of them.
+
 The worlds folder is there for world import and export, which come next.
 
 ## Models

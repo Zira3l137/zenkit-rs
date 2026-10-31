@@ -472,6 +472,12 @@ else:
         found = [n.image for n in mat.node_tree.nodes if n.type == "TEX_IMAGE"]
         assert found and found[0].name == "OCODFLGATELI-C", "the archive's texture was not used"
 
+        # The archives stay mounted, memory-mapped, until the preferences that pick them change.
+        mounted = sys.modules[package + ".preferences"]._mounted
+        assert mounted["archives"] is not None
+        prefs.use_archives = False
+        assert mounted["archives"] is None and mounted["folder"] is None
+
         prefs.use_custom = True
         prefs.textures = str(samples)
         assert prefs.folder("textures") == samples
