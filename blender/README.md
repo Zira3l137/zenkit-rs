@@ -5,7 +5,7 @@ through zenkit-rs, mostly to try the library's readers and writers on real work:
 
 | File                             | Import                                | Export                                   |
 |----------------------------------|---------------------------------------|------------------------------------------|
-| Textures (`.TEX`)                | As an image, packed into the `.blend` | Any image, as DXT1/3/5 or BGRA8          |
+| Textures (`.TEX`)                | As an image, packed into the `.blend` | Any image, as DXT1 or DXT3               |
 | Static meshes (`.MSH`)           | As a mesh, with materials             | The active mesh, polygons as they are    |
 | Multi-resolution meshes (`.MRM`) | As a mesh, with materials             | The active mesh, triangulated            |
 | Models (`.MDL`, `.MDH`, `.MDM`)  | As an armature with its meshes        | The active armature and the meshes on it |
@@ -126,9 +126,12 @@ itself, which turns that shape into Blender meshes and back.
   `NAME.TGA`, into the material, found as the preferences say, its alpha too if it has any.
   Exporting names each material's texture after its first image node. Imported textures are
   packed into the `.blend` as uncompressed TGA, which is quick to write, where Blender would
-  spend most of the import compressing them to PNG. Exporting to DXT takes a quality: High
-  searches each 4×4 block for its best two colors, which is slow on large detailed images; Fast
-  is many times quicker at the cost of somewhat blotchier detail.
+  spend most of the import compressing them to PNG. Textures export as DXT1 or DXT3, the two
+  formats the game's renderer shows (it refuses DXT5, and has nothing to show uncompressed
+  32-bit ones with), with mipmaps down to 4×4, below which it refuses DXT textures. Their sides
+  should be powers of two, as the game's are; exporting warns when they are not. Exporting
+  takes a quality: High searches each 4×4 block for its best two colors, which is slow on large
+  detailed images; Fast is many times quicker at the cost of somewhat blotchier detail.
 - **Skinning.** Soft skins store, for every vertex, each bone's weight and where the vertex lies
   relative to that bone. The engine draws a skin from those alone, ignoring the positions the mesh
   stores, so a body fits whatever skeleton it is drawn on. Import does the same whenever the
