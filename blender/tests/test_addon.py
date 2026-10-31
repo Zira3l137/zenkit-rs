@@ -77,6 +77,10 @@ mesh.corner_normals.foreach_get("vector", normals)
 normals = normals.reshape(-1, 3)
 agree = sum(np.dot(p.normal, normals[list(p.loop_indices)].mean(axis=0)) > 0 for p in mesh.polygons)
 print(f"faces agreeing with their normals: {agree}/{len(mesh.polygons)}")
+# The cage's faces are all double-sided, stored twice: each side shades smooth, out of its front.
+for polygon in mesh.polygons:
+    for corner in polygon.loop_indices:
+        assert np.dot(normals[corner], polygon.normal) > 0, polygon.index
 
 
 def geometry(data):
