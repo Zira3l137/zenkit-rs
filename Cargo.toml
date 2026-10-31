@@ -11,6 +11,8 @@ repository = "https://github.com/Zira3l137/zenkit-rs"
 
 [workspace.dependencies]
 bitflags = { version = "2", default-features = false }
+# The checksum skeletons and the meshes made for them carry is the CRC-32 of the node names.
+crc32fast = { version = "1", default-features = false, features = ["std"] }
 # Glam is re-exported from zenkit-rs-core, so applications use the same version.
 glam = { version = "0.34", default-features = false, features = ["std"] }
 # ASCII archives store raw bytes as hex.

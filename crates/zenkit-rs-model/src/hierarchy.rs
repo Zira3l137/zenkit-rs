@@ -97,6 +97,19 @@ impl ModelHierarchy {
         Ok(hierarchy)
     }
 
+    /// The checksum the engine computes over the nodes: the CRC-32 of their names, one after the
+    /// other, in order. Game files store it as [`checksum`](Self::checksum), and a model mesh
+    /// stores the checksum of the skeleton it was made for, which the engine compares with the
+    /// skeleton it applies the mesh to and refuses the mesh's soft skins if the two differ. Fails
+    /// if a name has characters beyond Latin-1, as writing would.
+    pub fn node_checksum(&self) -> Result<u32> {
+        let mut crc = crc32fast::Hasher::new();
+        for node in &self.nodes {
+            crc.update(&crate::line(FORMAT, &node.name)?);
+        }
+        Ok(crc.finalize())
+    }
+
     pub fn to_bytes(&self) -> Result<Vec<u8>> {
         let mut w = Writer::new();
         self.write(&mut w)?;

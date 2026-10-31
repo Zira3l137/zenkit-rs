@@ -116,3 +116,15 @@ fn truncated_files_fail_cleanly() {
         }
     }
 }
+
+#[test]
+fn node_checksum_is_what_the_files_store() {
+    let mut h = ModelHierarchy::from_bytes(&sample("hierarchy0.mdh")).unwrap();
+    assert_eq!(h.node_checksum().unwrap(), h.checksum);
+
+    // It depends on the names and their order alone.
+    h.nodes.swap(1, 2);
+    assert_ne!(h.node_checksum().unwrap(), h.checksum);
+    h.nodes[0].name = "\u{263A}".into();
+    assert!(h.node_checksum().is_err());
+}
