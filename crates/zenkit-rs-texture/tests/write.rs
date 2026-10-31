@@ -2,6 +2,7 @@ use std::path::Path;
 
 use zenkit_rs_core::Error;
 use zenkit_rs_core::math::Color;
+use zenkit_rs_texture::DxtQuality;
 use zenkit_rs_texture::Texture;
 use zenkit_rs_texture::TextureFormat;
 use zenkit_rs_texture::max_mipmap_count;
@@ -140,4 +141,30 @@ fn refuses_textures_it_cannot_build() {
         unwritable(Texture::from_mipmaps(TextureFormat::R8G8B8, 2, 2, vec![vec![0; 11]], None))
             .contains("needs 12 bytes")
     );
+}
+
+#[test]
+fn dxt_quality_trades_error_for_speed() {
+    // Noise over a gradient: blocks of many colors, where the two qualities differ the most.
+    let mut seed = 7u32;
+    let rgba: Vec<u8> = (0..64 * 64 * 4)
+        .map(|i| {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let gradient = (i / 4 % 64 * 3) as u32;
+            if i % 4 == 3 { 255 } else { (gradient + (seed >> 24) % 48) as u8 }
+        })
+        .collect();
+    let error = |quality| {
+        let texture =
+            Texture::from_rgba8_with(64, 64, &rgba, TextureFormat::Dxt1, 3, quality).unwrap();
+        assert_eq!(Texture::from_bytes(&texture.to_bytes()).unwrap(), texture);
+        let back = texture.to_rgba8(0).unwrap();
+        back.iter().zip(&rgba).map(|(&a, &b)| u64::from(a.abs_diff(b))).sum::<u64>()
+    };
+    let (fast, high) = (error(DxtQuality::Fast), error(DxtQuality::High));
+    assert!(high < fast, "high {high}, fast {fast}");
+
+    let plain =
+        Texture::from_rgba8_with(4, 2, &PIXELS, TextureFormat::R8G8B8A8, 1, DxtQuality::Fast);
+    assert_eq!(plain.unwrap().to_rgba8(0).unwrap(), PIXELS);
 }

@@ -10,10 +10,25 @@ use crate::Texture;
 use crate::TextureFormat;
 use crate::mip_dimensions;
 
+/// How hard DXT compression tries to keep the picture as it was.
+///
+/// Each 4×4 block of a DXT texture keeps two colors and blends between them. Picking the two is
+/// what takes the time: on detailed pictures, [`High`](Self::High) takes tens of times longer
+/// than [`Fast`](Self::Fast), for about a third less error. On flat pictures the two are close in
+/// both. Other formats store every pixel and ignore this.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum DxtQuality {
+    /// Takes the two colors from the ends of the block's spread of colors.
+    Fast,
+    /// Searches for the two colors that fit the block best.
+    #[default]
+    High,
+}
+
 impl Texture {
     /// Builds a texture from tightly packed RGBA8 pixels, encoding it in `format` with
-    /// `mipmap_count` levels, each half the size of the one before. DXT formats are compressed in
-    /// parallel when the `parallel` feature is on.
+    /// `mipmap_count` levels, each half the size of the one before. DXT formats are compressed at
+    /// [`DxtQuality::High`], in parallel when the `parallel` feature is on.
     ///
     /// DXT textures need sides that are multiples of four, as the engine computes their sizes in
     /// whole 4×4 blocks. Palette textures ([`TextureFormat::P8`]) need a palette to be chosen,
@@ -24,6 +39,18 @@ impl Texture {
         rgba: &[u8],
         format: TextureFormat,
         mipmap_count: u32,
+    ) -> Result<Self> {
+        Self::from_rgba8_with(width, height, rgba, format, mipmap_count, DxtQuality::High)
+    }
+
+    /// [`from_rgba8`](Self::from_rgba8), compressing DXT formats at `quality`.
+    pub fn from_rgba8_with(
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+        format: TextureFormat,
+        mipmap_count: u32,
+        quality: DxtQuality,
     ) -> Result<Self> {
         let pixels = width as usize * height as usize;
         if width == 0 || height == 0 || rgba.len() != pixels * 4 {
@@ -45,7 +72,7 @@ impl Texture {
         let mipmaps = (levels.iter().enumerate())
             .map(|(level, rgba)| {
                 let (w, h) = mip_dimensions(width, height, level as u32);
-                encode(format, rgba, w, h)
+                encode(format, rgba, w, h, quality)
             })
             .collect::<Result<_>>()?;
 
@@ -187,7 +214,13 @@ fn quantize(v: u8, bits: u32) -> u16 {
     ((u32::from(v) * max + 127) / 255) as u16
 }
 
-fn encode(format: TextureFormat, rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>> {
+fn encode(
+    format: TextureFormat,
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    quality: DxtQuality,
+) -> Result<Vec<u8>> {
     let pixels = rgba.as_chunks::<4>().0;
     let packed16 = |pack: fn([u8; 4]) -> u16| -> Vec<u8> {
         pixels.iter().flat_map(|&p| pack(p).to_le_bytes()).collect()
@@ -230,7 +263,12 @@ fn encode(format: TextureFormat, rgba: &[u8], width: u32, height: u32) -> Result
             };
             let (w, h) = (width as usize, height as usize);
             let mut out = vec![0; codec.compressed_size(w, h)];
-            codec.compress(rgba, w, h, texpresso::Params::default(), &mut out);
+            let algorithm = match quality {
+                DxtQuality::Fast => texpresso::Algorithm::RangeFit,
+                DxtQuality::High => texpresso::Algorithm::ClusterFit,
+            };
+            let params = texpresso::Params { algorithm, ..texpresso::Params::default() };
+            codec.compress(rgba, w, h, params, &mut out);
             out
         }
     })

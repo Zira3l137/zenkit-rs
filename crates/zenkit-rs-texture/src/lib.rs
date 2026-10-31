@@ -8,7 +8,7 @@
 //! ```
 //!
 //! Textures can also be built from RGBA8 pixels with [`Texture::from_rgba8`] and written with
-//! [`Texture::to_bytes`].
+//! [`Texture::to_bytes`]. [`Texture::from_rgba8_with`] trades DXT quality for speed.
 
 mod write;
 
@@ -18,6 +18,7 @@ use zenkit_rs_core::Result;
 use zenkit_rs_core::io::Reader;
 use zenkit_rs_core::math::Color;
 
+pub use write::DxtQuality;
 pub use write::max_mipmap_count;
 
 const FORMAT: &str = "texture";
