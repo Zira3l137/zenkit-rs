@@ -554,15 +554,36 @@ class ImportModel(bpy.types.Operator):
         return {"FINISHED"}
 
 
+def with_format(path, format):
+    """`path` ending in the extension of `format`, one of the model formats."""
+    path = Path(path)
+    is_model = path.suffix.upper() in (".MDL", ".MDH", ".MDM")
+    return str(
+        path.with_suffix("." + format) if is_model else path.with_name(path.name + "." + format)
+    )
+
+
 class ExportModel(bpy.types.Operator):
     """Export the active armature and its meshes as a Gothic model (.mdl), skeleton (.mdh) or
-    model mesh (.mdm), by the file's extension"""
+    model mesh (.mdm)"""
 
     bl_idname = "export_scene.zenkit_model"
     bl_label = "Export Gothic Model"
 
     filepath: bpy.props.StringProperty(subtype="FILE_PATH")
     filter_glob: bpy.props.StringProperty(default="*.mdl;*.mdh;*.mdm", options={"HIDDEN"})
+    format: bpy.props.EnumProperty(
+        name="Format",
+        description="What to write; the file's extension follows it, and it follows the extension",
+        items=[
+            ("MDL", "Model (.mdl)", "The skeleton and its meshes"),
+            ("MDH", "Skeleton (.mdh)", "Bones, slots and mesh nodes only"),
+            ("MDM", "Meshes (.mdm)", "Skinned meshes and attachments only"),
+        ],
+        default="MDL",
+    )
+    # The format when the file browser last checked, to tell whether it or the name changed.
+    shown_format: bpy.props.StringProperty(options={"HIDDEN", "SKIP_SAVE"})
     scale: bpy.props.FloatProperty(
         name="Scale", default=0.01, min=1e-6, description="Metres per engine unit"
     )
@@ -578,19 +599,39 @@ class ExportModel(bpy.types.Operator):
 
     def invoke(self, context, event):
         self.game = preferences.game_version()
-        name = armature_of(context.active_object).name.upper() + ".MDL"
+        name = armature_of(context.active_object).name.upper() + "." + self.format
         start = preferences.folder("anims")
         self.filepath = str(start / name) if start else name
+        self.shown_format = self.format
         context.window_manager.fileselect_add(self)
         return {"RUNNING_MODAL"}
 
+    def check(self, context):
+        # The file browser calls this whenever an option or the name changes. A new format puts
+        # its extension on the name; a model extension typed into the name picks the format.
+        typed = Path(self.filepath).suffix.upper().lstrip(".")
+        if self.format != self.shown_format:
+            self.filepath = with_format(self.filepath, self.format)
+        elif typed in ("MDL", "MDH", "MDM") and typed != self.format:
+            self.format = typed
+        elif typed != self.format:
+            self.filepath = with_format(self.filepath, self.format)
+        else:
+            return False
+        self.shown_format = self.format
+        return True
+
     def execute(self, context):
         armature = armature_of(context.active_object)
+        # A model extension on the name says what to write; a name without one gets the format's.
+        path = self.filepath
+        if Path(path).suffix.upper() not in (".MDL", ".MDH", ".MDM"):
+            path = with_format(path, self.format)
         data = gather_model(armature, context.evaluated_depsgraph_get(), self.scale)
         try:
-            zenkit_py.write_model(self.filepath, data, self.game)
+            zenkit_py.write_model(path, data, self.game)
         except zenkit_py.ZenKitError as error:
             self.report({"ERROR"}, str(error))
             return {"CANCELLED"}
-        self.report({"INFO"}, f"Exported {armature.name}")
+        self.report({"INFO"}, f"Exported {armature.name} as {Path(path).name}")
         return {"FINISHED"}
