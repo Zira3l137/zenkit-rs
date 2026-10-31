@@ -42,6 +42,11 @@ NODE = "zenkit_node"
 ATTACHMENT = "zenkit_attachment"
 PLACEHOLDER = "zenkit_placeholder"
 
+# What the engine's tools name skinned meshes and meshes hanging from a bone, followed by a number.
+SKIN = "ZM_SKIN_"
+FRILL = "ZM_FRILL_"
+MESH_NAMES = (SKIN.rstrip("_"), FRILL.rstrip("_"))
+
 # Blender bones point along their Y axis, while a node may point along any of its axes (the
 # bones of 3ds Max's Biped, which Gothic's skeletons come from, along X). A bone starts as its
 # node turned so that Y is the node's axis closest to its child, one of these.
@@ -220,13 +225,29 @@ def build_skeleton(context, name, data, scale):
 
 
 def is_node_object(obj):
-    """Whether an object hanging from an armature is a slot or mesh node rather than a mesh."""
+    """Whether an object hanging from an armature is a slot or mesh node rather than a mesh.
+
+    Imported ones are marked. Others go by name, as in the engine's own tools: `ZS_` is a slot,
+    `ZM_` a mesh node, except for `ZM_SKIN` and `ZM_FRILL`, the names of skinned meshes and of
+    meshes hanging from a bone.
+    """
     if NODE in obj:
         return True
     if ATTACHMENT in obj:
         return False
+    name = obj.name.upper()
+    if name.startswith(MESH_NAMES):
+        return False
     skinned = any(m.type == "ARMATURE" for m in getattr(obj, "modifiers", []))
-    return obj.name.upper().startswith(("ZS_", "ZM_")) and not skinned
+    return name.startswith(("ZS_", "ZM_")) and not skinned
+
+
+def free_name(prefix):
+    """The first of `prefix` followed by 0, 1, 2… that no object has yet."""
+    index = 0
+    while f"{prefix}{index}" in bpy.data.objects:
+        index += 1
+    return f"{prefix}{index}"
 
 
 def node_objects(armature):
@@ -345,8 +366,9 @@ def add_meshes(context, path, data, rig, scale):
 
     for i, skin in enumerate(data["soft_skins"]):
         positions = skin_positions(skin, rig.world, scale)
-        mesh = convert.build_mesh(f"{path.stem}.{i}", skin["mesh"], scale, folders, positions)
-        obj = bpy.data.objects.new(mesh.name, mesh)
+        name = free_name(SKIN)
+        mesh = convert.build_mesh(name, skin["mesh"], scale, folders, positions)
+        obj = bpy.data.objects.new(name, mesh)
         link(context, obj)
         add_weights(obj, skin, rig.names)
         if armature is not None:
@@ -355,17 +377,22 @@ def add_meshes(context, path, data, rig, scale):
 
     for attachment in data["attachments"]:
         node = attachment["node"]
-        mesh = convert.build_mesh(node, attachment["mesh"], scale, folders)
         target = rig.objects.get(node)
         if target is not None and target.type == "MESH" and target.data.get(PLACEHOLDER):
-            target.data = mesh
+            target.data = convert.build_mesh(node, attachment["mesh"], scale, folders)
             continue
 
-        obj = bpy.data.objects.new(node, mesh)
-        link(context, obj)
+        # A mesh node's mesh is named after it; a mesh on a bone is a frill.
         bone = armature.data.bones.get(node) if armature is not None else None
-        if bone is not None:
+        is_frill = bone is not None or not node.upper().startswith("ZM_")
+        name = free_name(FRILL) if is_frill else node
+        obj = bpy.data.objects.new(
+            name, convert.build_mesh(name, attachment["mesh"], scale, folders)
+        )
+        link(context, obj)
+        if is_frill:
             obj[ATTACHMENT] = node
+        if bone is not None:
             obj.parent = armature
             obj.parent_type = "BONE"
             obj.parent_bone = bone.name

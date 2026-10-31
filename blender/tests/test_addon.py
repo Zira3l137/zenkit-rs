@@ -207,7 +207,8 @@ deselect_all()
 assert bpy.ops.import_scene.zenkit_model(filepath=str(samples / "smoke_waterpipe.mdm")) == {
     "FINISHED"
 }
-pipe = [o for o in bpy.context.scene.objects if o.name.startswith("smoke_waterpipe")][0]
+# Skinned meshes are named as the engine's tools name them.
+(pipe,) = [o for o in bpy.context.scene.objects if o.name.startswith("ZM_SKIN_")]
 assert len(pipe.data.vertices) == 115 and pipe.vertex_groups.get("NODE 0") is not None
 # A weight names its node by the node's index in the skeleton: vertex 62's is node 4.
 assert pipe.vertex_groups["NODE 4"].weight(62) == 1.0
@@ -336,6 +337,7 @@ body.matrix_world.translation = (0.5, 0, 1)
 body.vertex_groups.new(name="BIP01").add(list(range(4)), 1.0, "REPLACE")
 body.vertex_groups.new(name="BIP01 ARM").add(list(range(4, 8)), 1.0, "REPLACE")
 body.modifiers.new("Armature", "ARMATURE").object = rig
+body.name = "ZM_SKIN_3"
 
 bpy.ops.mesh.primitive_cube_add(size=0.2)
 sword = bpy.context.active_object
@@ -343,6 +345,16 @@ sword.parent = rig
 sword.parent_type = "BONE"
 sword.parent_bone = "BIP01 ARM"
 sword.matrix_world = rig.matrix_world @ rig.data.bones["BIP01 ARM"].matrix_local
+# Named like the engine's tools name meshes on a bone, it stays a mesh rather than a node.
+sword.name = "ZM_FRILL_7"
+
+# A slot of one's own: anything named ZS_ hanging from a bone.
+hand = bpy.data.objects.new("ZS_HAND", None)
+bpy.context.collection.objects.link(hand)
+hand.parent = rig
+hand.parent_type = "BONE"
+hand.parent_bone = "BIP01 ARM"
+hand.matrix_world = rig.matrix_world @ rig.data.bones["BIP01 ARM"].matrix_local
 
 deselect_all()
 rig.select_set(True)
@@ -351,7 +363,7 @@ for ext in ("MDL", "MDH", "MDM"):
     assert bpy.ops.export_scene.zenkit_model(filepath=str(work / f"RIG.{ext}")) == {"FINISHED"}
 
 model = zenkit_py.read_model(str(work / "RIG.MDL"))
-assert [n[0] for n in model["nodes"]] == ["BIP01", "BIP01 ARM"]
+assert [n[0] for n in model["nodes"]] == ["BIP01", "BIP01 ARM", "ZS_HAND"]
 assert len(model["soft_skins"]) == 1 and len(model["attachments"]) == 1
 assert model["attachments"][0]["node"] == "BIP01 ARM"
 # The sword sits at its bone, so its vertices are small offsets from it, in centimetres.
@@ -366,8 +378,10 @@ bpy.ops.object.delete()
 assert bpy.ops.import_scene.zenkit_model(filepath=str(work / "RIG.MDL")) == {"FINISHED"}
 rig = bpy.context.active_object
 skins = [o for o in rig.children if o.parent_type != "BONE"]
-bones = [o for o in rig.children if o.parent_type == "BONE"]
+bones = [o for o in rig.children if o.parent_type == "BONE" and "zenkit_node" not in o]
 assert len(skins) == 1 and len(bones) == 1 and bones[0].parent_bone == "BIP01 ARM"
+assert (skins[0].name, bones[0].name) == ("ZM_SKIN_0", "ZM_FRILL_0")
+assert any(o.get("zenkit_node") == "ZS_HAND" for o in rig.children)
 assert {g.name for g in skins[0].vertex_groups} == {"BIP01", "BIP01 ARM"}
 positions = np.array([v.co[:] for v in skins[0].data.vertices])
 assert np.allclose(positions.min(axis=0), (0, -0.5, 0.5), atol=1e-4), positions.min(axis=0)
@@ -387,7 +401,7 @@ bpy.ops.object.select_all(action="SELECT")
 bpy.ops.object.delete()
 assert bpy.ops.import_scene.zenkit_model(filepath=str(work / "RIG.MDM")) == {"FINISHED"}
 assert not [o for o in bpy.context.scene.objects if o.type == "ARMATURE"]
-sword = bpy.context.scene.objects["BIP01 ARM"]
+sword = bpy.context.scene.objects["ZM_FRILL_0"]
 assert np.allclose(sword.matrix_world.to_translation()[:], (0, 0, 1), atol=1e-5)
 print("model ok")
 
