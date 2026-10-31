@@ -63,8 +63,14 @@ A skeleton's nodes come in three kinds, told apart by their names as Gothic's ow
 A model's meshes come in two kinds:
 
 - **Soft skins**, the bodies that bend with the bones: meshes parented to the armature, with an
-  Armature modifier and a vertex group per bone that moves them.
-- **Attachments**, rigid meshes: the object of a mesh node, or a mesh parented to a bone.
+  Armature modifier and a vertex group per bone that moves them. They are named `ZM_SKIN_0`,
+  `ZM_SKIN_1` and so on.
+- **Attachments**, rigid meshes: the object of a mesh node, named after it, or a mesh parented to
+  a bone, named `ZM_FRILL_0`, `ZM_FRILL_1` and so on.
+
+These are the names the engine's own tools use. When exporting, objects hanging from the
+armature are told apart by name where they carry no mark from an import: `ZS_` is a slot, so name
+new slots that way, and `ZM_` a mesh node, except `ZM_SKIN` and `ZM_FRILL`, which stay meshes.
 
 A `.MDL` holds a skeleton and its meshes, a `.MDH` only the skeleton and a `.MDM` only the
 meshes. A `.MDM` brings in just its meshes. They go onto the active armature if that is their
