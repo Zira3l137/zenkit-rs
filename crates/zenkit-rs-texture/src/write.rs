@@ -1,5 +1,6 @@
 //! Building textures from pixels and writing them back to `.TEX`.
 
+use tracing::warn;
 use zenkit_rs_core::Error;
 use zenkit_rs_core::Result;
 use zenkit_rs_core::io::Writer;
@@ -33,6 +34,9 @@ impl Texture {
     /// DXT textures need sides that are multiples of four, as the engine computes their sizes in
     /// whole 4×4 blocks. Palette textures ([`TextureFormat::P8`]) need a palette to be chosen,
     /// which this does not do; [`from_mipmaps`](Self::from_mipmaps) takes one ready-made.
+    ///
+    /// A format or mipmap count the game refuses is still built, with a warning, as other tools
+    /// may take it: see [`TextureFormat::is_refused_by_game`] and [`game_mipmap_count`].
     pub fn from_rgba8(
         width: u32,
         height: u32,
@@ -62,6 +66,7 @@ impl Texture {
             return Err(Error::unsupported(FORMAT, "choosing a palette for P8 textures"));
         }
         check_mipmap_count(width, height, mipmap_count)?;
+        warn_if_refused_by_game(format, width, height, mipmap_count);
 
         let mut levels = vec![rgba.to_vec()];
         for level in 1..mipmap_count {
@@ -101,6 +106,7 @@ impl Texture {
             return Err(Error::unwritable(FORMAT, format!("a texture cannot be {width}x{height}")));
         }
         check_mipmap_count(width, height, mipmaps.len() as u32)?;
+        warn_if_refused_by_game(format, width, height, mipmaps.len() as u32);
         if palette.is_some() != (format == TextureFormat::P8) {
             let reason = "only P8 textures have a palette, and they always do";
             return Err(Error::unwritable(FORMAT, reason));
@@ -163,6 +169,33 @@ impl Texture {
 /// single pixel.
 pub fn max_mipmap_count(width: u32, height: u32) -> u32 {
     32 - width.max(height).max(1).leading_zeros()
+}
+
+/// How many mipmap levels the game takes: as many as [`max_mipmap_count`], except that DXT
+/// levels stop before a side would drop under 4 pixels or stop being a multiple of 4. A 128×128
+/// DXT texture gets 6, down to 4×4.
+pub fn game_mipmap_count(format: TextureFormat, width: u32, height: u32) -> u32 {
+    let max = max_mipmap_count(width, height);
+    if !format.is_compressed() {
+        return max;
+    }
+    let whole_blocks = |level| {
+        let (w, h) = mip_dimensions(width, height, level);
+        w >= 4 && h >= 4 && w.is_multiple_of(4) && h.is_multiple_of(4)
+    };
+    1 + (1..max).take_while(|&level| whole_blocks(level)).count() as u32
+}
+
+fn warn_if_refused_by_game(format: TextureFormat, width: u32, height: u32, mipmap_count: u32) {
+    if format.is_refused_by_game() {
+        warn!("the game refuses {format:?} textures; use Dxt1 or Dxt3");
+    } else if mipmap_count > game_mipmap_count(format, width, height) {
+        let most = game_mipmap_count(format, width, height);
+        warn!(
+            "the game refuses a {width}x{height} {format:?} texture with {mipmap_count} \
+             mipmaps, as DXT mipmaps under 4x4 are refused; it takes at most {most}"
+        );
+    }
 }
 
 fn check_mipmap_count(width: u32, height: u32, count: u32) -> Result<()> {

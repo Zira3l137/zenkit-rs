@@ -5,6 +5,7 @@ use zenkit_rs_core::math::Color;
 use zenkit_rs_texture::DxtQuality;
 use zenkit_rs_texture::Texture;
 use zenkit_rs_texture::TextureFormat;
+use zenkit_rs_texture::game_mipmap_count;
 use zenkit_rs_texture::max_mipmap_count;
 
 fn sample(name: &str) -> Vec<u8> {
@@ -107,6 +108,29 @@ fn mipmap_counts_go_down_to_one_pixel() {
     assert_eq!(max_mipmap_count(128, 128), 8);
     assert_eq!(max_mipmap_count(256, 32), 9);
     assert_eq!(max_mipmap_count(5, 3), 3);
+}
+
+#[test]
+fn game_mipmap_counts_keep_dxt_levels_in_whole_blocks() {
+    use TextureFormat::*;
+    assert_eq!(game_mipmap_count(Dxt1, 128, 128), 6);
+    assert_eq!(game_mipmap_count(Dxt3, 256, 32), 4);
+    assert_eq!(game_mipmap_count(Dxt1, 4, 4), 1);
+    assert_eq!(game_mipmap_count(Dxt1, 24, 24), 2);
+    assert_eq!(game_mipmap_count(Dxt1, 2, 2), 1);
+    assert_eq!(game_mipmap_count(R5G6B5, 128, 128), 8);
+
+    let rgba = Texture::from_bytes(&sample("erz.tex")).unwrap().to_rgba8(0).unwrap();
+    let texture = Texture::from_rgba8(128, 128, &rgba, Dxt1, game_mipmap_count(Dxt1, 128, 128));
+    assert_eq!(texture.unwrap().mipmap_dimensions(5), (4, 4));
+}
+
+#[test]
+fn the_game_takes_dxt1_and_dxt3_only_among_compressed_formats() {
+    use TextureFormat::*;
+    assert!(!Dxt1.is_refused_by_game() && !Dxt3.is_refused_by_game());
+    assert!([Dxt2, Dxt4, Dxt5, B8G8R8A8].iter().all(|f| f.is_refused_by_game()));
+    assert!(!Texture::from_bytes(&sample("erz.tex")).unwrap().format.is_refused_by_game());
 }
 
 #[test]

@@ -518,6 +518,7 @@ name = "zenkit-rs-texture"
 version = "0.1.0"
 dependencies = [
  "texpresso",
+ "tracing",
  "zenkit-rs-core",
  "zerocopy",
 ]

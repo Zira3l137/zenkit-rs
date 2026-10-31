@@ -15,6 +15,7 @@ parallel = ["texpresso/rayon"]
 [dependencies]
 zenkit-rs-core.workspace = true
 texpresso.workspace = true
+tracing.workspace = true
 zerocopy.workspace = true
 
 [lints]

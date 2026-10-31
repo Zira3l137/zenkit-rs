@@ -9,6 +9,10 @@
 //!
 //! Textures can also be built from RGBA8 pixels with [`Texture::from_rgba8`] and written with
 //! [`Texture::to_bytes`]. [`Texture::from_rgba8_with`] trades DXT quality for speed.
+//!
+//! The game shows fewer textures than the format can describe. For one it will show, use
+//! [`TextureFormat::Dxt1`] or [`TextureFormat::Dxt3`], as its own textures do, with
+//! [`game_mipmap_count`] mipmaps: see [`TextureFormat::is_refused_by_game`].
 
 mod write;
 
@@ -19,6 +23,7 @@ use zenkit_rs_core::io::Reader;
 use zenkit_rs_core::math::Color;
 
 pub use write::DxtQuality;
+pub use write::game_mipmap_count;
 pub use write::max_mipmap_count;
 
 const FORMAT: &str = "texture";
@@ -57,6 +62,26 @@ impl TextureFormat {
 
     pub fn is_compressed(self) -> bool {
         matches!(self, Self::Dxt1 | Self::Dxt2 | Self::Dxt3 | Self::Dxt4 | Self::Dxt5)
+    }
+
+    /// Whether the game is known to refuse textures in this format, leaving whatever uses them
+    /// untextured. Its renderer (`zCTex_D3D::XTEX_BuildSurfaces`) refuses DXT2, DXT4 and DXT5,
+    /// and has no surface to convert the 32-bit formats into. It also refuses DXT1 and DXT3
+    /// textures with a mipmap under 4 pixels on a side, which [`game_mipmap_count`] avoids.
+    ///
+    /// The other uncompressed formats have not been tried in the game. Its own textures are DXT1,
+    /// or DXT3 where they need transparency.
+    pub fn is_refused_by_game(self) -> bool {
+        matches!(
+            self,
+            Self::Dxt2
+                | Self::Dxt4
+                | Self::Dxt5
+                | Self::B8G8R8A8
+                | Self::R8G8B8A8
+                | Self::A8B8G8R8
+                | Self::A8R8G8B8
+        )
     }
 
     /// The size in bytes of an image of this format, computed the way the engine does it: DXT

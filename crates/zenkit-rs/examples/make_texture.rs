@@ -4,7 +4,8 @@
 //! cargo run --release --example make_texture -- grass.png GRASS-C.TEX
 //! ```
 //!
-//! Images with transparency become DXT5, others DXT1, which is what the game's own textures use.
+//! Images with transparency become DXT3, others DXT1, which is what the game's own textures use.
+//! The game refuses DXT5 and mipmaps under 4×4.
 #![allow(clippy::print_stdout)]
 
 mod common;
@@ -18,7 +19,7 @@ use zenkit::Error;
 use zenkit::Result;
 use zenkit::texture::Texture;
 use zenkit::texture::TextureFormat;
-use zenkit::texture::max_mipmap_count;
+use zenkit::texture::game_mipmap_count;
 
 fn main() -> ExitCode {
     let [input, output] = common::args("make_texture <input.png> <output.tex>");
@@ -30,9 +31,9 @@ fn run(input: &Path, output: &Path) -> Result<()> {
     let (width, height, rgba) = load_png(input)?;
 
     let transparent = rgba.as_chunks::<4>().0.iter().any(|p| p[3] != 255);
-    let format = if transparent { TextureFormat::Dxt5 } else { TextureFormat::Dxt1 };
-    let texture =
-        Texture::from_rgba8(width, height, &rgba, format, max_mipmap_count(width, height))?;
+    let format = if transparent { TextureFormat::Dxt3 } else { TextureFormat::Dxt1 };
+    let mipmaps = game_mipmap_count(format, width, height);
+    let texture = Texture::from_rgba8(width, height, &rgba, format, mipmaps)?;
 
     std::fs::write(output, texture.to_bytes()).map_err(Error::io_write(output))?;
     println!("{width}x{height} {format:?} with {} mipmaps", texture.mipmap_count());
