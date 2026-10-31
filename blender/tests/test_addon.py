@@ -382,6 +382,13 @@ hand.parent_type = "BONE"
 hand.parent_bone = "BIP01 ARM"
 hand.matrix_world = rig.matrix_world @ rig.data.bones["BIP01 ARM"].matrix_local
 
+# KrxImpExp hangs sample meshes named DUMMY_ on bones to show them; they are not exported.
+dummy = bpy.data.objects.new("DUMMY_BIP01 ARM", hand_shape.copy())
+bpy.context.collection.objects.link(dummy)
+dummy.parent = rig
+dummy.parent_type = "BONE"
+dummy.parent_bone = "BIP01 ARM"
+
 deselect_all()
 rig.select_set(True)
 bpy.context.view_layer.objects.active = rig
