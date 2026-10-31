@@ -9,6 +9,10 @@ import zenkit_py
 from . import preferences
 
 
+# Set on images made from textures: whether any pixel is not fully opaque.
+ALPHA = "zenkit_alpha"
+
+
 def image(name, width, height, rgba):
     """A new Blender image of RGBA8 pixels, rows top to bottom, packed into the .blend."""
     result = bpy.data.images.new(name, width, height, alpha=True)
@@ -16,6 +20,7 @@ def image(name, width, height, rgba):
     pixels = np.frombuffer(rgba, np.uint8).reshape(height, width, 4)[::-1]
     result.pixels.foreach_set((pixels.astype(np.float32) / 255.0).ravel())
     result.pack()
+    result[ALPHA] = bool((pixels[..., 3] < 255).any())
     return result
 
 

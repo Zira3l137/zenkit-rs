@@ -83,10 +83,11 @@ the root, which the engine moves the root by in the rest pose and which animatio
 their own. It usually holds the height of the hips, so the skeleton stands where its meshes do.
 
 Blender bones point along their Y axis, but a node can point along any of its axes; the bones of
-Gothic's skeletons, which come from 3ds Max's Biped, point along X. Each bone is made along the
-axis of its node that points to a child bone, reaching that child, and remembers which axis that
-was (the `zenkit_axis` property), so the node is exported exactly as it came in. Bones made in
-Blender are nodes as they are.
+Gothic's skeletons, which come from 3ds Max's Biped, point along X. Each bone runs from its node
+to the head of its main child bone, the one most in line with an axis of the node, turned from
+the node as little as that takes. The turn is kept on the bone (the `zenkit_turn` property), so
+the node is exported exactly as it came in. Bones made in Blender are nodes as they are.
+Armatures are drawn in front of their meshes.
 
 ## How it works
 
@@ -95,12 +96,13 @@ into Python in one shape, whether it comes from a `.MSH`, a `.MRM` or a model: p
 corners, with large arrays as `bytes` that NumPy reads directly. `zenkit_io/` is the extension
 itself, which turns that shape into Blender meshes and back.
 
-- **Units and axes.** The engine works in centimetres with Y up, Blender in metres with Z up.
-  Import and export scale by 0.01 (an option) and swap Y and Z. The swap mirrors the mesh, which
-  also turns the engine's clockwise faces into Blender's counter-clockwise ones.
+- **Units and axes.** The engine works in centimetres with Y up, characters facing +Z; Blender in
+  metres with Z up, its front view looking at -Y. Import and export scale by 0.01 (an option) and
+  turn engine (x, y, z) into Blender (-x, -z, y), so characters face Blender's front. That mirrors
+  the mesh, which also turns the engine's clockwise faces into Blender's counter-clockwise ones.
 - **Textures.** Importing a mesh or model plugs each material's compiled texture, `NAME-C.TEX` for
-  `NAME.TGA`, into the material, found as the preferences say. Exporting names each material's
-  texture after its first image node.
+  `NAME.TGA`, into the material, found as the preferences say, its alpha too if it has any.
+  Exporting names each material's texture after its first image node.
 - **Skinning.** Soft skins store, for every vertex, each bone's weight and where the vertex lies
   relative to that bone. The engine draws a skin from those alone, ignoring the positions the mesh
   stores, so a body fits whatever skeleton it is drawn on. Import does the same whenever the

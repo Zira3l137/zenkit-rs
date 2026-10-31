@@ -27,6 +27,7 @@ import bpy
 import numpy as np
 import zenkit_py
 from mathutils import Matrix
+from mathutils import Quaternion
 from mathutils import Vector
 
 from . import convert
@@ -35,15 +36,15 @@ from .mesh import link
 
 CHECKSUM = "zenkit_checksum"
 ROOT_TRANSLATION = "zenkit_root_translation"
-AXIS = "zenkit_axis"
+TURN = "zenkit_turn"
 INDEX = "zenkit_index"
 NODE = "zenkit_node"
 ATTACHMENT = "zenkit_attachment"
 PLACEHOLDER = "zenkit_placeholder"
 
 # Blender bones point along their Y axis, while a node may point along any of its axes (the
-# bones of 3ds Max's Biped, which Gothic's skeletons come from, along X). A bone is its node
-# turned so that Y is the node's axis named here; the turn is kept on the bone to undo it.
+# bones of 3ds Max's Biped, which Gothic's skeletons come from, along X). A bone starts as its
+# node turned so that Y is the node's axis closest to its child, one of these.
 TURNS = {
     "Y": Matrix.Identity(4),
     "-Y": Matrix.Rotation(math.pi, 4, "Z"),
@@ -94,23 +95,32 @@ def rest_world(nodes, scale):
 
 def node_frame(bone):
     """A bone's node in the armature's space, its turn undone."""
-    return bone.matrix_local @ TURNS[bone.get(AXIS, "Y")].inverted()
+    turn = bone.get(TURN)
+    if turn is None:
+        return bone.matrix_local.copy()
+    return bone.matrix_local @ Quaternion(turn).to_matrix().to_4x4().inverted()
 
 
-def bone_axis(frame, offsets):
-    """The axis of a node that best points at one of its children, and the length along it
-    that reaches that child. `None` if no child stands apart from the node."""
-    best = None
-    for offset in offsets:
-        if offset.length < 1e-6:
-            continue
-        for name, turn in TURNS.items():
-            axis = (frame.to_3x3() @ turn.to_3x3() @ Vector((0, 1, 0))).normalized()
-            along = axis.dot(offset)
-            fit = along / offset.length
-            if best is None or fit > best[0]:
-                best = (fit, name, along)
-    return (best[1], best[2]) if best is not None and best[2] > 0 else None
+def pick_child(frame, offsets):
+    """Of the offsets from a node to its children, the one most along an axis of the node, as
+    a bone runs along a node's axis to its main child. `None` if no child stands apart."""
+    axes = [frame.to_3x3() @ t.to_3x3() @ Vector((0, 1, 0)) for t in TURNS.values()]
+    apart = [o for o in offsets if o.length > 1e-6]
+    if not apart:
+        return None
+    return max(apart, key=lambda o: max(a.dot(o) for a in axes) / o.length)
+
+
+def bone_turn(frame, direction):
+    """The rotation from a node's frame to a bone's frame pointing along `direction`: the node
+    turned to the axis closest to it, then tilted onto it as little as possible."""
+    rotation = frame.to_3x3()
+    y = Vector((0, 1, 0))
+    closest = max(TURNS.values(), key=lambda t: (rotation @ t.to_3x3() @ y).dot(direction))
+    start = rotation @ closest.to_3x3()
+    along = start @ y
+    bone = along.rotation_difference(direction).to_matrix() @ start
+    return (rotation.inverted() @ bone).to_quaternion()
 
 
 def placeholder(scale):
@@ -152,36 +162,40 @@ def build_skeleton(context, name, data, scale):
             for j, (_, p, _) in enumerate(nodes)
             if p == i and kinds[j] == "bone"
         ]
-        shape = bone_axis(world[i], children)
-        if shape is None:
-            # A bone with nowhere to point to follows its parent's axis, at half its length.
-            axis, length = shapes[parent] if parent >= 0 else ("Y", 0.0)
-            shape = (axis, length / 2)
-        shapes[i] = (shape[0], max(shape[1], 5 * scale))
+        child = pick_child(world[i], children)
+        if child is not None:
+            direction, length = child.normalized(), child.length
+        elif parent >= 0:
+            # A bone with nowhere to point to carries on from its parent, at half its length.
+            direction, length = shapes[parent][0], shapes[parent][1] / 2
+        else:
+            direction, length = world[i].to_3x3() @ Vector((0, 1, 0)), 0.0
+        shapes[i] = (direction, max(length, 5 * scale), bone_turn(world[i], direction))
 
     armature = bpy.data.armatures.new(name)
     armature[CHECKSUM] = str(data["checksum"])
     armature[ROOT_TRANSLATION] = list(data["root_translation"])
     obj = bpy.data.objects.new(name, armature)
+    obj.show_in_front = True
     link(context, obj)
 
     bpy.ops.object.mode_set(mode="EDIT")
     edit_bones = {}
-    for i, (axis, length) in shapes.items():
+    for i, (_, length, turn) in shapes.items():
         node_name, parent, _ = nodes[i]
         bone = armature.edit_bones.new(node_name)
         bone.head = (0.0, 0.0, 0.0)
         bone.tail = (0.0, length, 0.0)
-        bone.matrix = world[i] @ TURNS[axis]
+        bone.matrix = world[i] @ turn.to_matrix().to_4x4()
         if parent >= 0:
             bone.parent = edit_bones[parent]
         edit_bones[i] = bone
     # Blender renames bones that share a name, so they are found again by the name they got.
     bone_names = {i: bone.name for i, bone in edit_bones.items()}
     bpy.ops.object.mode_set(mode="OBJECT")
-    for i, (axis, _) in shapes.items():
+    for i, (_, _, turn) in shapes.items():
         bone = armature.bones[bone_names[i]]
-        bone[AXIS] = axis
+        bone[TURN] = list(turn)
         bone[INDEX] = i
 
     rig = Rig(obj, [n[0] for n in nodes], world)
@@ -330,8 +344,8 @@ def add_meshes(context, path, data, rig, scale):
     to_world = armature.matrix_world if armature is not None else Matrix.Identity(4)
 
     for i, skin in enumerate(data["soft_skins"]):
-        mesh = convert.build_mesh(f"{path.stem}.{i}", skin["mesh"], scale, folders)
-        place_skin(mesh, skin, rig.world, scale)
+        positions = skin_positions(skin, rig.world, scale)
+        mesh = convert.build_mesh(f"{path.stem}.{i}", skin["mesh"], scale, folders, positions)
         obj = bpy.data.objects.new(mesh.name, mesh)
         link(context, obj)
         add_weights(obj, skin, rig.names)
@@ -360,8 +374,9 @@ def add_meshes(context, path, data, rig, scale):
             obj.matrix_world = to_world @ rig.world[rig.names.index(node)]
 
 
-def place_skin(mesh, skin, world, scale):
-    """Puts a soft skin's vertices where the engine draws them on the skeleton in `world`.
+def skin_positions(skin, world, scale):
+    """Where the engine draws a soft skin's vertices on the skeleton in `world`, in Blender's
+    space, or `None` to keep the positions the mesh stores.
 
     The engine ignores the positions a mesh stores: it places each vertex by the bones that move
     it, from where the vertex lies relative to each, so a mesh made for a slightly different
@@ -371,9 +386,9 @@ def place_skin(mesh, skin, world, scale):
     counts = convert.array(skin, "weight_counts", "<u4")
     nodes = convert.array(skin, "weight_nodes", "<u4")
     if len(nodes) == 0 or nodes.max() >= len(world):
-        return
+        return None
     values = convert.array(skin, "weight_values", "<f4").astype(np.float64)
-    local = convert.array(skin, "weight_positions", "<f4", 3)[:, convert.SWAP_YZ] * scale
+    local = convert.to_blender(convert.array(skin, "weight_positions", "<f4", 3)) * scale
 
     matrices = np.array([np.array(m) for m in world])[nodes]
     placed = np.einsum("wij,wj->wi", matrices[:, :3, :3], local) + matrices[:, :3, 3]
@@ -382,13 +397,10 @@ def place_skin(mesh, skin, world, scale):
     sums = np.zeros((len(counts), 3))
     np.add.at(sums, vertex, placed * values[:, None])
 
-    positions = np.empty(len(mesh.vertices) * 3, np.float32)
-    mesh.vertices.foreach_get("co", positions)
-    positions = positions.reshape(-1, 3)
+    positions = convert.to_blender(convert.array(skin["mesh"], "positions", "<f4", 3)) * scale
     weighted = totals > 0
     positions[weighted] = sums[weighted] / totals[weighted, None]
-    mesh.vertices.foreach_set("co", positions.ravel())
-    mesh.update()
+    return positions
 
 
 def add_weights(obj, skin, names):

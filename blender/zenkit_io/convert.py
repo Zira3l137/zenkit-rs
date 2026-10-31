@@ -1,10 +1,12 @@
 """Converting between the engine's data, as zenkit_py hands it over, and Blender's.
 
-The engine works in centimetres with Y up in a left-handed space; Blender in metres (by the
-default scale) with Z up in a right-handed one. Swapping Y and Z converts between the two, and
-since it mirrors the mesh, it also turns the engine's clockwise front faces into Blender's
-counter-clockwise ones, so no face needs flipping. Transforms are converted by swapping on both
-sides, which keeps rotations rotations.
+The engine works in centimetres with Y up in a left-handed space, characters facing +Z; Blender
+in metres (by the default scale) with Z up in a right-handed one, its front view looking at -Y.
+Swapping Y and Z, then turning half way around Z, converts between the two: engine (x, y, z)
+becomes Blender (-x, -z, y), so what faces forward in the game faces Blender's front. Since the
+swap mirrors the mesh, it also turns the engine's clockwise front faces into Blender's
+counter-clockwise ones, so no face needs flipping. Transforms are converted on both sides, which
+keeps rotations rotations.
 """
 
 from pathlib import Path
@@ -15,8 +17,19 @@ from mathutils import Matrix
 
 from . import texture
 
-SWAP_YZ = [0, 2, 1]
-SWAP = np.eye(4)[[0, 2, 1, 3]]
+AXES = np.array([[-1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]])
+AXES4 = np.eye(4)
+AXES4[:3, :3] = AXES
+
+
+def to_blender(points):
+    """Engine positions or directions, an (n, 3) array, in Blender's axes."""
+    return points @ AXES.T
+
+
+def to_engine(points):
+    """Blender positions or directions, an (n, 3) array, in the engine's axes."""
+    return points @ AXES
 
 
 def array(data, key, dtype, width=1):
@@ -26,7 +39,7 @@ def array(data, key, dtype, width=1):
 
 def matrix_to_blender(rows, scale):
     """A transform of the engine, 16 floats row by row, as a Blender matrix."""
-    m = SWAP @ np.frombuffer(rows, "<f4").reshape(4, 4).astype(np.float64) @ SWAP
+    m = AXES4 @ np.frombuffer(rows, "<f4").reshape(4, 4).astype(np.float64) @ AXES4.T
     m[:3, 3] *= scale
     return Matrix(m.tolist())
 
@@ -35,7 +48,7 @@ def matrix_to_engine(matrix, scale):
     """A Blender matrix as a transform of the engine, 16 floats row by row."""
     m = np.array(matrix, dtype=np.float64)
     m[:3, 3] /= scale
-    return (SWAP @ m @ SWAP).astype("<f4").tobytes()
+    return (AXES4.T @ m @ AXES4).astype("<f4").tobytes()
 
 
 def material(name, texture_name, folders):
@@ -59,6 +72,8 @@ def material(name, texture_name, folders):
     node.location = (-300, 300)
     if shader is not None:
         mat.node_tree.links.new(node.outputs["Color"], shader.inputs["Base Color"])
+        if image.get(texture.ALPHA):
+            mat.node_tree.links.new(node.outputs["Alpha"], shader.inputs["Alpha"])
     return mat
 
 
@@ -73,14 +88,16 @@ def texture_name(mat):
     return None
 
 
-def build_mesh(name, data, scale, folders):
-    """Turns a mesh dict from zenkit_py into a Blender mesh."""
-    positions = array(data, "positions", "<f4", 3)[:, SWAP_YZ] * scale
+def build_mesh(name, data, scale, folders, positions=None):
+    """Turns a mesh dict from zenkit_py into a Blender mesh, its vertices at `positions`, in
+    Blender's space, if given."""
+    if positions is None:
+        positions = to_blender(array(data, "positions", "<f4", 3)) * scale
     counts = array(data, "corner_counts", "<u4")
     vertices = array(data, "corner_vertices", "<u4")
     uvs = array(data, "corner_uvs", "<f4", 2).copy()
     uvs[:, 1] = 1.0 - uvs[:, 1]
-    normals = array(data, "corner_normals", "<f4", 3)[:, SWAP_YZ]
+    normals = to_blender(array(data, "corner_normals", "<f4", 3))
     materials = array(data, "polygon_materials", "<u4")
 
     mesh = bpy.data.meshes.new(name)
@@ -100,6 +117,8 @@ def build_mesh(name, data, scale, folders):
 
     # Not validated: that would merge the two sides of double-sided faces, which the engine
     # stores as two triangles on the same corners. zenkit_py has checked the indices instead.
+    # Blender keeps custom normals relative to the faces around them, so they are set last, once
+    # the vertices are where they stay.
     mesh.update()
     mesh.normals_split_custom_set(normals.tolist())
     return mesh
@@ -128,13 +147,13 @@ def gather_mesh(obj, depsgraph, scale, triangles, space=None, bones=None):
 
         positions = np.empty(len(mesh.vertices) * 3, np.float32)
         mesh.vertices.foreach_get("co", positions)
-        positions = positions.reshape(-1, 3)[:, SWAP_YZ] / scale
+        positions = to_engine(positions.reshape(-1, 3)) / scale
 
         loop_vertices = np.empty(len(mesh.loops), np.int32)
         mesh.loops.foreach_get("vertex_index", loop_vertices)
         loop_normals = np.empty(len(mesh.loops) * 3, np.float32)
         mesh.corner_normals.foreach_get("vector", loop_normals)
-        loop_normals = loop_normals.reshape(-1, 3)[:, SWAP_YZ]
+        loop_normals = to_engine(loop_normals.reshape(-1, 3))
         loop_uvs = np.zeros((len(mesh.loops), 2), np.float32)
         if mesh.uv_layers.active is not None:
             mesh.uv_layers.active.data.foreach_get("uv", loop_uvs.ravel())
