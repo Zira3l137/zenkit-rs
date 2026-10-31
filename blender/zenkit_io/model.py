@@ -242,6 +242,12 @@ def is_node_object(obj):
     return name.startswith(("ZS_", "ZM_")) and not skinned
 
 
+def is_stand_in(obj):
+    """Whether an object only stands in for something, as KrxImpExp's `DUMMY_` sample meshes on
+    bones do, and is not exported."""
+    return "DUMMY_" in obj.name.upper()
+
+
 def free_name(prefix):
     """The first of `prefix` followed by 0, 1, 2… that no object has yet."""
     index = 0
@@ -317,21 +323,28 @@ def rig_of_armature(armature):
 
 def find_skeleton(checksum, folder):
     """The model dict of the skeleton with this checksum, looked for next to the meshes, in the
-    models folder and in the game's archives, or `None`."""
-    folders = [folder, preferences.folder("anims")]
-    for path in (p for f in folders if f for p in sorted(f.iterdir())):
-        if path.suffix.lower() in (".mdh", ".mdl"):
-            try:
-                data = zenkit_py.read_model(str(path))
-            except zenkit_py.ZenKitError:
-                continue
-            if data["checksum"] == checksum and data["nodes"]:
-                return data
+    models folder and in the game's archives, or `None`.
 
-    archives = preferences.archives()
-    for name in archives.names(".MDH") if archives is not None else []:
-        data = archives.read_model(name)
-        if data is not None and data["checksum"] == checksum:
+    Skeletons that meshes are worn on are .MDH files, which are small, so all of those are tried
+    before any .MDL, which carries meshes too and can be large.
+    """
+    folders = [f for f in (folder, preferences.folder("anims")) if f is not None]
+    files = [p for f in folders for p in sorted(f.iterdir()) if p.is_file()]
+
+    def read(path):
+        try:
+            return zenkit_py.read_model(str(path))
+        except zenkit_py.ZenKitError:
+            return None
+
+    def candidates():
+        yield from (read(p) for p in files if p.suffix.lower() == ".mdh")
+        archives = preferences.archives()
+        yield from (archives.read_model(n) for n in (archives.names(".MDH") if archives else []))
+        yield from (read(p) for p in files if p.suffix.lower() == ".mdl")
+
+    for data in candidates():
+        if data is not None and data["checksum"] == checksum and data["nodes"]:
             return data
     return None
 
@@ -500,7 +513,7 @@ def gather_model(armature, depsgraph, scale):
 
     soft_skins = []
     for obj in armature.children:
-        if obj.type != "MESH" or is_node_object(obj):
+        if obj.type != "MESH" or is_node_object(obj) or is_stand_in(obj):
             continue
         if obj.parent_type == "BONE" and obj.parent_bone in index:
             space = armature.matrix_world @ node_frame(armature.data.bones[obj.parent_bone])
@@ -672,5 +685,19 @@ class ExportModel(bpy.types.Operator):
         except zenkit_py.ZenKitError as error:
             self.report({"ERROR"}, str(error))
             return {"CANCELLED"}
+        # Meshes alone are only worn by a skeleton with their checksum; the game refuses them on any
+        # other. An armature made by other means than importing the game's skeleton seldom has it.
+        checksum = armature_checksum(armature)
+        if (
+            Path(path).suffix.upper() == ".MDM"
+            and find_skeleton(checksum, Path(path).parent) is None
+        ):
+            self.report(
+                {"WARNING"},
+                f"Exported {Path(path).name}, but no skeleton found has its checksum {checksum}, so "
+                "the game will refuse it on its models: export meshes from an armature imported "
+                "from the skeleton that wears them, like HUMANS.MDH",
+            )
+            return {"FINISHED"}
         self.report({"INFO"}, f"Exported {armature.name} as {Path(path).name}")
         return {"FINISHED"}
