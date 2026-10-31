@@ -280,15 +280,23 @@ fn read_keys(mut table: Reader<'_>, offset: usize) -> Result<Vec<&[u8]>> {
     Ok(keys)
 }
 
-/// Writes the key table: the keys in index order, each with the hash the engine files it under.
+/// Writes the key table in the order the engine does: it walks its hash table bucket by bucket,
+/// and each bucket lists the newest key first.
 pub(super) fn write_keys(w: &mut Writer, keys: &[String]) {
+    // The bucket a key is filed under, with the bytes taken as signed like MSVC's `char`.
+    let bucket = |key: &str| {
+        key.bytes().fold(0u32, |h, b| h.wrapping_mul(0x21).wrapping_add(b as i8 as u32)) % 0x61
+    };
+    let mut order: Vec<(u32, usize)> =
+        keys.iter().enumerate().map(|(index, key)| (bucket(key), index)).collect();
+    order.sort_unstable_by_key(|&(bucket, index)| (bucket, std::cmp::Reverse(index)));
+
     w.u32(keys.len() as u32);
-    for (index, key) in keys.iter().enumerate() {
-        // The hash of a key table bucket, with the bytes taken as signed like MSVC's `char`.
-        let hash = key.bytes().fold(0u32, |h, b| h.wrapping_mul(0x21).wrapping_add(b as i8 as u32));
+    for (bucket, index) in order {
+        let key = &keys[index];
         w.u16(key.len() as u16);
         w.u16(index as u16);
-        w.u32(hash % 0x61);
+        w.u32(bucket);
         w.bytes(key.as_bytes());
     }
 }

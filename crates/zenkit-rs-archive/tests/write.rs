@@ -100,8 +100,8 @@ fn every_value_reads_back() {
         assert_eq!(reference.index, outer.index);
         assert!(r.end_object().unwrap());
 
-        // The stream object takes an index, so a reference to the mesh would find it.
-        assert_eq!(r.begin_object().unwrap().unwrap().index, 2);
+        // Sections like this one take no index, as in the game's worlds.
+        assert_eq!(r.begin_object().unwrap().unwrap().index, 0);
         assert_eq!(r.read_stream(|s| s.u32()).unwrap(), 0xDDCC_BBAA);
         assert!(r.end_object().unwrap(), "{format:?}");
 
@@ -173,6 +173,7 @@ fn binsafe_lists_every_key_once() {
     w.int("ab", 1);
     w.int("b", 2);
     w.int("ab", 3);
+    w.int("c", 4);
     w.end_object();
     let data = w.finish().unwrap();
 
@@ -180,14 +181,32 @@ fn binsafe_lists_every_key_once() {
     assert_eq!((u32_at(&data, header), u32_at(&data, header + 4)), (2, 1));
     let table = u32_at(&data, header + 8) as usize;
 
-    let mut expected = 2u32.to_le_bytes().to_vec();
-    for (index, key, hash) in [(0u16, "ab", (0x61 * 0x21 + 0x62) % 0x61), (1, "b", 0x62 % 0x61)] {
+    // "ab" and "b" share bucket 1, where the newer key comes first, as in the game's saves.
+    let mut expected = 3u32.to_le_bytes().to_vec();
+    for (index, key, hash) in [(1u16, "b", 1), (0, "ab", (0x61 * 0x21 + 0x62) % 0x61), (2, "c", 2)]
+    {
         expected.extend((key.len() as u16).to_le_bytes());
         expected.extend(index.to_le_bytes());
         expected.extend((hash as u32).to_le_bytes());
         expected.extend(key.as_bytes());
     }
     assert_eq!(&data[table..], expected);
+}
+
+#[test]
+fn grouping_objects_take_no_index() {
+    let mut w = ArchiveWriter::new(Format::Ascii);
+    let world = w.begin_object("%", "oCWorld:zCWorld", 64513);
+    assert_eq!(w.begin_object("VobTree", "%", 0), 0);
+    let vob = w.begin_object("%", "zCVob", 52224);
+    w.end_object();
+    w.end_object();
+    w.end_object();
+    assert_eq!((world, vob), (0, 1));
+
+    let text = String::from_utf8(w.finish().unwrap()).unwrap();
+    assert!(text.contains("objects 2 "), "{text}");
+    assert!(text.contains("\t[VobTree % 0 0]\n\t\t[% zCVob 52224 1]\n"), "{text}");
 }
 
 #[test]

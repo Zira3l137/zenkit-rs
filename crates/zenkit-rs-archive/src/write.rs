@@ -112,7 +112,14 @@ impl ArchiveWriter {
 
     /// Opens an object of `class` in the field `name`, or `%` for none, and returns the index
     /// that [`reference`](Self::reference) can point back to it with.
+    ///
+    /// An object of class `%` only groups the values inside it, like the sections of a world.
+    /// As in the engine, it takes no index and is stored with index 0.
     pub fn begin_object(&mut self, name: &str, class: &str, version: u16) -> u32 {
+        if class == "%" {
+            self.object_header(name, b"%", version, 0);
+            return 0;
+        }
         let index = self.next_index;
         self.next_index += 1;
         self.object_header(name, class.as_bytes(), version, index);
