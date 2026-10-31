@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
+use zenkit::texture::DxtQuality;
 use zenkit::texture::Texture;
 use zenkit::texture::TextureFormat;
 use zenkit::texture::max_mipmap_count;
@@ -33,8 +34,10 @@ pub(crate) fn read_texture(
 }
 
 /// Writes RGBA8 pixels, rows top to bottom, as a texture in `format`, like `"DXT1"`, with
-/// every mipmap level when `mipmaps` is set.
+/// every mipmap level when `mipmaps` is set. DXT formats are compressed at `quality`, `"HIGH"`
+/// or `"FAST"`.
 #[pyfunction]
+#[pyo3(signature = (path, width, height, rgba, format, mipmaps, quality = "HIGH"))]
 pub(crate) fn write_texture(
     path: PathBuf,
     width: u32,
@@ -42,6 +45,7 @@ pub(crate) fn write_texture(
     rgba: Vec<u8>,
     format: &str,
     mipmaps: bool,
+    quality: &str,
 ) -> PyResult<()> {
     let format = match format.to_ascii_uppercase().as_str() {
         "DXT1" => TextureFormat::Dxt1,
@@ -51,7 +55,13 @@ pub(crate) fn write_texture(
         "R5G6B5" => TextureFormat::R5G6B5,
         other => return Err(invalid(format!("unsupported texture format {other:?}"))),
     };
+    let quality = match quality.to_ascii_uppercase().as_str() {
+        "HIGH" => DxtQuality::High,
+        "FAST" => DxtQuality::Fast,
+        other => return Err(invalid(format!("unknown quality {other:?}; expected HIGH or FAST"))),
+    };
     let levels = if mipmaps { max_mipmap_count(width, height) } else { 1 };
-    let texture = Texture::from_rgba8(width, height, &rgba, format, levels).map_err(fail)?;
+    let texture =
+        Texture::from_rgba8_with(width, height, &rgba, format, levels, quality).map_err(fail)?;
     write(&path, &texture.to_bytes())
 }

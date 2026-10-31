@@ -102,7 +102,11 @@ itself, which turns that shape into Blender meshes and back.
   the mesh, which also turns the engine's clockwise faces into Blender's counter-clockwise ones.
 - **Textures.** Importing a mesh or model plugs each material's compiled texture, `NAME-C.TEX` for
   `NAME.TGA`, into the material, found as the preferences say, its alpha too if it has any.
-  Exporting names each material's texture after its first image node.
+  Exporting names each material's texture after its first image node. Imported textures are
+  packed into the `.blend` as uncompressed TGA, which is quick to write, where Blender would
+  spend most of the import compressing them to PNG. Exporting to DXT takes a quality: High
+  searches each 4×4 block for its best two colors, which is slow on large detailed images; Fast
+  is many times quicker at the cost of somewhat blotchier detail.
 - **Skinning.** Soft skins store, for every vertex, each bone's weight and where the vertex lies
   relative to that bone. The engine draws a skin from those alone, ignoring the positions the mesh
   stores, so a body fits whatever skeleton it is drawn on. Import does the same whenever the
