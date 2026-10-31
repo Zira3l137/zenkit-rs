@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::ops::Deref;
 use std::ops::DerefMut;
 
@@ -75,6 +76,31 @@ impl<'a, 'b> WriteCtx<'a, 'b> {
         write_base(self, vob);
         write_kind(self, &vob.kind);
         self.end_object();
+    }
+
+    /// Writes the VOB trees below `roots`, the counterpart of [`Ctx::tree`](super::Ctx::tree):
+    /// their count, then each VOB followed by its number of children and their trees.
+    ///
+    /// The counts are numbered through the whole tree, `childs0` for the roots, as the engine
+    /// names them. A VOB found in the tree a second time is written as a reference without
+    /// children, which also stops a VOB that is its own ancestor from repeating forever.
+    pub(crate) fn tree(&mut self, roots: &[VobId]) {
+        let vobs = self.vobs;
+        self.int("childs0", roots.len() as i32);
+
+        let mut in_tree = HashSet::new();
+        let mut next = 1;
+        let mut stack: Vec<VobId> = roots.iter().rev().copied().collect();
+        while let Some(id) = stack.pop() {
+            self.vob("%", Some(id));
+            let children = match vobs.get(id) {
+                Some(vob) if in_tree.insert(id) => &vob.children[..],
+                _ => &[],
+            };
+            self.int(&format!("childs{next}"), children.len() as i32);
+            next += 1;
+            stack.extend(children.iter().rev());
+        }
     }
 
     /// Writes a count the engine stores in a byte, failing if it does not fit.

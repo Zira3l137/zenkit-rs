@@ -54,6 +54,7 @@ Writing is being added format by format. So far these can be written:
 | `.MRM`                 | `MultiResolutionMesh::to_bytes`                                        |
 | `.MDH`, `.MDM`, `.MDL` | `ModelHierarchy`, `ModelMesh` and `Model::to_bytes`                    |
 | Cutscene libraries     | `CutsceneLibrary::to_bytes`, as `OU.BIN` or `OU.CSL`                   |
+| `.ZEN` worlds          | `World::to_bytes`, or `Vobs::write` for a single VOB                   |
 
 Writers follow the engine where it and ZenKit differ, so that the game reads what they write, and
 where a sample of the game's own files exists, the tests check that rewriting it gives the same

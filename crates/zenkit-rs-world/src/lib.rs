@@ -10,6 +10,8 @@
 //! Save games store each world the player visited in the same format, with more state for most
 //! VOBs, the NPCs, and the weather; see [`WorldState`].
 //!
+//! [`World::to_bytes`] writes a world back, as the games' own worlds are written.
+//!
 //! ```no_run
 //! # fn main() -> zenkit_rs_core::Result<()> {
 //! use zenkit_rs_world::World;
@@ -33,12 +35,16 @@ mod way_net;
 use tracing::debug;
 use tracing::warn;
 use zenkit_rs_archive::Archive;
+use zenkit_rs_archive::ArchiveWriter;
+use zenkit_rs_archive::Format;
+use zenkit_rs_archive::Header;
 use zenkit_rs_core::Asset;
 use zenkit_rs_core::Error;
 use zenkit_rs_core::GameVersion;
 use zenkit_rs_core::Result;
 use zenkit_rs_core::ResultExt;
 use zenkit_rs_core::io::Reader;
+use zenkit_rs_core::io::Writer;
 use zenkit_rs_core::text;
 use zenkit_rs_mesh::Mesh;
 use zenkit_rs_mesh::Triangle;
@@ -62,6 +68,7 @@ pub use way_net::WayPoint;
 
 use crate::vob::Ctx;
 use crate::vob::FORMAT;
+use crate::vob::WriteCtx;
 
 const CHUNK_MESH_END: u16 = 0xB060;
 
@@ -120,6 +127,63 @@ impl World {
                 })
             })
             .flat_map(|i| self.mesh.polygon_triangles(i))
+    }
+
+    /// Writes the world as a `.ZEN` archive in `format`, the way the games' worlds are written:
+    /// the mesh and BSP tree when the world has them, the VOB tree and the way-net.
+    ///
+    /// Fails if a part cannot be stored: a mesh without a BSP tree, a BSP tree whose nodes are
+    /// out of order, a way point that is neither free nor the end of a way, a VOB the format has
+    /// no room for, like an NPC, which only save games hold. Save games themselves cannot be
+    /// written yet, so [`state`](Self::state) is left out.
+    pub fn to_bytes(&self, format: Format) -> Result<Vec<u8>> {
+        self.to_bytes_with(Header::new(format))
+    }
+
+    /// [`to_bytes`](Self::to_bytes) with this archive header, for example the one of the file
+    /// the world was read from, to write it back the same way. A header whose user is `XZEN`
+    /// stores Gothic 1 meshes with 32-bit vertex indices, as such worlds do.
+    pub fn to_bytes_with(&self, header: Header) -> Result<Vec<u8>> {
+        let wide_indices = header.user.as_deref() == Some("XZEN");
+        let compiled = !self.bsp.nodes.is_empty();
+        if !compiled && !self.mesh.polygons.is_empty() {
+            let reason = "the world has a mesh but no BSP tree; uncompiled worlds have neither";
+            return Err(Error::unwritable(FORMAT, reason));
+        }
+
+        let mut w = ArchiveWriter::with_header(header);
+        w.begin_object("%", "oCWorld:zCWorld", 64513);
+        if compiled {
+            w.begin_object("MeshAndBsp", "%", 0);
+            w.write_stream(|s| self.write_geometry(s, wide_indices))?;
+            w.end_object();
+        }
+
+        w.begin_object("VobTree", "%", 0);
+        WriteCtx::new(&mut w, &self.vobs, self.game).tree(&self.roots);
+        w.end_object();
+
+        w.begin_object("WayNet", "%", 0);
+        self.way_net.write(&mut w);
+        w.end_object();
+
+        w.begin_object("EndMarker", "%", 0);
+        w.end_object();
+        w.end_object();
+        w.finish()
+    }
+
+    /// The `MeshAndBsp` section: the BSP tree's version, the size of the rest, the mesh and the
+    /// tree.
+    fn write_geometry(&self, w: &mut Writer, wide_indices: bool) -> Result<()> {
+        w.u32(BspTree::version(self.game));
+        let size_at = w.position();
+        w.u32(0);
+        self.mesh.write(w, self.game, wide_indices).context(|| "mesh")?;
+        self.bsp.write(w, self.game).context(|| "BSP tree")?;
+        let size = w.position() - size_at - 4;
+        w.patch_u32(size_at, size as u32);
+        Ok(())
     }
 
     fn read(data: &[u8], game: Option<GameVersion>) -> Result<Self> {

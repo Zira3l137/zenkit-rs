@@ -102,6 +102,10 @@ name = "world_obj"
 required-features = ["vfs", "world"]
 
 [[example]]
+name = "rewrite_world"
+required-features = ["vfs", "world"]
+
+[[example]]
 name = "dialogue"
 required-features = ["cutscene"]
 

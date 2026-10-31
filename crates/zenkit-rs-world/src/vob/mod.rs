@@ -168,7 +168,8 @@ impl Vobs {
     }
 
     /// Writes the VOB `id` as one object, with every VOB inside it, like a camera's key frames:
-    /// the counterpart of [`read`](Self::read).
+    /// the counterpart of [`read`](Self::read). Worlds are written with
+    /// [`World::to_bytes`](crate::World::to_bytes).
     ///
     /// VOBs are written packed, as the games' own worlds store them, without the state save games
     /// keep. A VOB that cannot be stored, like an NPC, which only save games hold, makes

@@ -1,6 +1,6 @@
 [package]
 name = "zenkit-rs-world"
-description = "Reader for ZenGin worlds (.ZEN): the world mesh, BSP tree, way-net and every VOB"
+description = "Reader and writer for ZenGin worlds (.ZEN): the world mesh, BSP tree, way-net and every VOB"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -1,7 +1,9 @@
 use tracing::debug;
 use zenkit_rs_core::Error;
+use zenkit_rs_core::GameVersion;
 use zenkit_rs_core::Result;
 use zenkit_rs_core::io::Reader;
+use zenkit_rs_core::io::Writer;
 use zenkit_rs_core::math::Aabb;
 use zenkit_rs_core::math::Vec3;
 use zenkit_rs_core::raw_enum;
@@ -152,6 +154,143 @@ impl BspTree {
         tree.leaf_polygons = leaf_polygons;
 
         Ok(tree)
+    }
+}
+
+impl BspTree {
+    pub(crate) fn version(game: GameVersion) -> u32 {
+        match game {
+            GameVersion::Gothic1 => VERSION_G1,
+            GameVersion::Gothic2 => VERSION_G2,
+        }
+    }
+
+    /// Writes the tree's chunks, ending with its end chunk. Fails if the nodes are not in the
+    /// order they are stored in, see [`check`](Self::check).
+    pub(crate) fn write(&self, w: &mut Writer, game: GameVersion) -> Result<()> {
+        let leaves = self.check()?;
+        let names = (self.sectors.iter())
+            .map(|sector| {
+                text::to_latin1(&sector.name).filter(|name| !name.contains(&b'\n')).ok_or_else(
+                    || {
+                        let reason =
+                            format!("sector name {:?} is not one line of Latin-1", sector.name);
+                        Error::unwritable(FORMAT, reason)
+                    },
+                )
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let u32s = |w: &mut Writer, values: &[u32]| values.iter().for_each(|&v| w.u32(v));
+
+        w.chunk(CHUNK_HEADER, |c| {
+            // The format version, which Gothic II checks: "zCBspTree::LoadBIN: wrong bsp-file
+            // version, engine: 3, file: 2". ZenKit writes 2 for both games.
+            c.u16(match game {
+                GameVersion::Gothic1 => 2,
+                GameVersion::Gothic2 => 3,
+            });
+            c.u32(self.mode.raw());
+        });
+        w.chunk(CHUNK_POLYGONS, |c| {
+            c.u32(self.polygon_indices.len() as u32);
+            u32s(c, &self.polygon_indices);
+        });
+        w.chunk(CHUNK_TREE, |c| {
+            c.u32(self.nodes.len() as u32);
+            c.u32(self.leaf_nodes.len() as u32);
+            for (i, node) in self.nodes.iter().enumerate() {
+                node.bbox.write(c);
+                c.u32(node.polygon_offset);
+                c.u32(node.polygon_count);
+                if leaves[i] {
+                    continue;
+                }
+                let side = |child: Option<usize>, present: u8, leaf: u8| {
+                    child.map_or(0, |child| present | if leaves[child] { leaf } else { 0 })
+                };
+                c.u8(side(node.front, 0b0001, 0b0100) | side(node.back, 0b0010, 0b1000));
+                c.f32(node.plane_distance);
+                c.vec3(node.plane_normal);
+                if game == GameVersion::Gothic1 {
+                    c.u8(node.lod);
+                }
+            }
+        });
+        w.chunk(CHUNK_LIGHT, |c| c.vec3s(&self.light_points));
+        w.chunk(CHUNK_OUTDOORS, |c| {
+            c.u32(self.sectors.len() as u32);
+            for (sector, name) in self.sectors.iter().zip(&names) {
+                c.line(name);
+                c.u32(sector.node_indices.len() as u32);
+                c.u32(sector.portal_polygon_indices.len() as u32);
+                u32s(c, &sector.node_indices);
+                u32s(c, &sector.portal_polygon_indices);
+            }
+            c.u32(self.portal_polygon_indices.len() as u32);
+            u32s(c, &self.portal_polygon_indices);
+        });
+        // ZenKit's padding byte.
+        w.chunk(CHUNK_END, |c| c.u8(b'B'));
+        Ok(())
+    }
+
+    /// Checks that the tree can be stored, and gives which nodes are leaves.
+    ///
+    /// The file has no child indices: nodes are stored depth first, each followed by its front
+    /// subtree and then its back one, and a node's flags say which children it has and whether
+    /// they are leaves. So [`nodes`](Self::nodes) must be in that order, as reading leaves them,
+    /// and [`leaf_nodes`](Self::leaf_nodes) must list the leaves in it, with a light point each.
+    fn check(&self) -> Result<Vec<bool>> {
+        let fail = |reason: String| Err(Error::unwritable(FORMAT, reason));
+        let mut leaves = vec![false; self.nodes.len()];
+        for (n, &leaf) in self.leaf_nodes.iter().enumerate() {
+            match leaves.get_mut(leaf) {
+                Some(is_leaf) => *is_leaf = true,
+                None => return fail(format!("leaf {leaf} is not a node")),
+            }
+            if n > 0 && leaf <= self.leaf_nodes[n - 1] {
+                return fail("the leaves are not listed in the order of the nodes".into());
+            }
+        }
+        if self.light_points.len() != self.leaf_nodes.len() {
+            let (points, leaves) = (self.light_points.len(), self.leaf_nodes.len());
+            return fail(format!("{points} light points for {leaves} leaves"));
+        }
+        // The engine reads a tree of one node as a leaf and the root of a larger one as an inner
+        // node.
+        if self.nodes.is_empty() || leaves[0] != (self.nodes.len() == 1) {
+            return fail("the root must be a leaf exactly when it is the only node".into());
+        }
+
+        let mut next = 0;
+        let mut pending = vec![(0, None)];
+        while let Some((index, parent)) = pending.pop() {
+            let node = &self.nodes[index];
+            if index != next || node.parent != parent {
+                return fail(format!("node {index} is not where depth first order puts it"));
+            }
+            next += 1;
+            let end = u64::from(node.polygon_offset) + u64::from(node.polygon_count);
+            if end > self.polygon_indices.len() as u64 {
+                return fail(format!("node {index} holds polygons up to {end}"));
+            }
+            if leaves[index] {
+                if !node.is_leaf() {
+                    return fail(format!("leaf {index} has children"));
+                }
+                continue;
+            }
+            for child in [node.back, node.front].into_iter().flatten() {
+                if child >= self.nodes.len() {
+                    return fail(format!("node {index} has child {child}, which does not exist"));
+                }
+                pending.push((child, Some(index)));
+            }
+        }
+        if next != self.nodes.len() {
+            return fail(format!("{} nodes are not part of the tree", self.nodes.len() - next));
+        }
+        Ok(leaves)
     }
 }
 

@@ -1,9 +1,13 @@
 use std::path::PathBuf;
 
+use zenkit_rs_archive::Archive;
+use zenkit_rs_archive::Format;
 use zenkit_rs_core::Error;
 use zenkit_rs_core::GameVersion;
 use zenkit_rs_core::math::Vec3;
 use zenkit_rs_world::BspMode;
+use zenkit_rs_world::BspTree;
+use zenkit_rs_world::WayPoint;
 use zenkit_rs_world::World;
 use zenkit_rs_world::vob::AnimationMode;
 use zenkit_rs_world::vob::VisualKind;
@@ -453,4 +457,72 @@ fn zenkit_gothic1_world() {
     assert_eq!(net.points[0].position, Vec3::new(23871.457, -553.2838, 27821.352));
     assert_eq!(net.points[100].name, "CASTLE_MOVEMENT_STRAIGHT3");
     assert_eq!(net.points[100].direction, Vec3::new(-0.342_115_37, 0.0, 0.939_657_9));
+
+    let header = Archive::new(&data).unwrap().header().clone();
+    let written = world.to_bytes_with(header).unwrap();
+    assert_eq!(World::from_bytes(&written).unwrap(), world);
+    match written.iter().zip(&data).position(|(a, b)| a != b) {
+        None if written.len() == data.len() => eprintln!("WORLD.ZEN rewritten byte for byte"),
+        first => eprintln!(
+            "WORLD.ZEN rewritten as {} bytes of {}, first differing at {first:?}",
+            written.len(),
+            data.len()
+        ),
+    }
+}
+
+#[test]
+fn worlds_write_back_in_every_format() {
+    let world = World::from_bytes(&compiled_world()).unwrap();
+    for format in [Format::Ascii, Format::Binary, Format::Binsafe] {
+        let written = world.to_bytes(format).unwrap();
+        let back = World::from_bytes(&written).unwrap();
+        assert_eq!(back, world, "{format:?}");
+        assert_eq!(back.to_bytes(format).unwrap(), written, "{format:?}");
+    }
+
+    // The two trees share their mesh, as in the game's worlds.
+    let written = world.to_bytes(Format::Binary).unwrap();
+    let bsp_header = [0x00, 0xC0, 6, 0, 0, 0, 3, 0];
+    assert!(written.windows(8).any(|w| w == bsp_header), "Gothic II's BSP version is 3");
+    let count = |needle: &[u8]| written.windows(needle.len()).filter(|w| *w == needle).count();
+    assert_eq!(count(b"visual\0zCProgMeshProto\0"), 1);
+    assert_eq!(count(b"visual\0\xA7\0"), 1);
+
+    let world = World::from_bytes(&ascii_world(12289, false)).unwrap();
+    let written = world.to_bytes(Format::Ascii).unwrap();
+    assert_eq!(World::from_bytes(&written).unwrap(), world);
+    let text = String::from_utf8(written).unwrap();
+    assert!(!text.contains("MeshAndBsp"));
+    assert!(
+        text.contains("\t[VobTree % 0 0]\n\t\tchilds0=int:1\n\t\t[% zCVob 12289 1]\n"),
+        "{text}"
+    );
+    assert!(text.contains("\t\tchilds1=int:0\n\t[]\n\t[WayNet % 0 0]\n"), "{text}");
+}
+
+#[test]
+fn worlds_that_cannot_be_stored_fail() {
+    let unwritable = |world: &World| match world.to_bytes(Format::Binary) {
+        Err(error) => error.report().to_string(),
+        Ok(_) => panic!("written"),
+    };
+    let world = World::from_bytes(&compiled_world()).unwrap();
+
+    let mut lost = world.clone();
+    lost.way_net.points.push(WayPoint { name: "LOST".into(), ..WayPoint::default() });
+    assert!(unwritable(&lost).contains("\"LOST\" is neither free nor the end of a way"));
+
+    let mut swapped = world.clone();
+    let root = &mut swapped.bsp.nodes[0];
+    (root.front, root.back) = (root.back, root.front);
+    assert!(unwritable(&swapped).contains("depth first"));
+
+    let mut unlit = world.clone();
+    unlit.bsp.light_points.pop();
+    assert!(unwritable(&unlit).contains("1 light points for 2 leaves"));
+
+    let mut meshed = world.clone();
+    meshed.bsp = BspTree::default();
+    assert!(unwritable(&meshed).contains("no BSP tree"));
 }
