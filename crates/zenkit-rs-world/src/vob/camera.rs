@@ -1,11 +1,13 @@
 use zenkit_rs_core::GameVersion;
 use zenkit_rs_core::Result;
 use zenkit_rs_core::io::Reader;
+use zenkit_rs_core::io::Writer;
 use zenkit_rs_core::math::Mat4;
 use zenkit_rs_core::raw_enum;
 
 use super::Ctx;
 use super::VobId;
+use super::WriteCtx;
 
 raw_enum! {
     /// How a camera eases into and out of a key frame.
@@ -120,6 +122,28 @@ impl CutsceneCamera {
         }
         Ok(camera)
     }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        w.enumeration("camTrjFOR", self.trajectory_for.raw());
+        w.enumeration("targetTrjFOR", self.target_trajectory_for.raw());
+        w.enumeration("loopMode", self.loop_mode.raw());
+        w.enumeration("splLerpMode", self.lerp_mode.raw());
+        w.bool("ignoreFORVobRotCam", self.ignore_for_vob_rotation);
+        w.bool("ignoreFORVobRotTarget", self.ignore_for_vob_rotation_target);
+        w.bool("adaptToSurroundings", self.adapt);
+        w.bool("easeToFirstKey", self.ease_first);
+        w.bool("easeFromLastKey", self.ease_last);
+        w.float("totalTime", self.total_duration);
+        w.name("autoCamFocusVobName", &self.auto_focus_vob);
+        w.bool("autoCamPlayerMovable", self.auto_player_movable);
+        w.bool("autoCamUntriggerOnLastKey", self.auto_untrigger_last);
+        w.float("autoCamUntriggerOnLastKeyDelay", self.auto_untrigger_last_delay);
+        w.int("numPos", self.trajectory.len() as i32);
+        w.int("numTargets", self.targets.len() as i32);
+        for &frame in self.trajectory.iter().chain(&self.targets) {
+            w.vob("%", Some(frame));
+        }
+    }
 }
 
 /// One key frame of a [`CutsceneCamera`]'s path. Its position and rotation are the VOB's.
@@ -160,5 +184,23 @@ impl CameraKeyFrame {
             time_fixed: r.bool()?,
             original_pose: Reader::new(&r.raw(64)?).mat4()?,
         })
+    }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        w.float("time", self.time);
+        w.float("angleRollDeg", self.roll_angle);
+        w.float("camFOVScale", self.fov_scale);
+        w.enumeration("motionType", self.motion_type.raw());
+        w.enumeration("motionTypeFOV", self.motion_type_fov.raw());
+        w.enumeration("motionTypeRoll", self.motion_type_roll.raw());
+        w.enumeration("motionTypeTimeScale", self.motion_type_time_scale.raw());
+        w.float("tension", self.tension);
+        w.float("bias", self.bias);
+        w.float("continuity", self.continuity);
+        w.float("timeScale", self.time_scale);
+        w.bool("timeIsFixed", self.time_fixed);
+        let mut pose = Writer::with_capacity(64);
+        pose.mat4(self.original_pose);
+        w.raw("originalPose", pose.as_bytes());
     }
 }

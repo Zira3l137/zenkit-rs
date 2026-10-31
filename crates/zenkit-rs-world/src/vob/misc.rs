@@ -5,6 +5,7 @@ use zenkit_rs_core::raw_enum;
 
 use super::Ctx;
 use super::VobId;
+use super::WriteCtx;
 
 raw_enum! {
     /// What a [`MessageFilter`] sends on when it receives a message.
@@ -52,6 +53,10 @@ impl Animate {
         let is_running = if r.save { Some(r.bool()?) } else { None };
         Ok(Self { start_on, is_running })
     }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        w.bool("startOn", self.start_on);
+    }
 }
 
 /// An item lying in the world.
@@ -76,6 +81,10 @@ impl Item {
             if r.save { Some(ItemState { amount: r.int()?, flags: r.int()? }) } else { None };
         Ok(Self { instance, state })
     }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        w.name("itemInstance", &self.instance);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -87,6 +96,10 @@ pub struct LensFlare {
 impl LensFlare {
     pub(crate) fn read(r: &mut Ctx) -> Result<Self> {
         Ok(Self { fx: r.name()? })
+    }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        w.name("lensflareFX", &self.fx);
     }
 }
 
@@ -102,6 +115,12 @@ pub struct ParticleEffectController {
 impl ParticleEffectController {
     pub(crate) fn read(r: &mut Ctx) -> Result<Self> {
         Ok(Self { effect: r.name()?, kill_when_done: r.bool()?, initially_running: r.bool()? })
+    }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        w.name("pfxName", &self.effect);
+        w.bool("killVobWhenDone", self.kill_when_done);
+        w.bool("pfxStartOn", self.initially_running);
     }
 }
 
@@ -120,6 +139,12 @@ impl MessageFilter {
             on_trigger: MessageFilterAction::from_raw(r.enumeration()?),
             on_untrigger: MessageFilterAction::from_raw(r.enumeration()?),
         })
+    }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        w.name("triggerTarget", &self.target);
+        w.enumeration("onTrigger", self.on_trigger.raw());
+        w.enumeration("onUntrigger", self.on_untrigger.raw());
     }
 }
 
@@ -174,6 +199,18 @@ impl CodeMaster {
         }
         Ok(master)
     }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        w.name("triggerTarget", &self.target);
+        w.bool("orderRelevant", self.ordered);
+        w.bool("firstFalseIsFailure", self.first_false_is_failure);
+        w.name("triggerTargetFailure", &self.failure_target);
+        w.bool("untriggerCancels", self.untriggered_cancels);
+        w.byte_count("numSlaves", self.slaves.len(), "code master slaves");
+        for (i, slave) in self.slaves.iter().take(255).enumerate() {
+            w.name(&format!("slaveVobName{i}"), slave);
+        }
+    }
 }
 
 /// Sends its target movers to a key frame.
@@ -191,6 +228,12 @@ impl MoverController {
             message: MoverMessage::from_raw(r.enumeration()?),
             key: r.int()?,
         })
+    }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        w.name("triggerTarget", &self.target);
+        w.enumeration("moverMessage", self.message.raw());
+        w.int("gotoFixedKey", self.key);
     }
 }
 
@@ -229,6 +272,21 @@ impl TouchDamage {
             collision: TouchCollision::from_raw(r.enumeration()?),
         })
     }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        w.float("damage", self.damage);
+        w.bool("Barrier", self.barrier);
+        w.bool("Blunt", self.blunt);
+        w.bool("Edge", self.edge);
+        w.bool("Fire", self.fire);
+        w.bool("Fly", self.fly);
+        w.bool("Magic", self.magic);
+        w.bool("Point", self.point);
+        w.bool("Fall", self.fall);
+        w.float("damageRepeatDelaySec", self.repeat_delay);
+        w.float("damageVolDownScale", self.volume_scale);
+        w.enumeration("damageCollType", self.collision.raw());
+    }
 }
 
 /// Shakes the camera.
@@ -243,5 +301,11 @@ pub struct Earthquake {
 impl Earthquake {
     pub(crate) fn read(r: &mut Ctx) -> Result<Self> {
         Ok(Self { radius: r.float()?, duration: r.float()?, amplitude: r.vec3()? })
+    }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        w.float("radius", self.radius);
+        w.float("timeSec", self.duration);
+        w.vec3("amplitudeCM", self.amplitude);
     }
 }

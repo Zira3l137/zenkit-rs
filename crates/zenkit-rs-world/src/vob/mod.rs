@@ -21,11 +21,14 @@ mod read;
 mod save;
 mod sound;
 mod trigger;
+mod write;
 mod zone;
 
 use std::ops::Index;
+use std::ops::IndexMut;
 
 use zenkit_rs_archive::Archive;
+use zenkit_rs_archive::ArchiveWriter;
 use zenkit_rs_core::GameVersion;
 use zenkit_rs_core::Result;
 use zenkit_rs_core::math::Aabb;
@@ -103,6 +106,7 @@ pub use trigger::TriggerState;
 pub use trigger::TriggerTarget;
 pub use trigger::TriggerUntouch;
 pub use trigger::TriggerWorldStart;
+pub(crate) use write::WriteCtx;
 pub use zone::ZoneFarPlane;
 pub use zone::ZoneFog;
 pub use zone::ZoneMusic;
@@ -163,6 +167,23 @@ impl Vobs {
         Ok(id.map(|id| (ctx.finish(), id)))
     }
 
+    /// Writes the VOB `id` as one object, with every VOB inside it, like a camera's key frames:
+    /// the counterpart of [`read`](Self::read).
+    ///
+    /// VOBs are written packed, as the games' own worlds store them, without the state save games
+    /// keep. A VOB that cannot be stored, like an NPC, which only save games hold, makes
+    /// [`ArchiveWriter::finish`] fail.
+    pub fn write(&self, w: &mut ArchiveWriter, id: VobId, game: GameVersion) {
+        WriteCtx::new(w, self, game).vob("%", Some(id));
+    }
+
+    /// Adds a VOB and gives its id, to put it into the VOB tree or another VOB.
+    pub fn push(&mut self, vob: Vob) -> VobId {
+        let id = VobId(self.0.len() as u32);
+        self.0.push(vob);
+        id
+    }
+
     pub fn len(&self) -> usize {
         self.0.len()
     }
@@ -173,6 +194,10 @@ impl Vobs {
 
     pub fn get(&self, id: VobId) -> Option<&Vob> {
         self.0.get(id.index())
+    }
+
+    pub fn get_mut(&mut self, id: VobId) -> Option<&mut Vob> {
+        self.0.get_mut(id.index())
     }
 
     /// Every VOB with its id, in the order they were read.
@@ -191,6 +216,12 @@ impl Index<VobId> for Vobs {
 
     fn index(&self, id: VobId) -> &Vob {
         &self.0[id.index()]
+    }
+}
+
+impl IndexMut<VobId> for Vobs {
+    fn index_mut(&mut self, id: VobId) -> &mut Vob {
+        &mut self.0[id.index()]
     }
 }
 

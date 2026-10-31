@@ -3,6 +3,7 @@ use zenkit_rs_core::raw_enum;
 
 use super::Ctx;
 use super::VobId;
+use super::WriteCtx;
 
 raw_enum! {
     /// What a mob sounds like when hit or moved.
@@ -51,6 +52,20 @@ impl Mob {
             destroyed: r.bool()?,
         })
     }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        w.name("focusName", &self.focus_name);
+        w.int("hitpoints", self.hit_points);
+        w.int("damage", self.damage);
+        w.bool("moveable", self.movable);
+        w.bool("takeable", self.takable);
+        w.bool("focusOverride", self.focus_override);
+        w.enumeration("soundMaterial", self.material.raw());
+        w.name("visualDestroyed", &self.visual_destroyed);
+        w.name("owner", &self.owner);
+        w.name("ownerGuild", &self.owner_guild);
+        w.bool("isDestroyed", self.destroyed);
+    }
 }
 
 /// A mob the player can use, like a bench, a lever or an anvil.
@@ -81,6 +96,16 @@ impl Interactive {
             rewind: r.bool()?,
         })
     }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        self.mob.write(w);
+        w.int("stateNum", self.state_count);
+        w.name("triggerTarget", &self.target);
+        w.name("useWithItem", &self.item);
+        w.name("conditionFunc", &self.condition_function);
+        w.name("onStateFunc", &self.on_state_change_function);
+        w.bool("rewind", self.rewind);
+    }
 }
 
 /// A campfire, a torch holder or anything else that burns when used.
@@ -96,6 +121,12 @@ pub struct Fire {
 impl Fire {
     pub(crate) fn read(r: &mut Ctx) -> Result<Self> {
         Ok(Self { interactive: Interactive::read(r)?, slot: r.name()?, vob_tree: r.name()? })
+    }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        self.interactive.write(w);
+        w.name("fireSlot", &self.slot);
+        w.name("fireVobtreeName", &self.vob_tree);
     }
 }
 
@@ -133,6 +164,14 @@ impl Container {
         }
         Ok(container)
     }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        self.interactive.write(w);
+        w.bool("locked", self.locked);
+        w.name("keyInstance", &self.key);
+        w.name("pickLockStr", &self.pick_string);
+        w.name("contains", &self.contents);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -153,5 +192,12 @@ impl Door {
             key: r.name()?,
             pick_string: r.name()?,
         })
+    }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        self.interactive.write(w);
+        w.bool("locked", self.locked);
+        w.name("keyInstance", &self.key);
+        w.name("pickLockStr", &self.pick_string);
     }
 }

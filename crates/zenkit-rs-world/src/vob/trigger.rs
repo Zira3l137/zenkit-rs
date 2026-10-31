@@ -1,12 +1,14 @@
 use zenkit_rs_core::GameVersion;
 use zenkit_rs_core::Result;
 use zenkit_rs_core::io::Reader;
+use zenkit_rs_core::io::Writer;
 use zenkit_rs_core::math::Quat;
 use zenkit_rs_core::math::Vec3;
 use zenkit_rs_core::raw_enum;
 
 use super::Ctx;
 use super::VobId;
+use super::WriteCtx;
 
 raw_enum! {
     pub enum MoverBehavior: u8 = Toggle {
@@ -127,6 +129,27 @@ impl Trigger {
         }
         Ok(trigger)
     }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        // Bit 1 is whether the trigger is enabled now. A world starts with it set as
+        // `start_enabled` says, as in every trigger of the games' worlds.
+        let enabled = u8::from(self.start_enabled);
+        let flags = enabled | enabled << 1 | u8::from(self.send_untrigger) << 2;
+        let filter = u8::from(self.react_to_on_trigger)
+            | u8::from(self.react_to_on_touch) << 1
+            | u8::from(self.react_to_on_damage) << 2
+            | u8::from(self.respond_to_object) << 3
+            | u8::from(self.respond_to_pc) << 4
+            | u8::from(self.respond_to_npc) << 5;
+        w.name("triggerTarget", &self.target);
+        w.raw("flags", &[flags]);
+        w.raw("filterFlags", &[filter]);
+        w.name("respondToVobName", &self.vob_target);
+        w.int("numCanBeActivated", self.max_activation_count);
+        w.float("retriggerWaitSec", self.retrigger_delay);
+        w.float("damageThreshold", self.damage_threshold);
+        w.float("fireDelaySec", self.fire_delay);
+    }
 }
 
 /// One target of a [`TriggerList`].
@@ -170,6 +193,16 @@ impl TriggerList {
         };
         Ok(Self { trigger, mode, targets, state })
     }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        self.trigger.write(w);
+        w.enumeration("listProcess", self.mode.raw());
+        w.byte_count("numTarget", self.targets.len(), "trigger list targets");
+        for (i, target) in self.targets.iter().take(255).enumerate() {
+            w.name(&format!("triggerTarget{i}"), &target.name);
+            w.float(&format!("fireDelay{i}"), target.delay);
+        }
+    }
 }
 
 /// Calls a script function when triggered.
@@ -182,6 +215,11 @@ pub struct TriggerScript {
 impl TriggerScript {
     pub(crate) fn read(r: &mut Ctx) -> Result<Self> {
         Ok(Self { trigger: Trigger::read(r)?, function: r.name()? })
+    }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        self.trigger.write(w);
+        w.name("scriptFunc", &self.function);
     }
 }
 
@@ -198,6 +236,12 @@ pub struct TriggerChangeLevel {
 impl TriggerChangeLevel {
     pub(crate) fn read(r: &mut Ctx) -> Result<Self> {
         Ok(Self { trigger: Trigger::read(r)?, level_name: r.name()?, start_vob: r.name()? })
+    }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        self.trigger.write(w);
+        w.name("levelName", &self.level_name);
+        w.name("startVobName", &self.start_vob);
     }
 }
 
@@ -306,6 +350,44 @@ impl Mover {
         mover.sfx_use_locked = r.name()?;
         Ok(mover)
     }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        self.trigger.write(w);
+        w.enumeration("moverBehavior", self.behavior.raw());
+        w.float("touchBlockerDamage", self.touch_blocker_damage);
+        w.float("stayOpenTimeSec", self.stay_open_time);
+        w.bool("moverLocked", self.locked);
+        w.bool("autoLinkEnabled", self.auto_link);
+        if w.gothic2() {
+            w.bool("autoRotate", self.auto_rotate);
+        }
+
+        let Ok(count) = u16::try_from(self.keyframes.len()) else {
+            w.fail(format!("{} mover key frames, at most 65535 fit", self.keyframes.len()));
+            return;
+        };
+        w.word("numKeyframes", count);
+        if count > 0 {
+            w.float("moveSpeed", self.speed);
+            w.enumeration("posLerpType", self.lerp_mode.raw());
+            w.enumeration("speedType", self.speed_mode.raw());
+            let mut keys = Writer::with_capacity(self.keyframes.len() * 28);
+            for key in &self.keyframes {
+                keys.vec3(key.position);
+                key.rotation.to_array().iter().for_each(|&v| keys.f32(v));
+            }
+            w.raw("keyframes", keys.as_bytes());
+        }
+
+        w.name("sfxOpenStart", &self.sfx_open_start);
+        w.name("sfxOpenEnd", &self.sfx_open_end);
+        w.name("sfxMoving", &self.sfx_moving);
+        w.name("sfxCloseStart", &self.sfx_close_start);
+        w.name("sfxCloseEnd", &self.sfx_close_end);
+        w.name("sfxLock", &self.sfx_lock);
+        w.name("sfxUnlock", &self.sfx_unlock);
+        w.name("sfxUseLocked", &self.sfx_use_locked);
+    }
 }
 
 /// Triggers its target when the world is entered.
@@ -326,6 +408,11 @@ impl TriggerWorldStart {
         }
         Ok(trigger)
     }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        w.name("triggerTarget", &self.target);
+        w.bool("fireOnlyFirstTime", self.fire_once);
+    }
 }
 
 /// Triggers its target when something stops touching it.
@@ -337,5 +424,9 @@ pub struct TriggerUntouch {
 impl TriggerUntouch {
     pub(crate) fn read(r: &mut Ctx) -> Result<Self> {
         Ok(Self { target: r.name()? })
+    }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        w.name("triggerTarget", &self.target);
     }
 }

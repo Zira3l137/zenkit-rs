@@ -3,6 +3,7 @@ use zenkit_rs_core::Result;
 use zenkit_rs_core::math::Color;
 
 use super::Ctx;
+use super::WriteCtx;
 
 /// A volume that plays music from the soundtrack while the player is inside.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -46,6 +47,15 @@ impl ZoneMusic {
         }
         Ok(zone)
     }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        w.bool("enabled", self.enabled);
+        w.int("priority", self.priority);
+        w.bool("ellipsoid", self.ellipsoid);
+        w.float("reverbLevel", self.reverb);
+        w.float("volumeLevel", self.volume);
+        w.bool("loop", self.looping);
+    }
 }
 
 /// A volume that changes the fog while the camera is inside.
@@ -73,6 +83,16 @@ impl ZoneFog {
         }
         Ok(fog)
     }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        w.float("fogRangeCenter", self.range_center);
+        w.float("innerRangePerc", self.inner_range_percentage);
+        w.color("fogColor", self.color);
+        if w.gothic2() {
+            w.bool("fadeOutSky", self.fade_out_sky);
+            w.bool("overrideColor", self.override_color);
+        }
+    }
 }
 
 /// A volume that changes the view distance while the camera is inside.
@@ -85,5 +105,10 @@ pub struct ZoneFarPlane {
 impl ZoneFarPlane {
     pub(crate) fn read(r: &mut Ctx) -> Result<Self> {
         Ok(Self { vob_far_plane_z: r.float()?, inner_range_percentage: r.float()? })
+    }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        w.float("vobFarPlaneZ", self.vob_far_plane_z);
+        w.float("innerRangePerc", self.inner_range_percentage);
     }
 }

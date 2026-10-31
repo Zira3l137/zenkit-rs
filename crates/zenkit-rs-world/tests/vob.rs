@@ -4,6 +4,7 @@
 use std::path::Path;
 
 use zenkit_rs_archive::Archive;
+use zenkit_rs_archive::ArchiveWriter;
 use zenkit_rs_core::GameVersion;
 use zenkit_rs_core::GameVersion::Gothic1;
 use zenkit_rs_core::GameVersion::Gothic2;
@@ -559,4 +560,181 @@ fn unknown_and_null_vobs_read_as_none() {
         assert!(Vobs::read(&mut archive, Gothic1).unwrap().is_none(), "{class}");
         assert!(archive.is_eof());
     }
+}
+
+/// The values of a BIN_SAFE archive in order, each as its type tag and bytes, leaving out value
+/// names and object indices: the samples lost their key tables, and their objects were numbered
+/// within a whole world.
+fn binsafe_values(data: &[u8]) -> Vec<Vec<u8>> {
+    let u16_at = |at: usize| usize::from(u16::from_le_bytes([data[at], data[at + 1]]));
+    let start = data.windows(4).position(|w| w == b"END\n").unwrap() + 4;
+    let table = u32::from_le_bytes(data[start + 8..start + 12].try_into().unwrap()) as usize;
+
+    let mut at = start + 12;
+    let mut values = Vec::new();
+    while at < table {
+        let mut kind = data[at];
+        let keyed = kind == 0x12;
+        if keyed {
+            kind = data[at + 5];
+            at += 5;
+        }
+        at += 1;
+        let len = match kind {
+            0x01 | 0x09 | 0x10 => {
+                at += 2;
+                u16_at(at - 2)
+            }
+            0x02 | 0x03 | 0x06 | 0x08 | 0x11 => 4,
+            0x04 => 1,
+            0x05 => 2,
+            0x07 => 12,
+            other => panic!("unknown BIN_SAFE type {other:#x} at {at}"),
+        };
+        let mut value = vec![kind];
+        value.extend(&data[at..at + len]);
+        at += len;
+        if !keyed && value.len() > 3 {
+            let index = value.iter().rposition(|&b| b == b' ').unwrap();
+            value.truncate(index);
+        }
+        // The flag bits of packed VOBs that nothing reads in a world: Gothic 1's bit 5, which
+        // announces an event manager stored only in save games, and the unknown bit 7.
+        match (kind, len) {
+            (0x09, 74) => value[1 + 73] &= !0b1010_0000,
+            (0x09, 83) => value[1 + 73] &= !0b1000_0000,
+            _ => {}
+        }
+        values.push(value);
+    }
+    values
+}
+
+#[test]
+fn every_sample_writes_back_value_for_value() {
+    let mut failures = Vec::new();
+    for (game, dir) in [(Gothic1, "G1"), (Gothic2, "G2")] {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../samples/{dir}/VOb"));
+        let mut paths: Vec<_> =
+            std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().path()).collect();
+        paths.sort();
+        for path in paths {
+            let data = std::fs::read(&path).unwrap();
+            let mut archive = Archive::new(&data).unwrap();
+            let header = archive.header().clone();
+            let (vobs, id) = Vobs::read(&mut archive, game).unwrap().unwrap();
+
+            let mut w = ArchiveWriter::with_header(header);
+            vobs.write(&mut w, id, game);
+            let written = w.finish().unwrap();
+
+            // This mob's visual is a reference to a mesh outside the sample, which reads as a
+            // visual of unknown kind and so cannot be written the same way.
+            let dangling = path.ends_with("G1/VOb/oCMOB.zen");
+            let (ours, theirs) = (binsafe_values(&written), binsafe_values(&data));
+            let differs = |i: &usize| ours.get(*i) != theirs.get(*i);
+            if !dangling && let Some(i) = (0..ours.len().max(theirs.len())).find(differs) {
+                let show = |v: Option<&Vec<u8>>| v.map(|v| v.escape_ascii().to_string());
+                failures.push(format!(
+                    "{}: value {i}: wrote {:?}, the game has {:?}",
+                    path.display(),
+                    show(ours.get(i)),
+                    show(theirs.get(i))
+                ));
+            }
+
+            let mut archive = Archive::new(&written).unwrap();
+            let (back, back_id) = Vobs::read(&mut archive, game).unwrap().unwrap();
+            assert_eq!((back, back_id), (vobs, id), "{}", path.display());
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// A camera with two key frames, one of them also below it in the tree, and a mover: VOBs built
+/// in code, written and read back.
+#[test]
+fn vobs_built_in_code_read_back() {
+    use zenkit_rs_archive::Format;
+
+    for game in [Gothic1, Gothic2] {
+        let mut vobs = Vobs::default();
+        let frame = |time| Vob {
+            kind: VobKind::CameraKeyFrame(CameraKeyFrame {
+                time,
+                original_pose: Mat4::from_translation(Vec3::new(time, 0.0, 0.0)),
+                ..CameraKeyFrame::default()
+            }),
+            ..Vob::default()
+        };
+        let first = vobs.push(frame(0.0));
+        let second = vobs.push(frame(2.5));
+        let camera = vobs.push(Vob {
+            name: "CAMERA".into(),
+            kind: VobKind::CutsceneCamera(CutsceneCamera {
+                total_duration: 2.5,
+                trajectory: vec![first, second],
+                ..CutsceneCamera::default()
+            }),
+            children: vec![first],
+            ..Vob::default()
+        });
+
+        let mut w = ArchiveWriter::new(Format::Ascii);
+        vobs.write(&mut w, camera, game);
+        let data = w.finish().unwrap();
+        let text = String::from_utf8_lossy(&data);
+        assert!(text.contains("\ttotalTime=float:2.5\n"), "{text}");
+        assert!(text.contains("\t[% zCCamTrj_KeyFrame:zCVob "), "{text}");
+
+        let mut archive = Archive::new(&data).unwrap();
+        let (back, id) = Vobs::read(&mut archive, game).unwrap().unwrap();
+        let read = expect!(&back[id].kind, VobKind::CutsceneCamera(c) => c);
+        let frames: Vec<_> = read.trajectory.iter().map(|&f| back[f].clone()).collect();
+        assert_eq!(frames, [vobs[first].clone(), vobs[second].clone()]);
+
+        // The ids are the read order's, and children are only written by the VOB tree.
+        let mut expected = vobs[camera].clone();
+        expected.children.clear();
+        expected.kind = VobKind::CutsceneCamera(CutsceneCamera {
+            trajectory: read.trajectory.clone(),
+            ..expect!(&expected.kind, VobKind::CutsceneCamera(c) => c.clone())
+        });
+        assert_eq!(back[id], expected);
+
+        let mut vobs = Vobs::default();
+        let keyframes = vec![
+            MoverKeyFrame { position: Vec3::X, rotation: Quat::IDENTITY },
+            MoverKeyFrame { position: Vec3::Y, rotation: Quat::from_rotation_y(1.0) },
+        ];
+        let mover = Mover {
+            trigger: Trigger { target: "GATE".into(), start_enabled: true, ..Trigger::default() },
+            speed: 0.5,
+            keyframes,
+            sfx_moving: "GATE_LOOP".into(),
+            ..Mover::default()
+        };
+        let id = vobs.push(Vob { kind: VobKind::Mover(Box::new(mover)), ..Vob::default() });
+        let mut w = ArchiveWriter::new(Format::Binary);
+        vobs.write(&mut w, id, game);
+        let data = w.finish().unwrap();
+        let (back, back_id) = Vobs::read(&mut Archive::new(&data).unwrap(), game).unwrap().unwrap();
+        assert_eq!(back[back_id], vobs[id]);
+    }
+}
+
+#[test]
+fn vobs_that_cannot_be_stored_fail() {
+    use zenkit_rs_archive::Format;
+
+    let mut vobs = Vobs::default();
+    let npc = vobs.push(Vob { kind: VobKind::Npc(Box::default()), ..Vob::default() });
+    let mut w = ArchiveWriter::new(Format::Binsafe);
+    vobs.write(&mut w, npc, Gothic2);
+    assert!(w.finish().unwrap_err().to_string().contains("NPCs"));
+
+    let biased = vobs.push(Vob { bias: 40, ..Vob::default() });
+    let mut w = ArchiveWriter::new(Format::Binsafe);
+    vobs.write(&mut w, biased, Gothic2);
+    assert!(w.finish().unwrap_err().to_string().contains("depth bias 40"));
 }

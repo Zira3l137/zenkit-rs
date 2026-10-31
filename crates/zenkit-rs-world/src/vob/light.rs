@@ -6,6 +6,7 @@ use zenkit_rs_core::raw_enum;
 use zenkit_rs_core::text;
 
 use super::Ctx;
+use super::WriteCtx;
 
 raw_enum! {
     pub enum LightType: u8 = Spot {
@@ -102,6 +103,35 @@ impl Light {
             }
         }
         Ok(light)
+    }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        w.name("lightPresetInUse", &self.preset);
+        w.enumeration("lightType", self.light_type.raw());
+        w.float("range", self.range);
+        w.color("color", self.color);
+        w.float("spotConeAngle", self.cone_angle);
+        w.bool("lightStatic", self.is_static);
+        w.enumeration("lightQuality", self.quality.raw());
+        w.name("lensflareFX", &self.lensflare_fx);
+        if self.is_static {
+            return;
+        }
+        // Every entry followed by a space, as in the games' worlds.
+        let scales: String = self.range_animation_scale.iter().map(|v| format!("{v} ")).collect();
+        let colors: String = (self.color_animation_list.iter())
+            .map(|c| format!("({} {} {}) ", c.r, c.g, c.b))
+            .collect();
+        w.bool("turnedOn", self.on);
+        w.name("rangeAniScale", &scales);
+        w.float("rangeAniFPS", self.range_animation_fps);
+        w.bool("rangeAniSmooth", self.range_animation_smooth);
+        w.name("colorAniList", &colors);
+        w.float("colorAniFPS", self.color_animation_fps);
+        w.bool("colorAniSmooth", self.color_animation_smooth);
+        if w.gothic2() {
+            w.bool("canMove", self.can_move);
+        }
     }
 }
 

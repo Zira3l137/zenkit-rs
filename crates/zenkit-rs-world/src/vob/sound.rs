@@ -2,6 +2,7 @@ use zenkit_rs_core::Result;
 use zenkit_rs_core::raw_enum;
 
 use super::Ctx;
+use super::WriteCtx;
 
 raw_enum! {
     pub enum SoundMode: u8 = Once {
@@ -91,6 +92,20 @@ impl Sound {
         }
         Ok(sound)
     }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        w.float("sndVolume", self.volume);
+        w.enumeration("sndMode", self.mode.raw());
+        w.float("sndRandDelay", self.random_delay);
+        w.float("sndRandDelayVar", self.random_delay_var);
+        w.bool("sndStartOn", self.initially_playing);
+        w.bool("sndAmbient3D", self.ambient_3d);
+        w.bool("sndObstruction", self.obstruction);
+        w.float("sndConeAngle", self.cone_angle);
+        w.enumeration("sndVolType", self.volume_type.raw());
+        w.float("sndRadius", self.radius);
+        w.name("sndName", &self.sound_name);
+    }
 }
 
 /// A sound that changes with the time of day: the base sound plays between the start and end
@@ -113,5 +128,12 @@ impl SoundDaytime {
             end_time: r.float()?,
             sound_name2: r.name()?,
         })
+    }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        self.sound.write(w);
+        w.float("sndStartTime", self.start_time);
+        w.float("sndEndTime", self.end_time);
+        w.name("sndName2", &self.sound_name2);
     }
 }
