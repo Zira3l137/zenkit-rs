@@ -10,6 +10,7 @@ import shutil
 import struct
 import sys
 import tempfile
+import types
 from pathlib import Path
 
 import bpy
@@ -361,6 +362,20 @@ rig.select_set(True)
 bpy.context.view_layer.objects.active = rig
 for ext in ("MDL", "MDH", "MDM"):
     assert bpy.ops.export_scene.zenkit_model(filepath=str(work / f"RIG.{ext}")) == {"FINISHED"}
+
+# The format names what to write when the name has no model extension of its own.
+assert bpy.ops.export_scene.zenkit_model(filepath=str(work / "BARE"), format="MDH") == {"FINISHED"}
+assert zenkit_py.read_model(str(work / "BARE.MDH"))["nodes"]
+
+# In the file browser, the format and the name's extension follow each other.
+check = bpy.types.EXPORT_SCENE_OT_zenkit_model.check
+browser = types.SimpleNamespace(filepath="/x/RIG.MDL", format="MDH", shown_format="MDL")
+assert check(browser, None) and browser.filepath.endswith("RIG.MDH")
+browser.filepath = "/x/RIG.mdm"
+assert check(browser, None) and browser.format == "MDM"
+browser.filepath = "/x/RIG"
+assert check(browser, None) and browser.filepath.endswith("RIG.MDM")
+assert not check(browser, None)
 
 model = zenkit_py.read_model(str(work / "RIG.MDL"))
 assert [n[0] for n in model["nodes"]] == ["BIP01", "BIP01 ARM", "ZS_HAND"]

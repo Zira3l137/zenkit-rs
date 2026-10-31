@@ -80,8 +80,10 @@ is found next to the file, in the models folder or in the game's archives, so th
 it later. To put a body on a skeleton, import the `.MDH`, then the `.MDM` while the armature is
 still active.
 
-Exporting picks the file by its extension, so one armature can be exported as a whole `.MDL` or
-as a `.MDH` and its `.MDM`. Bones, slots and mesh nodes go out in the order the file had them,
+The export's Format option says what to write: the whole model (`.MDL`), the skeleton alone
+(`.MDH`) or the meshes alone (`.MDM`), so one armature can go out as a `.MDL` or as a `.MDH` and
+its `.MDM`. The file name's extension follows the format, and typing one of the three into the name
+picks the format. Bones, slots and mesh nodes go out in the order the file had them,
 since animations refer to nodes by their place, and new ones after.
 
 The armature keeps the checksum and the **root translation**: an offset files keep apart from
