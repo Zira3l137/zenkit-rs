@@ -127,3 +127,23 @@ fn too_many_sub_meshes_cannot_be_written() {
     let error = mesh.to_bytes(GameVersion::Gothic2).unwrap_err();
     assert!(error.to_string().contains("256 sub-meshes"), "{error}");
 }
+
+#[test]
+fn sub_meshes_without_vertex_updates_are_written_in_full_detail() {
+    let mut mesh = MultiResolutionMesh::from_bytes(&sample("mesh0.mrm")).unwrap();
+    mesh.sub_meshes[0].vertex_updates.clear();
+
+    let back =
+        MultiResolutionMesh::from_bytes(&mesh.to_bytes(GameVersion::Gothic1).unwrap()).unwrap();
+    let all = VertexUpdate { triangles: 16, wedges: 32 };
+    assert_eq!(mesh.sub_meshes[0].full_detail(), Some(all));
+    assert_eq!(back.sub_meshes[0].vertex_updates, [all]);
+}
+
+#[test]
+fn vertex_updates_beyond_their_sub_mesh_cannot_be_written() {
+    let mut mesh = MultiResolutionMesh::from_bytes(&sample("mesh0.mrm")).unwrap();
+    mesh.sub_meshes[0].vertex_updates.push(VertexUpdate { triangles: 17, wedges: 32 });
+    let error = mesh.to_bytes(GameVersion::Gothic2).unwrap_err();
+    assert!(error.to_string().contains("draws 17 triangles"), "{error}");
+}

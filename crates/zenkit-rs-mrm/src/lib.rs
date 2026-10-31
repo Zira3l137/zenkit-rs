@@ -15,6 +15,8 @@
 //! [`MultiResolutionMesh::to_bytes`] writes a mesh back, laying the arrays out in the order the
 //! engine does.
 
+use std::borrow::Cow;
+
 use tracing::debug;
 use tracing::warn;
 use zenkit_rs_archive::Archive;
@@ -69,7 +71,8 @@ pub struct Plane {
 
 /// How many of a sub-mesh's triangles and wedges the engine draws at one level of detail, the
 /// engine's `zTPMVertexUpdate`. A sub-mesh has one for every number of positions from none to all
-/// of them, so the last one covers the whole sub-mesh.
+/// of them, so the last one covers the whole sub-mesh. A single update covering everything,
+/// [`SubMesh::full_detail`], turns level of detail off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct VertexUpdate {
     pub triangles: u16,
@@ -105,7 +108,20 @@ pub struct SubMesh {
     pub edges: Vec<[u16; 2]>,
     pub edge_scores: Vec<f32>,
     pub wedge_map: Vec<u16>,
+    /// The engine draws a sub-mesh without any as nothing, without an error, so when this is
+    /// empty the writer stores [`full_detail`](Self::full_detail) instead.
     pub vertex_updates: Vec<VertexUpdate>,
+}
+
+impl SubMesh {
+    /// The vertex update that draws every triangle and wedge, or `None` if there are more than
+    /// an update can count.
+    pub fn full_detail(&self) -> Option<VertexUpdate> {
+        Some(VertexUpdate {
+            triangles: self.triangles.len().try_into().ok()?,
+            wedges: self.wedges.len().try_into().ok()?,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -236,13 +252,17 @@ impl MultiResolutionMesh {
     }
 
     /// Writes the mesh section on its own, the counterpart of
-    /// [`read_section`](Self::read_section). Fails if there are more than 255 sub-meshes or a
-    /// material cannot be written.
+    /// [`read_section`](Self::read_section). Fails if there are more than 255 sub-meshes, a
+    /// vertex update asks for more triangles or wedges than its sub-mesh has, or a material
+    /// cannot be written.
     pub fn write_section(&self, w: &mut Writer, game: GameVersion) -> Result<()> {
         let sub_mesh_count = u8::try_from(self.sub_meshes.len()).map_err(|_| {
             let reason = format!("{} sub-meshes, at most 255 fit", self.sub_meshes.len());
             Error::unwritable(FORMAT, reason)
         })?;
+        let vertex_updates = (self.sub_meshes.iter().enumerate())
+            .map(|(i, sub)| vertex_updates(i, sub))
+            .collect::<Result<Vec<_>>>()?;
 
         let mut materials = ArchiveWriter::new(Format::Binary);
         for sub in &self.sub_meshes {
@@ -254,8 +274,9 @@ impl MultiResolutionMesh {
         let mut content = Writer::new();
         let positions = section(&mut content, &self.positions, |w, &v| w.vec3(v));
         let normals = section(&mut content, &self.normals, |w, &v| w.vec3(v));
-        let sections: Vec<[[u32; 2]; 10]> =
-            self.sub_meshes.iter().map(|sub| write_sub_mesh(&mut content, sub)).collect();
+        let sections: Vec<[[u32; 2]; 10]> = (self.sub_meshes.iter().zip(&vertex_updates))
+            .map(|(sub, updates)| write_sub_mesh(&mut content, sub, updates))
+            .collect();
 
         w.u16(match game {
             GameVersion::Gothic1 => VERSION_G1,
@@ -293,9 +314,36 @@ fn section<T>(w: &mut Writer, items: &[T], mut write: impl FnMut(&mut Writer, &T
     [offset, items.len() as u32]
 }
 
+/// The vertex updates to write for sub-mesh `index`: its own, checked to stay within it, or the
+/// one that draws all of it.
+fn vertex_updates(index: usize, sub: &SubMesh) -> Result<Cow<'_, [VertexUpdate]>> {
+    let (triangles, wedges) = (sub.triangles.len(), sub.wedges.len());
+    if sub.vertex_updates.is_empty() {
+        let full = sub.full_detail().ok_or_else(|| {
+            let reason = format!(
+                "sub-mesh {index} has {triangles} triangles and {wedges} wedges, \
+                 more than a vertex update can count"
+            );
+            Error::unwritable(FORMAT, reason)
+        })?;
+        return Ok(Cow::Owned(vec![full]));
+    }
+    if let Some(update) = (sub.vertex_updates.iter())
+        .find(|u| usize::from(u.triangles) > triangles || usize::from(u.wedges) > wedges)
+    {
+        let reason = format!(
+            "a vertex update of sub-mesh {index} draws {} triangles and {} wedges, \
+             but it has {triangles} and {wedges}",
+            update.triangles, update.wedges
+        );
+        return Err(Error::unwritable(FORMAT, reason));
+    }
+    Ok(Cow::Borrowed(&sub.vertex_updates))
+}
+
 /// Writes a sub-mesh's arrays in the engine's order and returns their sections in the order of
 /// the table.
-fn write_sub_mesh(w: &mut Writer, sub: &SubMesh) -> [[u32; 2]; 10] {
+fn write_sub_mesh(w: &mut Writer, sub: &SubMesh, updates: &[VertexUpdate]) -> [[u32; 2]; 10] {
     let u16s = |w: &mut Writer, values: &[u16]| values.iter().for_each(|&v| w.u16(v));
 
     let triangles = section(w, &sub.triangles, |w, t| u16s(w, t));
@@ -308,7 +356,7 @@ fn write_sub_mesh(w: &mut Writer, sub: &SubMesh) -> [[u32; 2]; 10] {
     });
     let wedge_map = section(w, &sub.wedge_map, |w, &v| w.u16(v));
     let colors = section(w, &sub.colors, |w, &v| w.f32(v));
-    let vertex_updates = section(w, &sub.vertex_updates, |w, update| {
+    let vertex_updates = section(w, updates, |w, update| {
         w.u16(update.triangles);
         w.u16(update.wedges);
     });
