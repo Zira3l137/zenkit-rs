@@ -108,7 +108,10 @@ itself, which turns that shape into Blender meshes and back.
   stores, so a body fits whatever skeleton it is drawn on. Import does the same whenever the
   skeleton is there, and export works the relative positions out from the armature's rest pose.
 - **Double-sided faces** are kept: the engine stores them as two triangles on the same corners,
-  which Blender would merge if the mesh were validated, so it is not.
+  the second wound the other way, which Blender would merge if the mesh were validated, so it is
+  not. Their normals in the files were smoothed over both sides at once, so the two cancel out
+  and point any way along the face; each side is smoothed again on its own instead, fronts with
+  fronts and backs with backs, so it shades out of its own front.
 
 ## Limits
 

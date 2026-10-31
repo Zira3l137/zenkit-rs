@@ -88,6 +88,56 @@ def texture_name(mat):
     return None
 
 
+def double_sided(counts, vertices):
+    """Which polygons are one side of a double-sided face: the engine stores those twice, the
+    second time with the corners in reverse order."""
+    counts = counts.astype(np.int64)
+    starts = np.concatenate(([0], np.cumsum(counts)[:-1]))
+    polygons = [tuple(int(v) for v in vertices[s : s + c]) for s, c in zip(starts, counts)]
+    by_corners = {}
+    for i, polygon in enumerate(polygons):
+        by_corners.setdefault(tuple(sorted(polygon)), []).append(i)
+
+    flags = np.zeros(len(counts), bool)
+    for group in (g for g in by_corners.values() if len(g) > 1):
+        for i in group:
+            backwards = polygons[i][::-1]
+            turns = {backwards[k:] + backwards[:k] for k in range(len(backwards))}
+            if any(polygons[j] in turns for j in group if j != i):
+                flags[i] = True
+    return flags
+
+
+def smooth_sides(mesh, counts, vertices, double, normals):
+    """The corner normals with those of double-sided faces smoothed again, side by side.
+
+    The files' normals for those faces were smoothed over both sides at once, so that the two
+    cancel out and what is left points any way along the face. Each corner of such a face takes
+    the average of the double-sided faces around its vertex that face the same way, weighted by
+    their size, so fronts smooth with fronts and backs with backs.
+    """
+    face_normals = np.empty(len(mesh.polygons) * 3, np.float32)
+    mesh.polygons.foreach_get("normal", face_normals)
+    face_normals = face_normals.reshape(-1, 3)
+    areas = np.empty(len(mesh.polygons), np.float32)
+    mesh.polygons.foreach_get("area", areas)
+
+    owners = np.repeat(np.arange(len(counts)), counts)
+    around = {}
+    for corner in np.nonzero(double[owners])[0]:
+        around.setdefault(int(vertices[corner]), []).append(int(owners[corner]))
+
+    normals = normals.copy()
+    for corner in np.nonzero(double[owners])[0]:
+        own = face_normals[owners[corner]]
+        faces = np.array(around[int(vertices[corner])])
+        alike = faces[face_normals[faces] @ own > 0]
+        total = (face_normals[alike] * areas[alike, None]).sum(axis=0)
+        length = np.linalg.norm(total)
+        normals[corner] = total / length if length > 1e-12 else own
+    return normals
+
+
 def build_mesh(name, data, scale, folders, positions=None):
     """Turns a mesh dict from zenkit_py into a Blender mesh, its vertices at `positions`, in
     Blender's space, if given."""
@@ -120,6 +170,10 @@ def build_mesh(name, data, scale, folders, positions=None):
     # Blender keeps custom normals relative to the faces around them, so they are set last, once
     # the vertices are where they stay.
     mesh.update()
+
+    double = double_sided(counts, vertices)
+    if double.any():
+        normals = smooth_sides(mesh, counts, vertices, double, normals)
     mesh.normals_split_custom_set(normals.tolist())
     return mesh
 
