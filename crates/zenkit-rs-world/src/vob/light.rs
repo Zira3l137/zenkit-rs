@@ -117,16 +117,12 @@ impl Light {
         if self.is_static {
             return;
         }
-        // Every entry followed by a space, as in the games' worlds.
         let scales: String = self.range_animation_scale.iter().map(|v| format!("{v} ")).collect();
-        let colors: String = (self.color_animation_list.iter())
-            .map(|c| format!("({} {} {}) ", c.r, c.g, c.b))
-            .collect();
         w.bool("turnedOn", self.on);
         w.name("rangeAniScale", &scales);
         w.float("rangeAniFPS", self.range_animation_fps);
         w.bool("rangeAniSmooth", self.range_animation_smooth);
-        w.name("colorAniList", &colors);
+        w.name("colorAniList", &color_list(&self.color_animation_list));
         w.float("colorAniFPS", self.color_animation_fps);
         w.bool("colorAniSmooth", self.color_animation_smooth);
         if w.gothic2() {
@@ -138,6 +134,20 @@ impl Light {
 /// Parses whitespace-separated numbers, stopping at the first that is not one.
 fn scales(s: &[u8]) -> Vec<f32> {
     s.split(u8::is_ascii_whitespace).filter(|p| !p.is_empty()).map_while(text::float).collect()
+}
+
+/// Writes a list of colours as the games' worlds spell them: a grey as one number, any other
+/// colour as three in parentheses, each followed by a space, like `(0 20 0) 255 `.
+fn color_list(colors: &[Color]) -> String {
+    (colors.iter())
+        .map(|c| {
+            if c.r == c.g && c.g == c.b {
+                format!("{} ", c.r)
+            } else {
+                format!("({} {} {}) ", c.r, c.g, c.b)
+            }
+        })
+        .collect()
 }
 
 /// Parses a list of colours, each a single number for a grey or three in parentheses, like
@@ -183,6 +193,14 @@ mod tests {
         );
         assert_eq!(colors(b"10 (1 2) 20"), [grey(10)]);
         assert_eq!(colors(b"10 x 20"), [grey(10)]);
+    }
+
+    #[test]
+    fn colour_lists_are_written_like_the_games() {
+        let list = "(0 20 0) (64 128 128) 255 ";
+        assert_eq!(color_list(&colors(list.as_bytes())), list);
+        assert_eq!(color_list(&colors(b"192 215 ")), "192 215 ");
+        assert_eq!(color_list(&[]), "");
     }
 
     #[test]
