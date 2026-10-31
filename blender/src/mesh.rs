@@ -30,6 +30,7 @@ use zenkit::mesh::VertexFeature;
 use zenkit::mrm::MultiResolutionMesh;
 use zenkit::mrm::Plane;
 use zenkit::mrm::SubMesh;
+use zenkit::mrm::VertexUpdate;
 use zenkit::mrm::Wedge;
 
 use crate::fail;
@@ -365,9 +366,30 @@ pub(crate) fn to_mrm(data: &MeshData, game: GameVersion) -> PyResult<MultiResolu
         sub.triangles.push(triangle);
     }
 
+    // The engine draws as many of a sub-mesh's triangles as its vertex updates say. Without a
+    // reduced mesh to say anything, one update with them all keeps the engine from reducing it;
+    // with none, it draws nothing.
+    for sub in &mut sub_meshes {
+        let (triangles, wedges) =
+            (u16::try_from(sub.triangles.len()), u16::try_from(sub.wedges.len()));
+        let (Ok(triangles), Ok(wedges)) = (triangles, wedges) else {
+            return Err(invalid("a material has more than 65535 triangles or corners"));
+        };
+        sub.vertex_updates = vec![VertexUpdate { triangles, wedges }];
+    }
+
+    // Fat characters have their skins pushed out along a normal per position, which the engine's
+    // compiler takes from the corners; without them it reads past the end.
+    let mut normals = vec![Vec3::ZERO; c.positions.len()];
+    for wedge in sub_meshes.iter().flat_map(|s| &s.wedges) {
+        normals[wedge.index as usize] += wedge.normal;
+    }
+    let normals = normals.into_iter().map(Vec3::normalize_or_zero).collect();
+
     Ok(MultiResolutionMesh {
         game: Some(game),
         positions: c.positions,
+        normals,
         sub_meshes,
         alpha_test: true,
         bbox,
