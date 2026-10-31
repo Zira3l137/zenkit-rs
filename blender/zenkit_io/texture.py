@@ -124,11 +124,11 @@ class ExportTexture(bpy.types.Operator):
     image: bpy.props.StringProperty(name="Image")
     format: bpy.props.EnumProperty(
         name="Format",
+        # The two the game's renderer shows: it refuses DXT5 and draws uncompressed 32-bit
+        # textures with nothing to convert them into its 16-bit fallback.
         items=[
-            ("DXT1", "DXT1", "Compressed, without transparency"),
-            ("DXT3", "DXT3", "Compressed, with sharp transparency"),
-            ("DXT5", "DXT5", "Compressed, with smooth transparency"),
-            ("B8G8R8A8", "BGRA8", "Uncompressed"),
+            ("DXT1", "DXT1", "Compressed; transparency only fully on or off"),
+            ("DXT3", "DXT3", "Compressed, with transparency in 16 steps"),
         ],
         default="DXT1",
     )
@@ -173,5 +173,13 @@ class ExportTexture(bpy.types.Operator):
         except zenkit_py.ZenKitError as error:
             self.report({"ERROR"}, str(error))
             return {"CANCELLED"}
+        width, height = source.size
+        if width & (width - 1) or height & (height - 1):
+            self.report(
+                {"WARNING"},
+                f"Exported {source.name}, but {width}x{height} are not powers of two, as the "
+                "game's own textures are; its renderer may not show it",
+            )
+            return {"FINISHED"}
         self.report({"INFO"}, f"Exported {source.name}")
         return {"FINISHED"}

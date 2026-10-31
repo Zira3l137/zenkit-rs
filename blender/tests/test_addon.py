@@ -36,9 +36,8 @@ assert bpy.ops.import_image.zenkit_texture(filepath=str(samples / "erz.tex")) ==
 image = bpy.data.images["erz"]
 assert tuple(image.size) == (128, 128), image.size
 out = work / "ERZ-C.TEX"
-assert bpy.ops.export_image.zenkit_texture(
-    filepath=str(out), image="erz", format="B8G8R8A8", mipmaps=False
-) == {"FINISHED"}
+package = bpy.types.IMPORT_SCENE_OT_zenkit_mesh.__module__.rsplit(".", 1)[0]
+sys.modules[package + ".texture"].save(image, out, "B8G8R8A8", False)
 w, h, original = zenkit_py.read_texture(str(samples / "erz.tex"))
 w2, h2, written = zenkit_py.read_texture(str(out))
 assert (w2, h2) == (w, h) and written == original, "texture changed on its way through Blender"
@@ -49,11 +48,19 @@ assert bpy.ops.export_image.zenkit_texture(
     filepath=str(work / "FAST.TEX"), image="erz", format="DXT1", quality="FAST"
 ) == {"FINISHED"}
 assert zenkit_py.read_texture(str(work / "FAST.TEX"))[:2] == (128, 128)
+# The game refuses DXT textures with a mipmap under 4 pixels on a side, so the levels stop at 4x4:
+# 128, 64, 32, 16, 8, 4.
+for format in ("DXT1", "DXT3"):
+    path = work / f"MIP_{format}.TEX"
+    assert bpy.ops.export_image.zenkit_texture(filepath=str(path), image="erz", format=format) == {
+        "FINISHED"
+    }
+    header = struct.unpack_from("<4sIIIII", path.read_bytes())
+    assert header[2:] == ({"DXT1": 10, "DXT3": 12}[format], 128, 128, 6), header
 # Imported textures are packed into the .blend as they came.
 assert image.packed_file is not None
 
 # A texture's alpha reaches the material's shader when it has any; erz is opaque.
-package = bpy.types.IMPORT_SCENE_OT_zenkit_mesh.__module__.rsplit(".", 1)[0]
 convert = sys.modules[package + ".convert"]
 leaf = np.full((4, 4, 4), 255, np.uint8)
 leaf[0, :, 3] = 0

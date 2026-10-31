@@ -33,8 +33,16 @@ pub(crate) fn read_texture(
     decode(py, &read(&path)?)
 }
 
+/// How many mipmap levels the game takes in a DXT texture: its renderer refuses one with a level
+/// under 4 pixels on a side (zCTex_D3D::XTEX_BuildSurfaces), so the halving stops at 4×4.
+fn dxt_mipmap_count(width: u32, height: u32) -> u32 {
+    let smallest = width.min(height).max(1);
+    (smallest.ilog2()).saturating_sub(1).max(1)
+}
+
 /// Writes RGBA8 pixels, rows top to bottom, as a texture in `format`, like `"DXT1"`, with
-/// every mipmap level when `mipmaps` is set. DXT formats are compressed at `quality`, `"HIGH"`
+/// mipmap levels when `mipmaps` is set: every one, or for DXT down to 4×4, which is all the game
+/// takes. DXT formats are compressed at `quality`, `"HIGH"`
 /// or `"FAST"`.
 #[pyfunction]
 #[pyo3(signature = (path, width, height, rgba, format, mipmaps, quality = "HIGH"))]
@@ -60,7 +68,13 @@ pub(crate) fn write_texture(
         "FAST" => DxtQuality::Fast,
         other => return Err(invalid(format!("unknown quality {other:?}; expected HIGH or FAST"))),
     };
-    let levels = if mipmaps { max_mipmap_count(width, height) } else { 1 };
+    let levels = match (mipmaps, format) {
+        (false, _) => 1,
+        (true, TextureFormat::Dxt1 | TextureFormat::Dxt3 | TextureFormat::Dxt5) => {
+            dxt_mipmap_count(width, height)
+        }
+        (true, _) => max_mipmap_count(width, height),
+    };
     let texture =
         Texture::from_rgba8_with(width, height, &rgba, format, levels, quality).map_err(fail)?;
     write(&path, &texture.to_bytes())
