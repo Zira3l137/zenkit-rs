@@ -11,6 +11,7 @@ import struct
 import sys
 import tempfile
 import types
+import zlib
 from pathlib import Path
 
 import bpy
@@ -241,7 +242,6 @@ skin["weight_values"] = np.ones(vertices, "<f4").tobytes()
 biped = {
     "nodes": biped_nodes,
     "root_translation": (0, 85, 0),
-    "checksum": 1234,
     "soft_skins": [],
     "attachments": [],
 }
@@ -316,6 +316,28 @@ assert [n[:2] for n in again["nodes"]] == [n[:2] for n in biped_nodes]
 for (_, _, ours), (_, _, theirs) in zip(again["nodes"], biped_nodes, strict=True):
     assert np.allclose(np.frombuffer(ours, "<f4"), np.frombuffer(theirs, "<f4"), atol=1e-3)
 assert np.allclose(stored_root(work / "BIPED2.MDH")[0], root, atol=1e-5)
+# An armor's model has a skeleton of its own, without the slots, whose checksum the humans who wear
+# it do not have. Imported onto their armature, its meshes export with theirs.
+armor = {**biped, "nodes": biped_nodes[:5], "soft_skins": [skin]}
+zenkit_py.write_model(str(work / "ARMOR.MDL"), armor, "G2")
+humans_checksum = zenkit_py.read_model(str(work / "BIPED.MDH"))["checksum"]
+assert zenkit_py.read_model(str(work / "ARMOR.MDL"))["checksum"] != humans_checksum
+bpy.ops.object.select_all(action="SELECT")
+bpy.ops.object.delete()
+assert bpy.ops.import_scene.zenkit_model(filepath=str(work / "BIPED.MDH")) == {"FINISHED"}
+humans = bpy.context.active_object
+assert bpy.ops.import_scene.zenkit_model(filepath=str(work / "ARMOR.MDL"), use_active=True) == {
+    "FINISHED"
+}
+assert [o for o in bpy.data.objects if o.type == "ARMATURE"] == [humans]
+(worn,) = [o for o in humans.children if o.name.startswith("ZM_SKIN_")]
+assert worn.modifiers[0].object == humans
+assert np.allclose([v.co[:] for v in worn.data.vertices], expected, atol=1e-5)
+assert bpy.ops.export_scene.zenkit_model(filepath=str(work / "ARMOR.MDM")) == {"FINISHED"}
+assert zenkit_py.read_model(str(work / "ARMOR.MDM"))["checksum"] == humans_checksum
+# Without the option, or with an armature that lacks bones, it gets an armature of its own.
+assert bpy.ops.import_scene.zenkit_model(filepath=str(work / "ARMOR.MDL")) == {"FINISHED"}
+assert len([o for o in bpy.data.objects if o.type == "ARMATURE"]) == 2
 print("game skeleton ok")
 
 # A model made in Blender: two bones, a skinned body and a rigid attachment.
@@ -388,6 +410,9 @@ assert model["attachments"][0]["node"] == "BIP01 ARM"
 sword_positions = np.frombuffer(model["attachments"][0]["mesh"]["positions"], "<f4")
 assert np.abs(sword_positions).max() <= 10.001, sword_positions
 assert np.allclose(node_positions(model)[1], (0, 100, 0), atol=1e-3)
+# The checksum is the engine's: the CRC-32 of the node names, one after the other, which the game
+# compares with the skeleton's when it puts the meshes on.
+assert model["checksum"] == zlib.crc32(b"BIP01BIP01 ARMZS_HAND")
 assert zenkit_py.read_model(str(work / "RIG.MDM"))["checksum"] == model["checksum"]
 
 # Back in: the whole model, then the meshes alone on the skeleton alone.

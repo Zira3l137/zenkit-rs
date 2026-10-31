@@ -4,7 +4,8 @@
 //! nodes             list of (name, parent index or -1, transform): the transform relative to
 //!                   the parent, 16 f32 row by row, in the rest pose the meshes were skinned in
 //! root_translation  (x, y, z), or None when writing to take the first root's position
-//! checksum          ties a skeleton to its meshes and animations
+//! checksum          ties a skeleton to its meshes and animations: read only, as writing gives
+//!                   both the checksum of the nodes written, which is what the engine compares
 //! soft_skins        list of {"mesh": mesh dict, "weight_counts", "weight_nodes",
 //!                   "weight_values", "weight_positions"}: per vertex, how many bones move it
 //!                   (u32), then per bone its node index (u32), weight (f32) and, read only, the
@@ -143,7 +144,6 @@ pub(crate) fn to_dict<'py>(
 pub(crate) struct ModelData {
     nodes: Vec<(String, i32, Vec<u8>)>,
     root_translation: Option<[f32; 3]>,
-    checksum: u32,
     soft_skins: Vec<SkinData>,
     attachments: Vec<AttachmentData>,
 }
@@ -175,7 +175,7 @@ pub(crate) fn write_model(path: PathBuf, data: ModelData, game_name: &str) -> Py
     let hierarchy = hierarchy(&data)?;
     let world = world_transforms(&hierarchy);
 
-    let mut mesh = ModelMesh { checksum: data.checksum, ..ModelMesh::default() };
+    let mut mesh = ModelMesh { checksum: hierarchy.checksum, ..ModelMesh::default() };
     for (i, skin) in data.soft_skins.iter().enumerate() {
         let skin =
             soft_skin(skin, &world, game).map_err(|e| context(e, &format!("soft skin {i}")))?;
@@ -229,12 +229,9 @@ fn hierarchy(data: &ModelData) -> PyResult<ModelHierarchy> {
         Some(xyz) => Vec3::from_array(xyz),
         None => nodes.first().map_or(Vec3::ZERO, |n| n.transform.w_axis.truncate()),
     };
-    Ok(ModelHierarchy {
-        nodes,
-        root_translation,
-        checksum: data.checksum,
-        ..ModelHierarchy::default()
-    })
+    let mut hierarchy = ModelHierarchy { nodes, root_translation, ..ModelHierarchy::default() };
+    hierarchy.checksum = hierarchy.node_checksum().map_err(fail)?;
+    Ok(hierarchy)
 }
 
 /// Every node's transform relative to its parent in the rest pose: roots moved by the root

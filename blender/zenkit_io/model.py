@@ -13,8 +13,10 @@ A model's meshes come in two kinds. Soft skins, the bodies that bend with the bo
 meshes with vertex groups and an Armature modifier. Attachments are rigid meshes at a node: the
 object of a mesh node, or a mesh parented to a bone.
 
-The checksum that ties a skeleton to its meshes and animations, the root translation and each
-node's place in the file are kept, so that what is exported still fits the game's animations.
+The root translation and each node's place in the file are kept, so that what is exported still
+fits the game's animations. The checksum that ties a skeleton to its meshes and animations is not
+kept: the engine computes it from the node names, and so does exporting, so a mesh carries the
+checksum of the armature it is exported from.
 """
 
 import math
@@ -34,7 +36,6 @@ from . import convert
 from . import preferences
 from .mesh import link
 
-CHECKSUM = "zenkit_checksum"
 ROOT_TRANSLATION = "zenkit_root_translation"
 TURN = "zenkit_turn"
 INDEX = "zenkit_index"
@@ -178,7 +179,6 @@ def build_skeleton(context, name, data, scale):
         shapes[i] = (direction, max(length, 5 * scale), bone_turn(world[i], direction))
 
     armature = bpy.data.armatures.new(name)
-    armature[CHECKSUM] = str(data["checksum"])
     armature[ROOT_TRANSLATION] = list(data["root_translation"])
     obj = bpy.data.objects.new(name, armature)
     obj.show_in_front = True
@@ -302,6 +302,13 @@ def scene_nodes(armature):
     return nodes
 
 
+def armature_checksum(armature):
+    """The checksum of an armature's skeleton, as the engine computes it: the CRC-32 of the node
+    names, one after the other. Exporting gives the files the same."""
+    names = "".join(name for name, _, _, _ in scene_nodes(armature))
+    return zlib.crc32(names.encode("latin-1", "replace"))
+
+
 def rig_of_armature(armature):
     nodes = scene_nodes(armature)
     objects = {name: item for name, _, _, item in nodes if isinstance(item, bpy.types.Object)}
@@ -334,7 +341,7 @@ def meshes_rig(context, data, folder, scale):
     skeleton, or else just the names and places of the skeleton's nodes, if it can be found."""
     active = context.active_object
     if active is not None and active.type == "ARMATURE":
-        if active.data.get(CHECKSUM) == str(data["checksum"]):
+        if armature_checksum(active) == data["checksum"]:
             return rig_of_armature(active)
     skeleton = find_skeleton(data["checksum"], folder)
     if skeleton is None:
@@ -342,11 +349,33 @@ def meshes_rig(context, data, folder, scale):
     return Rig(names=[n[0] for n in skeleton["nodes"]], world=rest_world(skeleton["nodes"], scale))
 
 
-def import_model(context, path, scale):
-    """Imports a model file. Gives the model dict and the Rig its meshes were bound to."""
+def onto_armature(armature, data):
+    """A Rig putting a model's meshes on an armature that has every node of the model's
+    skeleton, or `None` if it lacks one. The weights keep naming the model's nodes, which the
+    armature has under the same names."""
+    rig = rig_of_armature(armature)
+    where = {name: i for i, name in enumerate(rig.names)}
+    names = [name for name, _, _ in data["nodes"]]
+    if any(name not in where for name in names):
+        return None
+    return Rig(armature, names, [rig.world[where[name]] for name in names], rig.objects)
+
+
+def import_model(context, path, scale, use_active=False):
+    """Imports a model file. Gives the model dict and the Rig its meshes were bound to.
+
+    A file with a skeleton gets an armature of its own, unless `use_active` is set and the active
+    armature has all of its nodes: then the meshes go onto that one, as an armor's go onto the
+    skeleton of the humans who wear it, whose checksum the game expects of the meshes.
+    """
     data = zenkit_py.read_model(str(path))
+    active = context.active_object
     if data["nodes"]:
-        rig = build_skeleton(context, path.stem, data, scale)
+        rig = None
+        if use_active and active is not None and active.type == "ARMATURE":
+            rig = onto_armature(active, data)
+        if rig is None:
+            rig = build_skeleton(context, path.stem, data, scale)
     else:
         rig = meshes_rig(context, data, path.parent, scale)
     add_meshes(context, path, data, rig, scale)
@@ -458,10 +487,6 @@ def gather_model(armature, depsgraph, scale):
         local = nodes[parent][2].inverted() @ frame if parent >= 0 else frame
         engine_nodes.append((name, parent, convert.matrix_to_engine(local, scale)))
 
-    checksum = armature.data.get(CHECKSUM)
-    if checksum is None:
-        joined = "\n".join(n[0] for n in nodes)
-        checksum = zlib.crc32(joined.encode("latin-1", "replace"))
     root = armature.data.get(ROOT_TRANSLATION)
 
     # Mesh nodes bring their meshes; slots are only places, whatever shape stands for them.
@@ -497,7 +522,6 @@ def gather_model(armature, depsgraph, scale):
     return {
         "nodes": engine_nodes,
         "root_translation": tuple(root) if root is not None else None,
-        "checksum": int(checksum),
         "soft_skins": soft_skins,
         "attachments": attachments,
     }
@@ -529,6 +553,12 @@ class ImportModel(bpy.types.Operator):
     scale: bpy.props.FloatProperty(
         name="Scale", default=0.01, min=1e-6, description="Metres per engine unit"
     )
+    use_active: bpy.props.BoolProperty(
+        name="Use Active Armature",
+        description="Put a model's meshes on the active armature if it has all of the model's "
+        "bones, as an armor's go on HUMANS, instead of making an armature of the model's own",
+        default=False,
+    )
 
     def invoke(self, context, event):
         preferences.browse_from(self, "anims")
@@ -540,7 +570,8 @@ class ImportModel(bpy.types.Operator):
             bpy.ops.object.mode_set(mode="OBJECT")
         path = Path(self.filepath)
         try:
-            data, rig = import_model(context, path, self.scale)
+            active = context.active_object
+            data, rig = import_model(context, path, self.scale, self.use_active)
         except zenkit_py.ZenKitError as error:
             self.report({"ERROR"}, str(error))
             return {"CANCELLED"}
@@ -550,6 +581,12 @@ class ImportModel(bpy.types.Operator):
             self.report(
                 {"INFO"},
                 f"Imported {path.name} on its own; make its skeleton's armature active to bind it",
+            )
+        elif data["nodes"] and self.use_active and rig.armature is not active:
+            self.report(
+                {"WARNING"},
+                f"{path.name} got an armature of its own: the active object is not an armature "
+                "with all of its bones",
             )
         else:
             self.report({"INFO"}, f"Imported {path.name}")

@@ -85,13 +85,22 @@ is found next to the file, in the models folder or in the game's archives, so th
 it later. To put a body on a skeleton, import the `.MDH`, then the `.MDM` while the armature is
 still active.
 
+The **checksum** is the CRC-32 of the skeleton's node names, one after the other. The engine
+computes it, and so does exporting, from the nodes it writes. A `.MDM` stores the checksum of the
+skeleton it was made for, and the game refuses its skinned meshes on any other ("the file's
+node-hierarchy is incompatible to 'meshAndTree'"), so a `.MDM` has to be exported from the armature
+of the skeleton that will wear it. An armor's `.MDL` has a skeleton of its own, without the slots
+and so with another checksum; to make the `.MDM` worn by humans from it, import `HUMANS.MDH`, then
+the armor's `.MDL` with **Use Active Armature** ticked, which puts its meshes on the `HUMANS`
+armature when that has all of the model's bones, and export the `.MDM` from there.
+
 The export's Format option says what to write: the whole model (`.MDL`), the skeleton alone
 (`.MDH`) or the meshes alone (`.MDM`), so one armature can go out as a `.MDL` or as a `.MDH` and
 its `.MDM`. The file name's extension follows the format, and typing one of the three into the name
 picks the format. Bones, slots and mesh nodes go out in the order the file had them,
 since animations refer to nodes by their place, and new ones after.
 
-The armature keeps the checksum and the **root translation**: an offset files keep apart from
+The armature keeps the **root translation**: an offset files keep apart from
 the root, which the engine moves the root by in the rest pose and which animations replace with
 their own. It usually holds the height of the hips, so the skeleton stands where its meshes do.
 
