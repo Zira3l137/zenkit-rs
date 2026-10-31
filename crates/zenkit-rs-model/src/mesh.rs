@@ -22,7 +22,16 @@ use zerocopy::little_endian::U32;
 
 const FORMAT: &str = "model mesh";
 
-const VERSION: u32 = 0x0403_0506;
+/// The header's version holds the version of the meshes inside it, the two bytes in the middle:
+/// `0x0403_0506` for Gothic's `0x305` meshes, `0x0409_0506` for Gothic II's `0x905` (its older
+/// files have `0x805` and `0x0408_0506`). The game refuses a file whose two disagree, and falls
+/// back to compiling the model from its source. ZenKit writes Gothic's for both.
+fn version(game: GameVersion) -> u32 {
+    match game {
+        GameVersion::Gothic1 => 0x0403_0506,
+        GameVersion::Gothic2 => 0x0409_0506,
+    }
+}
 const SKIN_VERSION: u32 = 4;
 
 const CHUNK_HEADER: u16 = 0xD000;
@@ -298,7 +307,7 @@ impl ModelMesh {
         let mesh_count = u16::try_from(self.meshes.len())
             .map_err(|_| too_many(self.meshes.len(), "soft skin meshes"))?;
 
-        w.chunk(CHUNK_HEADER, |w| w.u32(VERSION));
+        w.chunk(CHUNK_HEADER, |w| w.u32(version(game)));
         w.chunk(CHUNK_SOURCE, |w| {
             self.source_date.write(w);
             w.line(&source_path);

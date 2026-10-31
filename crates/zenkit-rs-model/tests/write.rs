@@ -96,6 +96,33 @@ fn models_round_trip() {
 }
 
 #[test]
+fn mesh_header_names_the_version_of_its_meshes() {
+    // The game refuses a file whose header and meshes disagree, and compiles the model from its
+    // source instead, which a mod does not ship.
+    let mut mesh = ModelMesh::from_bytes(&sample("smoke_waterpipe.mdm")).unwrap();
+    mesh.attachments = ModelMesh::from_bytes(&sample("secretdoor.mdm")).unwrap().attachments;
+    for (game, header, meshes) in
+        [(GameVersion::Gothic1, 0x0403_0506, 0x305), (GameVersion::Gothic2, 0x0409_0506, 0x905)]
+    {
+        let data = mesh.to_bytes(game).unwrap();
+        let (mut at, mut seen) = (0, 0);
+        while at < data.len() {
+            let (id, size) = (u16_at(&data, at), u32_at(&data, at + 2));
+            match id {
+                0xD000 => assert_eq!(u32_at(&data, at + 6), header, "{game:?}"),
+                0xB100 => {
+                    assert_eq!(u16_at(&data, at + 6), meshes, "{game:?}");
+                    seen += 1;
+                }
+                _ => {}
+            }
+            at += 6 + size;
+        }
+        assert_eq!(seen, 2, "{game:?}: a soft skin and an attachment");
+    }
+}
+
+#[test]
 fn refuses_what_does_not_fit() {
     let error = |result: zenkit_rs_core::Result<Vec<u8>>| result.unwrap_err().to_string();
 
