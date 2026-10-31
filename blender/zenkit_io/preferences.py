@@ -46,11 +46,26 @@ def detect_game(folder):
     return None
 
 
+# The archives of one folder at a time. They are memory-mapped, which on Windows keeps the files
+# from being changed until they are let go, so other folders' archives are not kept around.
+_mounted = {"folder": None, "archives": None}
+
+
+def release_archives(_preferences=None, _context=None):
+    """Lets go of the mounted archives; the next lookup mounts them again. Called when the
+    preferences that pick them change."""
+    _mounted["folder"] = None
+    _mounted["archives"] = None
+
+
 class Preferences(bpy.types.AddonPreferences):
     bl_idname = __package__
 
     game_folder: bpy.props.StringProperty(
-        name="Game Folder", subtype="DIR_PATH", description="Where Gothic or Gothic II is installed"
+        name="Game Folder",
+        subtype="DIR_PATH",
+        description="Where Gothic or Gothic II is installed",
+        update=release_archives,
     )
     game: bpy.props.EnumProperty(
         name="Game",
@@ -66,15 +81,18 @@ class Preferences(bpy.types.AddonPreferences):
         name="Search the Archives",
         description="Look for textures in the game's .VDF archives when they are not loose files",
         default=True,
+        update=release_archives,
     )
     use_custom: bpy.props.BoolProperty(
-        name="Custom Folders", description="Pick every folder instead of working them out"
+        name="Custom Folders",
+        description="Pick every folder instead of working them out",
+        update=release_archives,
     )
     textures: bpy.props.StringProperty(name="Textures", subtype="DIR_PATH")
     meshes: bpy.props.StringProperty(name="Meshes", subtype="DIR_PATH")
     anims: bpy.props.StringProperty(name="Models", subtype="DIR_PATH")
     worlds: bpy.props.StringProperty(name="Worlds", subtype="DIR_PATH")
-    archives: bpy.props.StringProperty(name="Archives", subtype="DIR_PATH")
+    archives: bpy.props.StringProperty(name="Archives", subtype="DIR_PATH", update=release_archives)
 
     def draw(self, context):
         layout = self.layout
@@ -137,23 +155,21 @@ def game_version():
     return get().game_version() or "G2"
 
 
-_archives = {}
-
-
 def archives():
-    """The game's archives, mounted once per folder, or `None` if they are not to be searched."""
+    """The game's archives, mounted once, or `None` if they are not to be searched."""
     prefs = get()
     data = prefs.folder("archives") if prefs.use_archives else None
-    if data is None:
-        return None
-    key = str(data)
-    if key not in _archives:
-        paths = sorted(str(p) for p in data.iterdir() if p.suffix.lower() == ".vdf")
-        try:
-            _archives[key] = zenkit_py.Archives(paths)
-        except zenkit_py.ZenKitError:
-            _archives[key] = None
-    return _archives[key]
+    folder = str(data) if data is not None else None
+    if folder != _mounted["folder"]:
+        release_archives()
+        _mounted["folder"] = folder
+        if data is not None:
+            paths = sorted(str(p) for p in data.iterdir() if p.suffix.lower() == ".vdf")
+            try:
+                _mounted["archives"] = zenkit_py.Archives(paths)
+            except zenkit_py.ZenKitError:
+                _mounted["archives"] = None
+    return _mounted["archives"]
 
 
 def browse_from(operator, key):

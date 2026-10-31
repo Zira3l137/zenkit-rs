@@ -22,6 +22,8 @@ zenkit = { package = "zenkit-rs", path = "../crates/zenkit-rs", default-features
     "mrm",
     "model",
     "parallel",
+    # The game's archives are mapped rather than read whole: only what is looked up is loaded.
+    "mmap",
 ] }
 
 # Built on its own with maturin, outside the library's workspace.
