@@ -122,7 +122,22 @@ class AnimationSettings(bpy.types.PropertyGroup):
         return (self.name or action.name).upper()
 
 
+def morph_renamed(settings, context):
+    from . import morph
+
+    if settings.keys_name and settings.keys_name != settings.name:
+        morph.rename(settings.id_data, settings, settings.keys_name)
+    settings.keys_name = settings.name
+
+
 class MorphAnimation(bpy.types.PropertyGroup):
+    name: bpy.props.StringProperty(
+        name="Name",
+        description="The animation's name, which its shape keys are named after",
+        update=morph_renamed,
+    )
+    # The name its shape keys have, to rename them when the animation is.
+    keys_name: bpy.props.StringProperty(options={"HIDDEN"})
     layer: bpy.props.IntProperty(
         name="Layer",
         description="Animations on different layers play at once",
@@ -151,17 +166,25 @@ class MorphAnimation(bpy.types.PropertyGroup):
     blend_out: bpy.props.FloatProperty(name="Blend Out", default=-0.01, precision=3)
     # The flags beside Repeat, which the files carry and nothing is known to read.
     other_flags: bpy.props.IntProperty(options={"HIDDEN"})
+    # The action playing the animation on the shape keys, to watch it.
+    action: bpy.props.PointerProperty(type=bpy.types.Action, options={"HIDDEN"})
+
+
+def show_morph_animation(settings, context):
+    from . import morph
+
+    morph.show(context, context.object)
 
 
 def show_morph_frame(settings, context):
     from . import morph
 
-    morph.preview(context.object)
+    morph.show_frame(context, context.object)
 
 
 class MorphSettings(bpy.types.PropertyGroup):
     animations: bpy.props.CollectionProperty(type=MorphAnimation)
-    index: bpy.props.IntProperty(update=show_morph_frame)
+    index: bpy.props.IntProperty(update=show_morph_animation)
     frame: bpy.props.IntProperty(
         name="Frame",
         description="The frame of the selected animation the mesh shows",

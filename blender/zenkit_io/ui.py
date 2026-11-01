@@ -37,6 +37,17 @@ def selected_action(armature):
     return action if action is not None and action.zenkit.model.upper() == model else None
 
 
+def draw_export_settings(layout, scene):
+    """Where exports go, for which game and at which scale."""
+    layout.prop(scene, "folder")
+    if not scene.folder:
+        folder = scene.export_folder()
+        layout.label(text=f"To {folder}" if folder else "No folder set", icon="FILE_FOLDER")
+    row = layout.row(align=True)
+    row.prop(scene, "game", text="")
+    row.prop(scene, "scale")
+
+
 class ZENKIT_UL_animations(bpy.types.UIList):
     """The actions of the armature's model."""
 
@@ -155,13 +166,7 @@ class ZENKIT_PT_export(Sidebar, bpy.types.Panel):
         scene = context.scene.zenkit
         layout = self.layout
 
-        layout.prop(scene, "folder")
-        if not scene.folder:
-            folder = scene.export_folder()
-            layout.label(text=f"To {folder}" if folder else "No folder set", icon="FILE_FOLDER")
-        row = layout.row(align=True)
-        row.prop(scene, "game", text="")
-        row.prop(scene, "scale")
+        draw_export_settings(layout, scene)
 
         files = export.plan(armature)
         box = layout.box()
@@ -230,7 +235,9 @@ class ZENKIT_PT_morph(Sidebar, bpy.types.Panel):
         others = [name for name in morph.animation_keys(obj) if name not in known]
         if others:
             layout.label(text=f"Shape keys of no animation: {', '.join(others)}", icon="INFO")
-        layout.operator("zenkit.export_morph", icon="EXPORT", text=f"Export {obj.name.upper()}.MMB")
+        box = layout.box()
+        draw_export_settings(box, context.scene.zenkit)
+        box.operator("zenkit.export_morph", icon="EXPORT", text=f"Export {obj.name.upper()}.MMB")
 
 
 class ZENKIT_OT_new_script(bpy.types.Operator):

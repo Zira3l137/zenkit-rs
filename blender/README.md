@@ -154,9 +154,10 @@ and for which game, lists the files the model will go out as, and writes the tic
   its `ani` and new animations added, while the rest of it, events included, stays as written;
 - the **animations**, one `.MAN` each.
 
-**Morph Mesh**, when a mesh is selected: its morph animations, each a run of shape keys. Selecting
-one, and a frame of it with the Frame slider, shows that frame and makes its shape key the active
-one, so Edit Mode edits it. **+** adds an animation of one frame, the key button adds a frame (a
+**Morph Mesh**, when a mesh is selected: its morph animations, each a run of shape keys with an
+action that plays it. Selecting one plays its action on the shape keys and sets the scene's frames
+and frame rate to the animation's, as the game shows it; the Frame slider goes to one of its
+frames and makes that frame's shape key the active one, so Edit Mode edits it. **+** adds an animation of one frame, the key button adds a frame (a
 copy of the last), and **-** deletes one with its shape keys. Its settings:
 
 | Setting       | What it does in the game                                                        |
@@ -167,7 +168,8 @@ copy of the last), and **-** deletes one with its shape keys. Its settings:
 | Repeat        | Plays the frames at the frame rate over and over, rather than once spread over the duration |
 | Blend In/Out  | As the game's files have them                                                   |
 
-The button below writes the mesh as `<NAME>.MMB` into the export folder.
+Renaming an animation renames its shape keys and action. Below them are the same export folder,
+game and scale as the model's Export panel, and the button that writes the mesh as `<NAME>.MMB`.
 
 ## Animations
 
@@ -193,9 +195,9 @@ A morph mesh is a mesh whose vertices animations move, like a talking face or a 
 Each frame of an animation becomes a shape key, named after the animation when it has one frame
 (`S_NORMAL`) or followed by the frame's number when it has more (`S_SHOOT 0`, `S_SHOOT 1`…). The
 keys start at 0. Each animation also gets an action, `<MESH> <ANIMATION>`, that plays it on the
-keys, one scene frame per animation frame, to watch it; the first is assigned, and the others are
-picked in the Shape Key Editor. Exporting reads the keys, not these actions. Exporting does the reverse, whatever the keys'
-values are. Each animation's settings are in the Morph Mesh panel; which vertices it moves is kept
+keys, one scene frame per animation frame, each key at 1 on its frame, to watch it; the first is
+assigned, and the panel plays the others. Exporting does the reverse of importing, from the keys
+alone, whatever their values or the actions are. Each animation's settings are in the Morph Mesh panel; which vertices it moves is kept
 too, so that ones it lists but leaves where they are stay in it. Vertices moved in Blender join
 their animation, and shape keys named like an animation the panel does not list export as a new
 one, with settings like the game's: a single frame holds its shape until stopped, more frames play

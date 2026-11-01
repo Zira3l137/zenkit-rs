@@ -3,8 +3,8 @@
 A morph mesh is a multi-resolution mesh whose vertices animations move, like a face that talks or
 a flag in the wind. Each frame of an animation moves some vertices away from where the mesh has
 them, and becomes a shape key: named after the animation when it has one frame, followed by the
-frame's number when it has more (`S_SHOOT 0`, `S_SHOOT 1`…). The keys start at 0, so the mesh
-shows its rest shape; `preview` shows one frame.
+frame's number when it has more (`S_SHOOT 0`, `S_SHOOT 1`…). Each animation also has an action
+that plays it on the keys, to watch it; `show` plays the one selected in the panel.
 
 What the engine needs besides the shapes is kept per animation in the mesh's settings
 (`Mesh.zenkit_morph`): its layer, frame rate, how long it plays and blending. Which vertices it
@@ -81,36 +81,98 @@ def build_morph(name, data, scale, folders):
     return obj
 
 
-def add_previews(obj):
-    """An action per animation that plays it on the shape keys, one frame of the scene per frame
-    of the animation, each key at 1 on its frame and 0 on the others, blending linearly between,
-    and every other animation's keys at 0, to watch it. The first is assigned; exporting reads the keys, not these."""
+def build_preview(obj, settings):
+    """Makes the action that plays an animation on the shape keys, to watch it: one scene frame
+    per frame of the animation, each of its keys at 1 on its frame and 0 on the others, blending
+    linearly between, and every other animation's keys at 0, so that switching actions never
+    mixes two. Replaces the one it had. Exporting reads the keys, not these."""
     keys = obj.data.shape_keys
+    frames = animation_keys(obj).get(settings.name, [])
+    if settings.action is not None:
+        bpy.data.actions.remove(settings.action)
+    action = bpy.data.actions.new(f"{obj.name} {settings.name}")
+    action.use_fake_user = True
+    settings.action = action
+    keys.animation_data_create().action = action
     edit = bpy.context.preferences.edit
     interpolation = edit.keyframe_new_interpolation_type
     edit.keyframe_new_interpolation_type = "LINEAR"
     try:
-        actions = []
-        for name, frames in animation_keys(obj).items():
-            action = bpy.data.actions.new(f"{obj.name} {name}")
-            action.use_fake_user = True
-            keys.animation_data_create().action = action
-            # Other animations' keys are held at 0, or switching actions would leave them showing.
-            for key in keys.key_blocks:
-                if key != keys.reference_key and key not in frames:
-                    key.value = 0.0
-                    key.keyframe_insert("value", frame=0)
-            for frame in range(len(frames)):
-                for i, key in enumerate(frames):
-                    key.value = 1.0 if i == frame else 0.0
-                    key.keyframe_insert("value", frame=frame)
-            actions.append(action)
+        for key in keys.key_blocks:
+            if key != keys.reference_key and key not in frames:
+                key.value = 0.0
+                key.keyframe_insert("value", frame=0)
+        for frame in range(len(frames)):
+            for i, key in enumerate(frames):
+                key.value = 1.0 if i == frame else 0.0
+                key.keyframe_insert("value", frame=frame)
     finally:
         edit.keyframe_new_interpolation_type = interpolation
     for key in keys.key_blocks:
         if key != keys.reference_key:
             key.value = 0.0
-    keys.animation_data.action = actions[0] if actions else None
+
+
+def add_previews(obj):
+    """Makes the action of every animation, and assigns the first."""
+    animations = obj.data.zenkit_morph.animations
+    for settings in animations:
+        build_preview(obj, settings)
+    if obj.data.shape_keys is not None:
+        first = animations[0].action if len(animations) else None
+        obj.data.shape_keys.animation_data_create().action = first
+
+
+def playback_fps(settings, frames):
+    """How many frames a second the game shows the animation at: its frame rate when it repeats
+    or plays until stopped, its frames spread over its duration otherwise."""
+    if settings.repeat or settings.until_stopped or settings.duration <= 0:
+        return settings.fps
+    return max(frames / settings.duration, 0.01)
+
+
+def show(context, obj):
+    """Plays the selected animation's action on the shape keys, with the scene's frames and frame
+    rate set to the animation's, at the selected frame."""
+    selected = active_animation(obj) if obj is not None and obj.type == "MESH" else None
+    if selected is None or obj.data.shape_keys is None:
+        return
+    frames = len(animation_keys(obj).get(selected.name, []))
+    if selected.action is None:
+        build_preview(obj, selected)
+    obj.data.shape_keys.animation_data_create().action = selected.action
+    scene = context.scene
+    scene.frame_start, scene.frame_end = 0, max(frames - 1, 0)
+    fps = playback_fps(selected, max(frames, 1))
+    scene.render.fps = max(round(fps), 1)
+    scene.render.fps_base = scene.render.fps / fps
+    show_frame(context, obj)
+
+
+def show_frame(context, obj):
+    """Goes to the selected frame of the selected animation, and makes its shape key the active
+    one, the one Edit Mode edits."""
+    selected = active_animation(obj) if obj is not None and obj.type == "MESH" else None
+    if selected is None:
+        return
+    frames = animation_keys(obj).get(selected.name, [])
+    if not frames:
+        return
+    frame = min(obj.data.zenkit_morph.frame, len(frames) - 1)
+    context.scene.frame_set(frame)
+    obj.active_shape_key_index = obj.data.shape_keys.key_blocks.find(frames[frame].name)
+
+
+def rename(mesh, settings, old):
+    """Renames an animation's shape keys and action after the animation was renamed from `old`."""
+    for key in mesh.shape_keys.key_blocks if mesh.shape_keys else []:
+        match = FRAME_NAME.match(key.name)
+        if key.name == old:
+            key.name = settings.name
+        elif match and match[1] == old:
+            key.name = f"{settings.name} {match[2]}"
+    if settings.action is not None:
+        settings.action.name = settings.action.name.removesuffix(old) + settings.name
 
 
 def animation_keys(obj):
@@ -139,22 +201,6 @@ def active_animation(obj):
     return morph.animations[morph.index] if 0 <= morph.index < len(morph.animations) else None
 
 
-def preview(obj):
-    """Shows the selected frame of the selected animation, and makes its shape key the active
-    one, the one edit mode edits; every other key goes to 0."""
-    keys = obj.data.shape_keys if obj is not None and obj.type == "MESH" else None
-    selected = active_animation(obj) if keys is not None else None
-    if selected is None:
-        return
-    frames = animation_keys(obj).get(selected.name, [])
-    shown = frames[min(obj.data.zenkit_morph.frame, len(frames) - 1)] if frames else None
-    for key in keys.key_blocks:
-        if key != keys.reference_key:
-            key.value = 1.0 if key == shown else 0.0
-    if shown is not None:
-        obj.active_shape_key_index = keys.key_blocks.find(shown.name)
-
-
 def new_animation(obj, name):
     """Adds a single-frame animation, with a shape key in the mesh's rest shape, and selects it."""
     if obj.data.shape_keys is None:
@@ -163,6 +209,7 @@ def new_animation(obj, name):
     settings = obj.data.zenkit_morph.animations.add()
     settings.name = name
     default_settings(settings, 1)
+    build_preview(obj, settings)
     obj.data.zenkit_morph.index = len(obj.data.zenkit_morph.animations) - 1
 
 
@@ -178,7 +225,9 @@ def add_frame(obj):
         co = np.empty(len(obj.data.vertices) * 3, np.float32)
         frames[-1].data.foreach_get("co", co)
         key.data.foreach_set("co", co)
+    build_preview(obj, selected)
     obj.data.zenkit_morph.frame = len(frames)
+    show(bpy.context, obj)
 
 
 def remove_animation(obj):
@@ -187,6 +236,8 @@ def remove_animation(obj):
     selected = active_animation(obj)
     for key in animation_keys(obj).get(selected.name, []):
         obj.shape_key_remove(key)
+    if selected.action is not None:
+        bpy.data.actions.remove(selected.action)
     morph.animations.remove(morph.index)
     morph.index = min(morph.index, len(morph.animations) - 1)
 

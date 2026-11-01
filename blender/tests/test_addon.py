@@ -723,6 +723,23 @@ assert blink["frame_count"] == 2 and list(np.frombuffer(blink["vertices"], "<u4"
 assert np.isclose(blink["speed"], 0.025) and blink["duration"] == -1000.0
 # The wobble's keys had no settings; exporting gave them some, which the panel now shows.
 assert "T_WOBBLE" in bow.data.zenkit_morph.animations
+# The new animation has an action of its own, which the panel plays: frames 0 and 1.
+assert bow.data.shape_keys.animation_data.action.name == "ITRWSMALLBOW T_BLINK"
+assert (bpy.context.scene.frame_start, bpy.context.scene.frame_end) == (0, 1)
+
+# Selecting an animation in the list plays its action over its frames, at the rate the game
+# shows them: S_SHOOT's 10 frames spread over 0.4 s are 25 a second.
+morph_settings = bow.data.zenkit_morph
+morph_settings.index = morph_settings.animations.find("S_SHOOT")
+assert bow.data.shape_keys.animation_data.action.name == "ITRWSMALLBOW S_SHOOT"
+assert (bpy.context.scene.frame_start, bpy.context.scene.frame_end) == (0, 9)
+scene_fps = bpy.context.scene.render.fps / bpy.context.scene.render.fps_base
+assert np.isclose(scene_fps, 25.0)
+# Renaming an animation renames its shape keys and action.
+morph_settings.animations["T_BLINK"].name = "T_WINK"
+wink_keys = [k.name for k in bow.data.shape_keys.key_blocks if k.name.startswith("T_W")]
+assert wink_keys[-2:] == ["T_WINK 0", "T_WINK 1"]
+assert "ITRWSMALLBOW T_WINK" in bpy.data.actions
 print("morph ok")
 
 # Model scripts: the skeleton, its registered mesh and the animations a script names, found next
