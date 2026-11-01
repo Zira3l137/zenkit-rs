@@ -286,11 +286,14 @@ impl<'a> Parser<'a> {
         self.number().map(Some)
     }
 
-    fn flags(&mut self) -> Result<AnimationFlags> {
-        let t = self.expect(Kind::Keyword)?;
-        // Some scripts write `M:` where `M.` is meant.
-        self.maybe(Kind::Colon);
-        Ok(AnimationFlags::parse(&string(t)))
+    /// The flags and their text as written. Some scripts write `M:` where `M.` is meant; the
+    /// colon is kept with the text, as compiled scripts keep it.
+    fn flags(&mut self) -> Result<(AnimationFlags, String)> {
+        let mut text = string(self.expect(Kind::Keyword)?);
+        if self.maybe(Kind::Colon).is_some() {
+            text.push(':');
+        }
+        Ok((AnimationFlags::parse(&text), text))
     }
 
     /// Whether the next token closes the current block, consuming it. The end of the file closes
@@ -371,10 +374,12 @@ impl<'a> Parser<'a> {
             next: self.string()?,
             blend_in: self.number()?,
             blend_out: self.number()?,
-            flags: self.flags()?,
+            flags: AnimationFlags::empty(),
+            flags_text: self.flags()?.1,
             model: self.string()?,
             ..Animation::default()
         };
+        ani.flags = AnimationFlags::parse(&ani.flags_text);
 
         let t = self.expect(Kind::Keyword)?;
         if !is(t, "F") && !is(t, "R") {
@@ -539,7 +544,8 @@ impl<'a> Parser<'a> {
             next: self.string()?,
             blend_in: self.number()?,
             blend_out: self.number()?,
-            flags: self.flags()?,
+            flags: AnimationFlags::empty(),
+            flags_text: self.flags()?.1,
             alias: self.string()?,
             direction: if self.maybe_keyword("R") {
                 Direction::Backward
@@ -549,6 +555,7 @@ impl<'a> Parser<'a> {
             },
             events: Vec::new(),
         };
+        alias.flags = AnimationFlags::parse(&alias.flags_text);
         alias.events = self.events()?;
         Ok(alias)
     }
@@ -560,11 +567,13 @@ impl<'a> Parser<'a> {
             next: self.string()?,
             blend_in: self.number()?,
             blend_out: self.number()?,
-            flags: self.flags()?,
+            flags: AnimationFlags::empty(),
+            flags_text: self.flags()?.1,
             model: self.string()?,
             last_frame: self.int()?,
             events: Vec::new(),
         };
+        comb.flags = AnimationFlags::parse(&comb.flags_text);
         comb.events = self.events()?;
         Ok(comb)
     }
@@ -677,7 +686,7 @@ impl Source {
                     self.checked(&a.next),
                     self.float(a.blend_in),
                     self.float(a.blend_out),
-                    a.flags.to_text(),
+                    a.flags.spelled(&a.flags_text),
                     self.checked(&a.model),
                     a.direction.to_text(),
                     a.first_frame,
@@ -701,7 +710,7 @@ impl Source {
                 self.checked(&a.next),
                 self.float(a.blend_in),
                 self.float(a.blend_out),
-                a.flags.to_text(),
+                a.flags.spelled(&a.flags_text),
                 self.checked(&a.alias),
                 a.direction.to_text(),
             ),
@@ -719,7 +728,7 @@ impl Source {
                 self.checked(&c.next),
                 self.float(c.blend_in),
                 self.float(c.blend_out),
-                c.flags.to_text(),
+                c.flags.spelled(&c.flags_text),
                 self.checked(&c.model),
                 c.last_frame,
             ),

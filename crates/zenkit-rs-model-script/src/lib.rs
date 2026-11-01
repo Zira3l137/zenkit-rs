@@ -50,8 +50,8 @@ impl AnimationFlags {
         (b'P', Self::IN_PLACE),
     ];
 
-    /// The flags as scripts write them, as in the game's compiled scripts: a lone flag is
-    /// followed by a dot, like `M.`, and no flags at all are a single dot.
+    /// The flags in the spelling most of the game's scripts use: a lone flag followed by a dot,
+    /// like `M.`, no flags at all a single dot, and several flags their letters, like `MI`.
     fn to_text(self) -> String {
         let mut text: String = (Self::LETTERS.iter())
             .filter(|(_, flag)| self.contains(*flag))
@@ -61,6 +61,18 @@ impl AnimationFlags {
             text.push('.');
         }
         text
+    }
+
+    /// `text` if it is a spelling of these flags that scripts can hold, like `M`, `..` or `M:`,
+    /// all of which the game's scripts use; otherwise [`to_text`](Self::to_text).
+    fn spelled(self, text: &str) -> String {
+        let letters = text.strip_suffix(':').unwrap_or(text);
+        let valid = !letters.is_empty()
+            && letters.bytes().all(|c| {
+                c == b'.' || Self::LETTERS.iter().any(|(l, _)| *l == c.to_ascii_uppercase())
+            })
+            && Self::parse(text) == self;
+        if valid { text.to_owned() } else { self.to_text() }
     }
 
     /// Parses the letters of a flags field like `MI` or `M.`. Any other character, usually `.`
@@ -320,6 +332,10 @@ pub struct Animation {
     pub blend_in: f32,
     pub blend_out: f32,
     pub flags: AnimationFlags,
+    /// The flags as written, which scripts spell in several ways, like `M`, `M.` or `M:`. It is
+    /// written back while it still spells [`flags`](Self::flags); otherwise `flags` are written
+    /// in the spelling most scripts use.
+    pub flags_text: String,
     /// The source file of the animation's frames.
     pub model: String,
     pub direction: Direction,
@@ -342,6 +358,10 @@ pub struct AnimationAlias {
     pub blend_in: f32,
     pub blend_out: f32,
     pub flags: AnimationFlags,
+    /// The flags as written, which scripts spell in several ways, like `M`, `M.` or `M:`. It is
+    /// written back while it still spells [`flags`](Self::flags); otherwise `flags` are written
+    /// in the spelling most scripts use.
+    pub flags_text: String,
     /// The animation this one plays.
     pub alias: String,
     pub direction: Direction,
@@ -367,6 +387,10 @@ pub struct AnimationCombination {
     pub blend_in: f32,
     pub blend_out: f32,
     pub flags: AnimationFlags,
+    /// The flags as written, which scripts spell in several ways, like `M`, `M.` or `M:`. It is
+    /// written back while it still spells [`flags`](Self::flags); otherwise `flags` are written
+    /// in the spelling most scripts use.
+    pub flags_text: String,
     /// The common prefix of the animations being mixed.
     pub model: String,
     pub last_frame: i32,
@@ -528,6 +552,18 @@ mod tests {
             assert_eq!(flags.to_text(), text);
             assert_eq!(F::parse(text), flags);
         }
+    }
+
+    #[test]
+    fn flags_keep_their_spelling_while_it_fits() {
+        use AnimationFlags as F;
+        for text in ["M", "M.", "M:", "..", "mi", "IM"] {
+            assert_eq!(F::parse(text).spelled(text), text);
+        }
+        assert_eq!(F::MOVE.spelled(""), "M.");
+        assert_eq!(F::MOVE.spelled("MI"), "M.", "a spelling of other flags");
+        assert_eq!(F::MOVE.spelled("M X"), "M.", "not one keyword");
+        assert_eq!(F::empty().spelled(":"), ".");
     }
 
     #[test]

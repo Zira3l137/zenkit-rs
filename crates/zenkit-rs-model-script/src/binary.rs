@@ -86,6 +86,17 @@ fn tag(c: &mut Reader) -> Result<EventTag> {
 
 // The struct literals below read their fields straight from the chunk. Rust evaluates a struct
 // literal's fields in the order they are written, so that order is the file's.
+/// Sets a statement's flags from their text, which the struct literals read in file order.
+fn parse_flags(mut statement: Statement) -> Statement {
+    match &mut statement {
+        Statement::Animation(a) => a.flags = AnimationFlags::parse(&a.flags_text),
+        Statement::Alias(a) => a.flags = AnimationFlags::parse(&a.flags_text),
+        Statement::Combination(c) => c.flags = AnimationFlags::parse(&c.flags_text),
+        _ => {}
+    }
+    statement
+}
+
 pub(super) fn read(data: &[u8]) -> Result<ModelScript> {
     let mut script = ModelScript::default();
     let mut r = Reader::new(data);
@@ -127,7 +138,7 @@ pub(super) fn read(data: &[u8]) -> Result<ModelScript> {
             }
             id => {
                 in_events = false;
-                script.statements.push(read_statement(id, c)?);
+                script.statements.push(parse_flags(read_statement(id, c)?));
             }
         }
     }
@@ -143,7 +154,8 @@ fn read_statement(id: u16, c: &mut Reader) -> Result<Statement> {
             next: string(c),
             blend_in: c.f32()?,
             blend_out: c.f32()?,
-            flags: AnimationFlags::parse(&string(c)),
+            flags: AnimationFlags::empty(),
+            flags_text: string(c),
             model: string(c),
             direction: Direction::parse(&string(c)),
             first_frame: c.i32()?,
@@ -159,7 +171,8 @@ fn read_statement(id: u16, c: &mut Reader) -> Result<Statement> {
             next: string(c),
             blend_in: c.f32()?,
             blend_out: c.f32()?,
-            flags: AnimationFlags::parse(&string(c)),
+            flags: AnimationFlags::empty(),
+            flags_text: string(c),
             alias: string(c),
             direction: Direction::parse(&string(c)),
             events: Vec::new(),
@@ -177,7 +190,8 @@ fn read_statement(id: u16, c: &mut Reader) -> Result<Statement> {
             next: string(c),
             blend_in: c.f32()?,
             blend_out: c.f32()?,
-            flags: AnimationFlags::parse(&string(c)),
+            flags: AnimationFlags::empty(),
+            flags_text: string(c),
             model: string(c),
             last_frame: c.i32()?,
             events: Vec::new(),
@@ -207,7 +221,8 @@ fn read_event(id: u16, c: &mut Reader) -> Result<Event> {
             index: c.i32()?,
             name: string(c),
             position: string(c),
-            attached: c.u32()? != 0,
+            // A float, like the sound flag.
+            attached: c.f32()? != 0.0,
         }),
         CHUNK_EVENT_PFX_STOP => {
             Event::ParticleStop(ParticleEffectStop { frame: c.i32()?, index: c.i32()? })
@@ -323,7 +338,7 @@ fn write_statement(w: &mut Out, statement: &Statement) {
             w.line(&a.next);
             w.w.f32(a.blend_in);
             w.w.f32(a.blend_out);
-            w.line(&a.flags.to_text());
+            w.line(&a.flags.spelled(&a.flags_text));
             w.line(&a.model);
             w.line(a.direction.to_text());
             w.w.i32(a.first_frame);
@@ -338,7 +353,7 @@ fn write_statement(w: &mut Out, statement: &Statement) {
             w.line(&a.next);
             w.w.f32(a.blend_in);
             w.w.f32(a.blend_out);
-            w.line(&a.flags.to_text());
+            w.line(&a.flags.spelled(&a.flags_text));
             w.line(&a.alias);
             w.line(a.direction.to_text());
         }),
@@ -354,7 +369,7 @@ fn write_statement(w: &mut Out, statement: &Statement) {
             w.line(&c.next);
             w.w.f32(c.blend_in);
             w.w.f32(c.blend_out);
-            w.line(&c.flags.to_text());
+            w.line(&c.flags.spelled(&c.flags_text));
             w.line(&c.model);
             w.w.i32(c.last_frame);
         }),
@@ -380,7 +395,7 @@ fn write_event(w: &mut Out, event: &Event) {
             w.w.i32(p.index);
             w.line(&p.name);
             w.line(&p.position);
-            w.w.u32(p.attached.into());
+            w.w.f32(if p.attached { 1.0 } else { 0.0 });
         }),
         Event::ParticleStop(p) => w.chunk(CHUNK_EVENT_PFX_STOP, |w| {
             w.w.i32(p.frame);

@@ -424,6 +424,8 @@ fn source_scripts_write_back_what_they_read() {
     let mut morph = ModelScript { name: "HEAD".into(), ..ModelScript::default() };
     morph.statements.push(Statement::Animation(Animation {
         name: "T_HURT".into(),
+        // What a script built in code without it reads back with: the spelling it was written in.
+        flags_text: ".".into(),
         fps: 10.0,
         speed: 0.5,
         collision_volume_scale: 1.0,
@@ -458,4 +460,28 @@ fn scripts_without_a_source_form_fail() {
         .statements
         .push(Statement::Blend(AnimationBlend { blend_in: f32::NAN, ..AnimationBlend::default() }));
     assert!(script.to_mds().unwrap_err().to_string().contains("not a number"));
+}
+
+#[test]
+fn flags_and_particles_are_written_as_the_game_spells_them() {
+    let mut script = ModelScript::from_bytes(&sample("waran.msb")).unwrap();
+    for text in ["M", "M:", "M."] {
+        let Statement::Animation(ani) = &mut script.statements[1] else { panic!() };
+        ani.flags_text = text.into();
+        ani.events = vec![Event::Particle(ParticleEffect {
+            frame: 1,
+            name: "FIRE".into(),
+            position: "BIP01".into(),
+            attached: true,
+            ..ParticleEffect::default()
+        })];
+        let compiled = script.to_msb().unwrap();
+        let flags = [text.as_bytes(), b"\nWARAN_RUN_KM01.ASC"].concat();
+        assert!(compiled.windows(flags.len()).any(|w| w == flags), "{text}");
+        assert!(compiled.windows(10).any(|w| w == b"BIP01\n\x00\x00\x80?"), "attached is 1.0");
+        let back = ModelScript::from_bytes(&compiled).unwrap();
+        assert_eq!(back.statements[1], script.statements[1]);
+        let back = ModelScript::from_bytes(&script.to_mds().unwrap()).unwrap();
+        assert_eq!(back.statements[1], script.statements[1], "{text}");
+    }
 }
