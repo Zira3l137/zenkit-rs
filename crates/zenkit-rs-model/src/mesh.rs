@@ -295,9 +295,9 @@ impl ModelMesh {
     /// The engine only writes the list of attachments when there are some, and the soft skin
     /// meshes along with the checksum when there are some or the checksum is set.
     pub(crate) fn write(&self, w: &mut Writer, game: GameVersion) -> Result<()> {
-        let source_path = crate::line(FORMAT, &self.source_path)?;
+        let source_path = text::to_line(FORMAT, &self.source_path)?;
         let names = (self.attachments.iter())
-            .map(|a| crate::line(FORMAT, &a.node))
+            .map(|a| text::to_line(FORMAT, &a.node))
             .collect::<Result<Vec<_>>>()?;
         let too_many = |count: usize, what: &str| {
             Error::unwritable(FORMAT, format!("{count} {what}, at most 65535 fit"))

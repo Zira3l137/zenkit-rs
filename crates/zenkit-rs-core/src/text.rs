@@ -16,6 +16,18 @@ pub fn to_latin1(text: &str) -> Option<Vec<u8>> {
     text.chars().map(|c| u8::try_from(c).ok()).collect()
 }
 
+/// Encodes text for a writer that stores it as a line: Latin-1, ending at the first line break
+/// or null byte, which the text so cannot contain. `format` names the file format in the error.
+pub fn to_line(format: &'static str, text: &str) -> crate::Result<Vec<u8>> {
+    let bytes = to_latin1(text).ok_or_else(|| {
+        crate::Error::unwritable(format, format!("{text:?} has characters beyond Latin-1"))
+    })?;
+    if bytes.iter().any(|b| matches!(b, 0 | b'\r' | b'\n')) {
+        return Err(crate::Error::unwritable(format, format!("{text:?} has a line break")));
+    }
+    Ok(bytes)
+}
+
 /// Parses an integer like C's `strtol`: leading whitespace is skipped and parsing stops at the
 /// first character that cannot continue the number, so `"12]"` is 12.
 pub fn int(s: &[u8]) -> Option<i64> {

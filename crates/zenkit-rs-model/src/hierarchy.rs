@@ -105,7 +105,7 @@ impl ModelHierarchy {
     pub fn node_checksum(&self) -> Result<u32> {
         let mut crc = crc32fast::Hasher::new();
         for node in &self.nodes {
-            crc.update(&crate::line(FORMAT, &node.name)?);
+            crc.update(&text::to_line(FORMAT, &node.name)?);
         }
         Ok(crc.finalize())
     }
@@ -131,9 +131,9 @@ impl ModelHierarchy {
                     Error::unwritable(FORMAT, reason)
                 })?,
             };
-            nodes.push((crate::line(FORMAT, &node.name)?, parent, node.transform));
+            nodes.push((text::to_line(FORMAT, &node.name)?, parent, node.transform));
         }
-        let source_path = crate::line(FORMAT, &self.source_path)?;
+        let source_path = text::to_line(FORMAT, &self.source_path)?;
 
         w.chunk(CHUNK_HIERARCHY, |w| {
             w.u32(VERSION);

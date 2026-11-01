@@ -11,13 +11,11 @@ mod hierarchy;
 mod mesh;
 
 use zenkit_rs_core::Asset;
-use zenkit_rs_core::Error;
 use zenkit_rs_core::GameVersion;
 use zenkit_rs_core::Result;
 use zenkit_rs_core::ResultExt;
 use zenkit_rs_core::io::Reader;
 use zenkit_rs_core::io::Writer;
-use zenkit_rs_core::text;
 
 pub use hierarchy::HierarchyNode;
 pub use hierarchy::ModelHierarchy;
@@ -50,17 +48,6 @@ impl Model {
         self.mesh.write(&mut w, game).context(|| "meshes")?;
         Ok(w.into_inner())
     }
-}
-
-/// Text stored as a line: Latin-1, ending at the first line break or null byte.
-fn line(format: &'static str, text: &str) -> Result<Vec<u8>> {
-    let bytes = text::to_latin1(text).ok_or_else(|| {
-        Error::unwritable(format, format!("{text:?} has characters beyond Latin-1"))
-    })?;
-    if bytes.iter().any(|b| matches!(b, 0 | b'\r' | b'\n')) {
-        return Err(Error::unwritable(format, format!("{text:?} has a line break")));
-    }
-    Ok(bytes)
 }
 
 impl Asset for Model {
