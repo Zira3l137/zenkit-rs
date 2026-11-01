@@ -16,6 +16,7 @@ import zenkit_py
 from . import animation
 from . import export
 from . import morph
+from . import scripttext
 from .model import armature_checksum
 from .model import armature_of
 
@@ -46,6 +47,22 @@ def draw_export_settings(layout, scene):
     row = layout.row(align=True)
     row.prop(scene, "game", text="")
     row.prop(scene, "scale")
+
+
+def draw_storage(layout, armature, action):
+    """Where the settings below are kept: the script's line, or the animation."""
+    text = armature.data.zenkit.script
+    row = layout.row()
+    if text is None:
+        row.label(text="No script: kept with the animation", icon="INFO")
+        return
+    line = scripttext.line_of(text, action)
+    if line is None:
+        row.label(text=f"Not in {text.name} yet", icon="INFO")
+        row.operator("zenkit.add_to_script", text="Add")
+    else:
+        row.label(text=f"{text.name}, line {line + 1}", icon="TEXT")
+        row.operator("zenkit.show_in_script", text="Show")
 
 
 class ZENKIT_UL_animations(bpy.types.UIList):
@@ -101,7 +118,7 @@ class ZENKIT_PT_model(Sidebar, bpy.types.Panel):
         layout.prop(settings, "model", placeholder=armature.name.upper())
         layout.template_ID(settings, "script", new="zenkit.new_script")
         if settings.script is not None:
-            _, problem = export.script_info(settings.script)
+            _, problem = scripttext.parse(settings.script)
             if problem:
                 layout.label(text=problem, icon="ERROR")
         bones = len(armature.data.bones)
@@ -137,6 +154,7 @@ class ZENKIT_PT_animations(Sidebar, bpy.types.Panel):
             layout.label(text="Pick an animation, or add one with +")
             return
         settings = action.zenkit
+        draw_storage(layout, armature, action)
         column = layout.column()
         column.prop(settings, "name", placeholder=action.name.upper())
         column.prop(settings, "layer")
@@ -287,7 +305,64 @@ class ZENKIT_OT_new_animation(bpy.types.Operator):
             bone.rotation_mode = "QUATERNION"
             bone.keyframe_insert("location", frame=0, group=bone.name)
             bone.keyframe_insert("rotation_quaternion", frame=0, group=bone.name)
+        if armature.data.zenkit.script is not None:
+            scripttext.add(armature.data.zenkit.script, [action])
         animation.show(context, action, armature)
+        return {"FINISHED"}
+
+
+class ZENKIT_OT_add_to_script(bpy.types.Operator):
+    """Add the selected animation to the model's script, with its settings, so that the script
+    holds them from now on"""
+
+    bl_idname = "zenkit.add_to_script"
+    bl_label = "Add to Script"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        armature = armature_of(context.active_object)
+        if armature is None or armature.data.zenkit.script is None:
+            return False
+        return selected_action(armature) is not None
+
+    def execute(self, context):
+        armature = armature_of(context.active_object)
+        try:
+            scripttext.add(armature.data.zenkit.script, [selected_action(armature)])
+        except (ValueError, zenkit_py.ZenKitError) as error:
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
+class ZENKIT_OT_show_in_script(bpy.types.Operator):
+    """Show the selected animation's line of the script in a Text Editor"""
+
+    bl_idname = "zenkit.show_in_script"
+    bl_label = "Show in Script"
+
+    @classmethod
+    def poll(cls, context):
+        armature = armature_of(context.active_object)
+        if armature is None or armature.data.zenkit.script is None:
+            return False
+        return selected_action(armature) is not None
+
+    def execute(self, context):
+        armature = armature_of(context.active_object)
+        text = armature.data.zenkit.script
+        line = scripttext.line_of(text, selected_action(armature))
+        editors = [a for a in context.screen.areas if a.type == "TEXT_EDITOR"]
+        if not editors:
+            self.report({"WARNING"}, f"Open a Text Editor to see {text.name}")
+            return {"CANCELLED"}
+        space = editors[0].spaces.active
+        space.text = text
+        if line is not None:
+            text.cursor_set(line)
+            space.top = max(line - 5, 0)
+        editors[0].tag_redraw()
         return {"FINISHED"}
 
 
@@ -467,6 +542,8 @@ CLASSES = (
     ZENKIT_PT_morph,
     ZENKIT_OT_new_script,
     ZENKIT_OT_new_animation,
+    ZENKIT_OT_add_to_script,
+    ZENKIT_OT_show_in_script,
     ZENKIT_OT_remove_animation,
     ZENKIT_OT_export_animation,
     ZENKIT_OT_export_model,

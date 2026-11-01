@@ -93,6 +93,7 @@ def import_script(context, path, scale, meshes="FIRST", pattern="*"):
         settings.layer, settings.next, settings.fps = max(ani["layer"], 1), ani["next"], ani["fps"]
         settings.blend_in, settings.blend_out = ani["blend_in"], ani["blend_out"]
         settings.flags = properties.flags_of(ani["flags"])
+        settings.script_name = ani["name"].upper()
         actions.append(action)
 
     if info["text"] is not None:

@@ -28,6 +28,7 @@ from mathutils import Quaternion
 
 from . import convert
 from . import preferences
+from . import scripttext
 from .model import TURN
 from .model import armature_checksum
 from .model import armature_of
@@ -172,11 +173,12 @@ def build_action(armature, data, scale, name=None):
 
     action = bpy.data.actions.new(name or data["name"])
     settings = action.zenkit
-    settings.model = model_name(armature)
-    settings.name = data["name"]
-    settings.layer = max(data["layer"], 1)
-    settings.next = data["next"]
-    settings.fps = data["fps"]
+    with scripttext.quiet():
+        settings.model = model_name(armature)
+        settings.name = data["name"]
+        settings.layer = max(data["layer"], 1)
+        settings.next = data["next"]
+        settings.fps = data["fps"]
     # As text: Blender's integer properties are signed 32-bit, too small for a checksum.
     settings.checksum = str(data["checksum"])
     settings.events = json.dumps(data["events"]) if data["events"] else ""
@@ -361,6 +363,8 @@ class ImportAnimation(bpy.types.Operator):
             last, missed = build_action(armature, data, self.scale)
             unkeyed.update(missed)
 
+        # A script that has the animations says how they play, rather than the files.
+        scripttext.apply(armature, force=True)
         show(context, last, armature, self.match_fps)
         if foreign:
             self.report(

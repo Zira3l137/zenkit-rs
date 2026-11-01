@@ -14,7 +14,7 @@
 //!                   "collision_volume_scale"}, one per `ani`, which each have a `.MAN` file
 //! ```
 //!
-//! [`update_script`] writes the settings of the animations Blender holds into a script's text.
+//! [`format_animation`] writes one `ani` statement, for Blender to put into a script's text.
 
 use std::path::PathBuf;
 
@@ -73,7 +73,7 @@ pub(crate) fn write_script(path: PathBuf, text: &str) -> PyResult<()> {
 
 #[derive(FromPyObject)]
 #[pyo3(from_item_all)]
-pub(crate) struct AnimationSettings {
+pub(crate) struct AnimationLine {
     name: String,
     layer: u32,
     next: String,
@@ -81,54 +81,57 @@ pub(crate) struct AnimationSettings {
     blend_out: f32,
     /// The flag letters, like `MI`.
     flags: String,
+    /// How the script spelled them, kept if it still means the same flags, like `M.`.
+    flags_text: String,
+    model: String,
+    /// `F` or `R`.
+    direction: String,
+    first_frame: i32,
+    last_frame: i32,
     fps: f32,
-    frames: u32,
+    speed: f32,
+    collision_volume_scale: f32,
 }
 
-/// The source text of a script with each of `animations` written into its `ani` of the same
-/// name, or added as a new `ani` at the end of the animations if it has none. Everything else,
-/// events included, stays as it was.
+/// One `ani` statement as source, without its events, laid out as [`ModelScript::to_mds`] lays
+/// out a script's: `ani ("S_RUN" 1 "S_RUN" 0.1 0.1 M. "HUM_RUN.ASC" F 1 20 FPS:10)`.
 #[pyfunction]
-pub(crate) fn update_script(text: &str, animations: Vec<AnimationSettings>) -> PyResult<String> {
-    let mut script = parse(text)?;
-    for settings in animations {
-        let found = script.statements.iter_mut().find_map(|s| match s {
-            Statement::Animation(a) if a.name.eq_ignore_ascii_case(&settings.name) => Some(a),
-            _ => None,
-        });
-        let anim = match found {
-            Some(anim) => anim,
-            None => {
-                let last_frame = settings.frames.saturating_sub(1) as i32;
-                let new = Animation {
-                    name: settings.name.clone(),
-                    model: format!("{}.ASC", settings.name),
-                    last_frame,
-                    speed: 0.0,
-                    collision_volume_scale: 1.0,
-                    ..Animation::default()
-                };
-                script.statements.push(Statement::Animation(new));
-                let Some(Statement::Animation(anim)) = script.statements.last_mut() else {
-                    unreachable!()
-                };
-                anim
-            }
-        };
-        anim.layer = settings.layer;
-        anim.next = settings.next;
-        anim.blend_in = settings.blend_in;
-        anim.blend_out = settings.blend_out;
-        anim.fps = settings.fps;
-        let flags = flags_of(&settings.flags);
-        // An unchanged spelling of the same flags, like `M.` rather than `M`, is kept.
-        if flags != anim.flags {
-            anim.flags = flags;
-            anim.flags_text = String::new();
-        }
-    }
-    let bytes = script.to_mds().map_err(fail)?;
-    Ok(bytes.iter().map(|&b| char::from(b)).collect())
+pub(crate) fn format_animation(line: AnimationLine) -> PyResult<String> {
+    let flags = flags_of(&line.flags);
+    let flags_text =
+        if flags_of(&line.flags_text) == flags { line.flags_text } else { String::new() };
+    let direction = if line.direction.eq_ignore_ascii_case("R") {
+        Direction::Backward
+    } else {
+        Direction::Forward
+    };
+    let anim = Animation {
+        name: line.name,
+        layer: line.layer,
+        next: line.next,
+        blend_in: line.blend_in,
+        blend_out: line.blend_out,
+        flags,
+        flags_text,
+        model: line.model,
+        direction,
+        first_frame: line.first_frame,
+        last_frame: line.last_frame,
+        fps: line.fps,
+        speed: line.speed,
+        collision_volume_scale: line.collision_volume_scale,
+        events: Vec::new(),
+    };
+    let script = ModelScript {
+        name: "LINE".into(),
+        statements: vec![Statement::Animation(anim)],
+        ..ModelScript::default()
+    };
+    let text = script.to_mds().map_err(fail)?;
+    let text: String = text.iter().map(|&b| char::from(b)).collect();
+    let is_ani = |l: &&str| l.strip_prefix("ani").is_some_and(|r| r.starts_with([' ', '(']));
+    let line = text.lines().map(str::trim).find(is_ani);
+    line.map(str::to_owned).ok_or_else(|| invalid("the animation has no source form"))
 }
 
 fn flags_of(letters: &str) -> AnimationFlags {

@@ -11,6 +11,7 @@ from . import morph
 from . import preferences
 from . import properties
 from . import script
+from . import scripttext
 from . import texture
 from . import ui
 
@@ -56,6 +57,7 @@ def menu_image(self, context):
 
 def register():
     properties.register()
+    scripttext.register()
     for cls in CLASSES:
         bpy.utils.register_class(cls)
     bpy.types.TOPBAR_MT_file_import.append(menu_import)
@@ -69,4 +71,5 @@ def unregister():
     bpy.types.TOPBAR_MT_file_import.remove(menu_import)
     for cls in reversed(CLASSES):
         bpy.utils.unregister_class(cls)
+    scripttext.unregister()
     properties.unregister()

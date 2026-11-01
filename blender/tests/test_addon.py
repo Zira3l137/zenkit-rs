@@ -812,10 +812,29 @@ assert zenkit_py.read_script(str(work / "out" / "BIPED.MDS"))["animations"] == i
 deselect_all()
 model_rig.select_set(True)
 bpy.context.view_layer.objects.active = model_rig
+# The script holds an animation's settings once it has its ani: the panel shows that line and
+# changing a setting there rewrites it, and only it.
+text = model_rig.data.zenkit.script
+text.from_string(text.as_string().replace("aniEnum", "// kept as written\n\taniEnum"))
+scripttext = sys.modules[package + ".scripttext"]
+assert scripttext.line_of(text, played) is not None
 played.zenkit.layer = 3
 played.zenkit.flags = {"M", "I"}
+assert 'ani ("S_TEST" 3 "S_TEST" 0.1 0.1 MI ' in text.as_string()
+assert "// kept as written" in text.as_string() and "*eventSFX" in text.as_string()
+# Changing the text changes the panel, as the timer finds.
+text.from_string(text.as_string().replace('3 "S_TEST" 0.1', '3 "S_GONE" 0.1'))
+scripttext.watch()
+assert played.zenkit.next == "S_GONE"
+played.zenkit.next = "S_TEST"
+# Renaming the animation renames its ani.
+played.zenkit.name = "S_TESTED"
+assert 'ani ("S_TESTED"' in text.as_string() and 'ani ("S_TEST" ' not in text.as_string()
+played.zenkit.name = "S_TEST"
 assert bpy.ops.zenkit.new_animation(name="t_wave") == {"FINISHED"}
 wave = model_rig.animation_data.action
+# A new animation goes into the script at once.
+assert 'ani ("T_WAVE"' in text.as_string()
 assert (wave.zenkit.name, wave.zenkit.model) == ("T_WAVE", "BIPED")
 # The list's selection is the action the armature plays: picking a row plays it.
 model_rig.zenkit_animation_index = bpy.data.actions.find(played.name)

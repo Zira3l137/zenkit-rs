@@ -3,7 +3,8 @@ and saves with the .blend:
 
 - per scene, where and for which game exports go;
 - per armature, the model it is: its name, which its files are named after, and its script;
-- per action, the animation it is: its name in the game, layer, blending, flags and frame rate;
+- per action, the animation it is: its name in the game, layer, blending, flags and frame rate,
+  which, once the model's script has an `ani` for it, mirror that `ani` (see scripttext.py);
 - per mesh, the morph animations its shape keys make up.
 """
 
@@ -82,12 +83,21 @@ class ModelSettings(bpy.types.PropertyGroup):
     export_animations: bpy.props.BoolProperty(name="Animations", default=True)
 
 
+def script_changed(settings, context):
+    from . import scripttext
+
+    scripttext.changed(settings, context)
+
+
 class AnimationSettings(bpy.types.PropertyGroup):
     model: bpy.props.StringProperty(name="Model", description="The model the animation belongs to")
     name: bpy.props.StringProperty(
-        name="Name", description="The animation's name in the game, like S_RUN or T_JUMP"
+        update=script_changed,
+        name="Name",
+        description="The animation's name in the game, like S_RUN or T_JUMP",
     )
     layer: bpy.props.IntProperty(
+        update=script_changed,
         name="Layer",
         description="Animations on different layers play at once, the higher on top",
         default=1,
@@ -95,26 +105,35 @@ class AnimationSettings(bpy.types.PropertyGroup):
         max=1000,
     )
     next: bpy.props.StringProperty(
-        name="Next", description="The animation played when this one ends; empty for none"
+        update=script_changed,
+        name="Next",
+        description="The animation played when this one ends; empty for none",
     )
     blend_in: bpy.props.FloatProperty(
+        update=script_changed,
         name="Blend In",
         description="How long the animation takes to blend in, in seconds",
         precision=2,
     )
     blend_out: bpy.props.FloatProperty(
+        update=script_changed,
         name="Blend Out",
         description="How long the animation takes to blend out, in seconds",
         precision=2,
     )
-    flags: bpy.props.EnumProperty(name="Flags", items=FLAGS, options={"ENUM_FLAG"})
+    flags: bpy.props.EnumProperty(
+        name="Flags", items=FLAGS, options={"ENUM_FLAG"}, update=script_changed
+    )
     fps: bpy.props.FloatProperty(
+        update=script_changed,
         name="Frame Rate",
         description="The frames per second the game plays the animation at",
         default=25.0,
         min=1.0,
         max=1000.0,
     )
+    # The name of the `ani` in the script the settings are bound to.
+    script_name: bpy.props.StringProperty(options={"HIDDEN"})
     checksum: bpy.props.StringProperty(options={"HIDDEN"})
     events: bpy.props.StringProperty(options={"HIDDEN"})
 

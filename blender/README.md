@@ -143,6 +143,21 @@ and sets the scene's frames and frame rate to it; below the list are its setting
 **+** adds an animation that starts from the current pose, **-** deletes the selected one, and the
 other two buttons import `.MAN` files and export the selected animation.
 
+**Where the settings live.** A line above them says, and there is only ever one place:
+
+- **In the script**, once it has an `ani` for the animation (`HUMANS.MDS, line 120`, with **Show**
+  to see the line in an open Text Editor). The fields are that line: changing one rewrites the
+  line at once, and only it, so comments and layout elsewhere stay; changing the line in the Text
+  Editor changes the fields within half a second. Renaming the animation renames its `ani`.
+- **With the animation**, while the script has no `ani` for it (`Not in HUMANS.MDS yet`). **Add**
+  writes one from the fields, after which the script holds them; exporting adds any still
+  missing. A new animation made with **+** gets its `ani` right away.
+- **With the animation** when the model has no script at all, for its `.MAN` files' name, layer,
+  next animation and frame rate.
+
+So the script is what's exported, and the panel never holds anything the script doesn't. The
+rest of the script, aliases, blends, events and so on, is edited in the Text Editor.
+
 **Export** says where files go (the models folder of the preferences unless a folder is given)
 and for which game, lists the files the model will go out as, and writes the ticked ones:
 
@@ -150,8 +165,8 @@ and for which game, lists the files the model will go out as, and writes the tic
   the meshes are in a collection of that name;
 - the **meshes**, one `.MDM` per collection named after one, as importing makes them; meshes in no
   such collection go into the model's main mesh file;
-- the **script**, `.MSB`, and `.MDS` source if ticked, with every animation's settings written into
-  its `ani` and new animations added, while the rest of it, events included, stays as written;
+- the **script**, `.MSB`, and `.MDS` source if ticked: the text as it stands, with an `ani` added
+  for each animation it lacks;
 - the **animations**, one `.MAN` each.
 
 **Morph Mesh**, when a mesh is selected: its morph animations, each a run of shape keys with an
@@ -220,9 +235,8 @@ the mesh of its `meshAndTree` source (`DONT_USE_MESH`), that's the model's name:
 of the same name, or both in a `.MDL`.
 
 The script itself becomes a text in the Text Editor, as source, to edit there; a compiled `.MSB`
-is turned into source on the way. Aliases, blends, events and the like are edited there; what the
-Animations panel shows for an animation is written into its `ani` on export, so set those in the
-panel. The frame numbers in an `ani` say which frames of its source file to take, which only
+is turned into source on the way. It is what's exported; the Animations panel shows and edits
+the `ani` lines of the model's animations in it (see Where the settings live). The frame numbers in an `ani` say which frames of its source file to take, which only
 matters when the engine compiles animations from those; the action's frames are what the `.MAN`
 holds. Events stay in the script, where the game reads them.
 
