@@ -1,6 +1,6 @@
 [package]
 name = "zenkit-rs-animation"
-description = "Reader for ZenGin skeletal animations (.MAN)"
+description = "Reader and writer for ZenGin skeletal animations (.MAN)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

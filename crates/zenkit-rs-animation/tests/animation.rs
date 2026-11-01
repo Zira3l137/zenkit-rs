@@ -3,6 +3,8 @@
 
 use std::path::Path;
 
+use zenkit_rs_animation::AnimationEvent;
+use zenkit_rs_animation::AnimationEventType;
 use zenkit_rs_animation::AnimationSample;
 use zenkit_rs_animation::ModelAnimation;
 use zenkit_rs_core::math::Quat;
@@ -89,4 +91,71 @@ fn truncated_files_fail_cleanly() {
     for len in 0..data.len() {
         let _ = ModelAnimation::from_bytes(&data[..len]);
     }
+}
+
+#[test]
+fn both_games_write_back_byte_for_byte() {
+    for game in ["G1", "G2"] {
+        let mut data = sample(&format!("{game}/HUMANS-S_FISTRUN.MAN"));
+        let anim = ModelAnimation::from_bytes(&data).unwrap();
+        // The source date's two bytes of padding, which are as uninitialised as the rest of the
+        // date and written as zeros. The date starts after the marker, the header chunk and the
+        // source chunk's header.
+        let padding = 6 + 6 + 74 + 6 + 14;
+        data[padding..padding + 2].fill(0);
+        assert!(anim.to_bytes().unwrap() == data, "{game}");
+    }
+}
+
+#[test]
+fn animations_made_in_code_read_back() {
+    let rotations = [
+        Quat::IDENTITY,
+        Quat::from_rotation_y(1.0),
+        Quat::from_rotation_x(-2.5),
+        // A negative `w`, stored as the same rotation with a positive one.
+        -Quat::from_rotation_z(0.5),
+    ];
+    let mut anim = ModelAnimation {
+        name: "S_TEST".into(),
+        next: "S_TEST".into(),
+        frame_count: 2,
+        node_count: 2,
+        fps: 25.0,
+        node_indices: vec![0, 3],
+        samples: (0..4)
+            .map(|i| AnimationSample {
+                position: Vec3::new(i as f32 * 10.0, -5.0, 2.5),
+                rotation: rotations[i],
+            })
+            .collect(),
+        ..ModelAnimation::default()
+    };
+    anim.fit_sample_positions();
+    assert_eq!((anim.sample_position_min, anim.sample_position_scale), (-5.0, 35.0 / 65535.0));
+
+    let back = ModelAnimation::from_bytes(&anim.to_bytes().unwrap()).unwrap();
+    for (got, want) in back.samples.iter().zip(&anim.samples) {
+        assert!((got.position - want.position).abs().max_element() < 1e-3, "{got:?} {want:?}");
+        assert!(got.rotation.dot(want.rotation).abs() > 0.99999, "{got:?} {want:?}");
+    }
+
+    anim.samples[0].position.x = 100.0;
+    let error = anim.to_bytes().unwrap_err().to_string();
+    assert!(error.contains("sample 0 has position"), "{error}");
+}
+
+#[test]
+fn events_read_back() {
+    let mut anim = fist_run("G2");
+    anim.events = vec![AnimationEvent {
+        kind: AnimationEventType::SoundEffect,
+        frame: 7,
+        tag: "DEF_STEP".into(),
+        content: ["STEP_SAND".into(), "A".into(), "B".into(), "C".into()],
+        values: [1.0, 2.0, 3.0, 4.0],
+        probability: 0.5,
+    }];
+    let back = ModelAnimation::from_bytes(&anim.to_bytes().unwrap()).unwrap();
+    assert_eq!(back.events, anim.events);
 }

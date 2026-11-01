@@ -4,19 +4,34 @@
 //! `z` (its `w` follows from the quaternion having unit length), and a position quantised into
 //! the range given by [`ModelAnimation::sample_position_min`] and
 //! [`ModelAnimation::sample_position_scale`].
+//!
+//! ```text
+//! A000 marker (empty) | A020 header | A010 source | A030 events, if any | A090 samples
+//! ```
+//!
+//! [`ModelAnimation::to_bytes`] writes an animation back in the same order, compressing the
+//! samples again; [`ModelAnimation::fit_sample_positions`] sets the position range for samples
+//! made in code.
 
 use tracing::debug;
 use zenkit_rs_core::Asset;
 use zenkit_rs_core::Date;
+use zenkit_rs_core::Error;
 use zenkit_rs_core::Result;
 use zenkit_rs_core::io::Reader;
 use zenkit_rs_core::io::WHITESPACE;
+use zenkit_rs_core::io::Writer;
 use zenkit_rs_core::math::Aabb;
 use zenkit_rs_core::math::Quat;
 use zenkit_rs_core::math::Vec3;
 use zenkit_rs_core::raw_enum;
 use zenkit_rs_core::text;
 use zerocopy::little_endian::U16;
+
+const FORMAT: &str = "animation";
+
+/// The version the game's animations carry, Gothic 1's and Gothic II's alike.
+const VERSION: u16 = 12;
 
 const CHUNK_MARKER: u16 = 0xA000;
 const CHUNK_SOURCE: u16 = 0xA010;
@@ -27,6 +42,7 @@ const CHUNK_SAMPLES: u16 = 0xA090;
 const ROTATION_RANGE: f32 = (1 << 16) as f32 - 1.0;
 const ROTATION_SCALE: f32 = (1.0 / ROTATION_RANGE) * 2.1;
 const ROTATION_MID: f32 = ((1 << 15) - 1) as f32;
+const POSITION_RANGE: f32 = u16::MAX as f32;
 
 raw_enum! {
     pub enum AnimationEventType: u32 = Tag {
@@ -151,6 +167,108 @@ impl ModelAnimation {
         let n = self.node_count as usize;
         self.samples.get(frame * n..(frame + 1) * n)
     }
+
+    /// Sets [`sample_position_min`](Self::sample_position_min) and
+    /// [`sample_position_scale`](Self::sample_position_scale) to fit the samples' positions, as
+    /// the engine does: the smallest coordinate is stored as 0 and the largest as 65535. Call it
+    /// after changing the samples and before [`to_bytes`](Self::to_bytes).
+    pub fn fit_sample_positions(&mut self) {
+        let coordinates = self.samples.iter().flat_map(|s| s.position.to_array());
+        let (min, max) = coordinates
+            .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), v| (min.min(v), max.max(v)));
+        if min > max {
+            (self.sample_position_min, self.sample_position_scale) = (0.0, 0.0);
+            return;
+        }
+        self.sample_position_min = min;
+        self.sample_position_scale = (max - min) / POSITION_RANGE;
+    }
+
+    /// Writes the animation as a `.MAN` file, compressing every sample to six `u16`s again.
+    /// Samples read from a file come out as they were stored.
+    ///
+    /// Fails if [`node_indices`](Self::node_indices) does not have
+    /// [`node_count`](Self::node_count) entries, the samples are not one per node and frame, a
+    /// position lies outside the range of [`sample_position_min`](Self::sample_position_min)
+    /// and [`sample_position_scale`](Self::sample_position_scale) (see
+    /// [`fit_sample_positions`](Self::fit_sample_positions)), or a name has a line break.
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
+        let fail = |reason: String| Err(Error::unwritable(FORMAT, reason));
+        if self.node_indices.len() != self.node_count as usize {
+            let (indices, count) = (self.node_indices.len(), self.node_count);
+            return fail(format!("{indices} node indices for a node count of {count}"));
+        }
+        let expected = u64::from(self.node_count) * u64::from(self.frame_count);
+        if self.samples.len() as u64 != expected {
+            let (nodes, frames) = (self.node_count, self.frame_count);
+            return fail(format!(
+                "{} samples, not one per node and frame ({nodes} x {frames})",
+                self.samples.len()
+            ));
+        }
+        let (min, scale) = (self.sample_position_min, self.sample_position_scale);
+        let samples = (self.samples.iter().enumerate())
+            .map(|(i, sample)| {
+                encode_sample(sample, scale, min).ok_or_else(|| {
+                    let reason = format!(
+                        "sample {i} has position {}, outside the range from {min} in steps of \
+                         {scale}; fit_sample_positions sets a range that fits",
+                        sample.position
+                    );
+                    Error::unwritable(FORMAT, reason)
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        let line = |text: &str| text::to_line(FORMAT, text);
+        let (name, next) = (line(&self.name)?, line(&self.next)?);
+        let (source_path, source_script) = (line(&self.source_path)?, line(&self.source_script)?);
+        let events = (self.events.iter())
+            .map(|e| {
+                Ok((line(&e.tag)?, e.content.iter().map(|c| line(c)).collect::<Result<Vec<_>>>()?))
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        let mut w = Writer::with_capacity(512 + samples.len() * 12);
+        w.chunk(CHUNK_MARKER, |_| ());
+        w.chunk(CHUNK_HEADER, |w| {
+            w.u16(VERSION);
+            w.line(&name);
+            w.u32(self.layer);
+            w.u32(self.frame_count);
+            w.u32(self.node_count);
+            w.f32(self.fps);
+            w.f32(self.fps_source);
+            w.f32(min);
+            w.f32(scale);
+            self.bbox.write(w);
+            w.line(&next);
+        });
+        w.chunk(CHUNK_SOURCE, |w| {
+            self.source_date.write(w);
+            w.line(&source_path);
+            w.line(&source_script);
+        });
+        if !self.events.is_empty() {
+            w.chunk(CHUNK_EVENTS, |w| {
+                w.u32(self.events.len() as u32);
+                for (event, (tag, content)) in self.events.iter().zip(&events) {
+                    w.u32(event.kind.raw());
+                    w.u32(event.frame);
+                    w.line(tag);
+                    content.iter().for_each(|c| w.line(c));
+                    event.values.iter().for_each(|&v| w.f32(v));
+                    w.f32(event.probability);
+                }
+            });
+        }
+        w.chunk(CHUNK_SAMPLES, |w| {
+            w.u32(self.checksum);
+            self.node_indices.iter().for_each(|&i| w.u32(i));
+            samples.iter().flatten().for_each(|&v| w.u16(v));
+        });
+        Ok(w.into_inner())
+    }
 }
 
 fn read_event(c: &mut Reader) -> Result<AnimationEvent> {
@@ -188,6 +306,25 @@ fn decode_sample(raw: [u16; 6], scale: f32, min: f32) -> AnimationSample {
         rotation: Quat::from_xyzw(x, y, z, w),
         position: Vec3::new(p(raw[3]), p(raw[4]), p(raw[5])),
     }
+}
+
+/// Compresses a sample, the reverse of [`decode_sample`], or gives `None` if its position does
+/// not fit the range.
+///
+/// Only the rotation's `x`, `y` and `z` are stored, and decoding takes `w` to be positive, so a
+/// rotation with a negative `w` is stored as its negation, which is the same rotation.
+fn encode_sample(sample: &AnimationSample, scale: f32, min: f32) -> Option<[u16; 6]> {
+    let q = sample.rotation;
+    let q = if q.w < 0.0 { -q } else { q };
+    let r = |v: f32| (v / ROTATION_SCALE + ROTATION_MID).round().clamp(0.0, POSITION_RANGE) as u16;
+
+    let p = |v: f32| {
+        let raw = if scale == 0.0 { 0.0 } else { ((v - min) / scale).round() };
+        let fits = (0.0..=POSITION_RANGE).contains(&raw) && (scale != 0.0 || v == min);
+        fits.then_some(raw as u16)
+    };
+    let [x, y, z] = sample.position.to_array();
+    Some([r(q.x), r(q.y), r(q.z), p(x)?, p(y)?, p(z)?])
 }
 
 impl Asset for ModelAnimation {
