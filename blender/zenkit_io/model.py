@@ -391,7 +391,7 @@ def import_model(context, path, scale, use_active=False):
             rig = build_skeleton(context, path.stem, data, scale)
     else:
         rig = meshes_rig(context, data, path.parent, scale)
-    add_meshes(context, path, data, rig, scale)
+    add_meshes(context, path.parent, data, rig, scale)
 
     if rig.armature is not None:
         for other in context.selected_objects:
@@ -401,8 +401,10 @@ def import_model(context, path, scale, use_active=False):
     return data, rig
 
 
-def add_meshes(context, path, data, rig, scale):
-    folders = [path.parent]
+def add_meshes(context, folder, data, rig, scale):
+    """Adds a model dict's meshes to the scene, bound to `rig`, with textures looked for in
+    `folder` first."""
+    folders = [folder]
     armature = rig.armature
     to_world = armature.matrix_world if armature is not None else Matrix.Identity(4)
 

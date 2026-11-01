@@ -11,6 +11,7 @@ through zenkit-rs, mostly to try the library's readers and writers on real work:
 | Models (`.MDL`, `.MDH`, `.MDM`)  | As an armature with its meshes        | The active armature and the meshes on it |
 | Morph meshes (`.MMB`)            | As a mesh with shape keys             | The active mesh and its shape keys       |
 | Animations (`.MAN`)              | As actions on the active armature     | The active armature's action             |
+| Model scripts (`.MDS`, `.MSB`)   | As an armature, its meshes, actions   | A text, and its animations' actions      |
 
 The entries are under File > Import and File > Export, and the image editor's Image menu.
 
@@ -47,7 +48,7 @@ case), or tick Custom Folders and give each one yourself. They are used to:
 - find the textures a mesh or model's materials name: next to the file, in the textures folder,
   then, with Search the Archives on, in the game's `Data/*.vdf`, where a plain install keeps
   them;
-- find the skeleton a `.MDM` belongs to (see below);
+- find the skeleton a `.MDM` belongs to (see below), and everything a model script names;
 - choose the game exported files are for, which the game folder tells unless set.
 
 The archives are mounted once and memory-mapped, so only the parts that are looked up are read,
@@ -147,6 +148,27 @@ its layer, blend times, speed, duration and flags, and which vertices it moves, 
 lists but leaves where they are stay in it. Vertices moved in Blender join their animation, and
 shape keys of an animation it does not know export as a new one, with settings like the game's:
 a single-frame one holds its shape until stopped, a longer one plays once at 25 frames a second.
+
+## Model scripts
+
+A model script names a model's skeleton, the meshes it can wear and its animations; the engine
+loads each animation from a file named after the model and it, like `HUMANS-S_RUN.MAN`.
+Importing a script brings in all of that, looked for next to the script, in the models folder and
+in the game's archives: an armature of the skeleton, named after the model, the first mesh the
+script registers on it (Meshes picks all or none instead), and an action per animation. The
+Animations field picks which by name, with `*` for anything (`S_*RUN*`), since the humans' script
+names over a thousand.
+
+The script itself becomes a text in the Text Editor, as source, to edit there; a compiled
+`.MSB` is turned into source on the way. Exporting writes the text as a compiled `.MSB` or as
+source (`.MDS`), by the file's extension, and with Export Animations, each of its `ani`
+animations that has an action of the same name as a `.MAN` file next to it, with the layer,
+frame rate and next animation the script gives it. The frame numbers in an `ani` say which
+frames of its source file to take, which only matters when the engine compiles animations from
+those; the action's frames are what the `.MAN` holds. Events stay in the script, where the game
+reads them.
+
+The skeleton and meshes are exported apart, as a model.
 
 ## How it works
 

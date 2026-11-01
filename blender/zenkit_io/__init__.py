@@ -1,5 +1,5 @@
-"""Import and export of Gothic textures, meshes, models and animations, through the zenkit-rs
-library."""
+"""Import and export of Gothic textures, meshes, models, animations and model scripts, through the
+zenkit-rs library."""
 
 import bpy
 
@@ -8,6 +8,7 @@ from . import mesh
 from . import model
 from . import morph
 from . import preferences
+from . import script
 from . import texture
 
 CLASSES = (
@@ -22,6 +23,8 @@ CLASSES = (
     model.ExportModel,
     animation.ImportAnimation,
     animation.ExportAnimation,
+    script.ImportScript,
+    script.ExportScript,
 )
 
 
@@ -30,6 +33,7 @@ def menu_import(self, context):
     self.layout.operator(mesh.ImportMesh.bl_idname, text="Gothic Mesh (.msh, .mrm, .mmb)")
     self.layout.operator(model.ImportModel.bl_idname, text="Gothic Model (.mdl, .mdh, .mdm)")
     self.layout.operator(animation.ImportAnimation.bl_idname, text="Gothic Animation (.man)")
+    self.layout.operator(script.ImportScript.bl_idname, text="Gothic Model Script (.mds, .msb)")
 
 
 def menu_export(self, context):
@@ -39,6 +43,7 @@ def menu_export(self, context):
     self.layout.operator(morph.ExportMmb.bl_idname, text="Gothic Morph Mesh (.mmb)")
     self.layout.operator(model.ExportModel.bl_idname, text="Gothic Model (.mdl, .mdh, .mdm)")
     self.layout.operator(animation.ExportAnimation.bl_idname, text="Gothic Animation (.man)")
+    self.layout.operator(script.ExportScript.bl_idname, text="Gothic Model Script (.msb, .mds)")
 
 
 def menu_image(self, context):

@@ -642,6 +642,87 @@ assert (wobble["name"], wobble["frame_count"], wobble["flags"]) == ("T_WOBBLE", 
 assert list(np.frombuffer(wobble["vertices"], "<u4")) == [0]
 print("morph ok")
 
+# Model scripts: the skeleton, its registered mesh and the animations a script names, found next
+# to it, and the script itself as a text.
+script_source = """Model ("BIPED")
+{
+	meshAndTree ("BIPED" DONT_USE_MESH)
+	registerMesh ("BIPED_BODY.ASC")
+
+	aniEnum
+	{
+		ani ("S_TEST" 1 "S_TEST" 0.1 0.1 M. "BIPED_TEST.ASC" F 1 3 FPS:10)
+		{
+			*eventSFX (1 "STEP" R:500)
+		}
+		ani ("S_GONE" 2 "" 0.0 0.0 M. "BIPED_GONE.ASC" F 1 3)
+	}
+}
+"""
+zenkit_py.write_script(str(work / "BIPED.MSB"), script_source)
+info = zenkit_py.read_script(str(work / "BIPED.MSB"))
+assert (info["name"], info["skeleton"], info["disable_mesh"]) == ("BIPED", "BIPED", True)
+assert [a["name"] for a in info["animations"]] == ["S_TEST", "S_GONE"]
+assert info["animations"][0]["fps"] == 10.0 and "*eventSFX" in info["text"]
+
+bpy.ops.object.select_all(action="SELECT")
+bpy.ops.object.delete()
+assert bpy.ops.import_scene.zenkit_script(filepath=str(work / "BIPED.MSB")) == {"FINISHED"}
+model_rig = bpy.context.active_object
+assert model_rig.type == "ARMATURE" and model_rig.name == "BIPED"
+assert [o.name for o in model_rig.children if o.name.startswith("ZM_SKIN_")] == ["ZM_SKIN_0"]
+assert model_rig.data["zenkit_model"] == "BIPED"
+text = bpy.data.texts[model_rig.data["zenkit_script"]]
+assert zenkit_py.parse_script(text.as_string())["animations"] == info["animations"]
+played = model_rig.animation_data.action
+assert played.get("zenkit_name") == "S_TEST" and played.get("zenkit_checksum") == str(
+    biped_checksum
+)
+
+# Exported, the script's animations take their layer, frame rate and next animation from it.
+(work / "out").mkdir()
+assert bpy.ops.export_scene.zenkit_script(filepath=str(work / "out" / "BIPED.MSB")) == {"FINISHED"}
+assert sorted(p.name for p in (work / "out").iterdir()) == ["BIPED-S_TEST.MAN", "BIPED.MSB"]
+assert zenkit_py.read_script(str(work / "out" / "BIPED.MSB"))["animations"] == info["animations"]
+again = zenkit_py.read_animation(str(work / "out" / "BIPED-S_TEST.MAN"))
+assert (again["fps"], again["layer"], again["next"]) == (10.0, 1, "S_TEST")
+assert np.allclose(
+    np.frombuffer(again["transforms"], "<f4").reshape(moving.shape), shown, atol=3e-3
+)
+assert bpy.ops.export_scene.zenkit_script(
+    filepath=str(work / "out" / "BIPED.MDS"), animations=False
+) == {"FINISHED"}
+assert zenkit_py.read_script(str(work / "out" / "BIPED.MDS"))["animations"] == info["animations"]
+
+# The game's own: without the game, the alligator's skeleton is nowhere, and the import says so.
+# With the installed extension pointed at Gothic II, it comes from the archives, and one of its
+# animations goes out as it came in.
+alligator_man = samples / "G2" / "ALLIGATOR-R_AGRESSIVE.MAN"
+try:
+    bpy.ops.import_scene.zenkit_script(
+        filepath=str(samples / "G2" / "ALLIGATOR.MSB"), pattern="R_AGRESSIVE"
+    )
+except RuntimeError as error:
+    assert "KRO_BODY" in str(error), error
+    print("game script skipped: the alligator's skeleton is not in the game's archives")
+else:
+    alligator = bpy.context.active_object
+    assert alligator.name.startswith("ALLIGATOR")
+    assert alligator.animation_data.action.get("zenkit_name") == "R_AGRESSIVE"
+    assert bpy.ops.export_anim.zenkit_animation(filepath=str(work / "ALLIGATOR.MAN")) == {
+        "FINISHED"
+    }
+    theirs = zenkit_py.read_animation(str(alligator_man))
+    ours = zenkit_py.read_animation(str(work / "ALLIGATOR.MAN"))
+    assert ours["checksum"] == theirs["checksum"] and ours["node_indices"] == theirs["node_indices"]
+    shape = (theirs["frame_count"], len(theirs["node_indices"]), 4, 4)
+    theirs = np.frombuffer(theirs["transforms"], "<f4").reshape(shape)
+    ours = np.frombuffer(ours["transforms"], "<f4").reshape(shape)
+    assert np.allclose(ours[..., :3, :3], theirs[..., :3, :3], atol=1e-3)
+    assert np.allclose(ours[..., :3, 3], theirs[..., :3, 3], atol=1e-2)
+    print("game script ok")
+print("script ok")
+
 
 def write_vdf(path, files):
     """A .VDF of the given name-to-bytes files, all in its root."""
