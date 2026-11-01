@@ -63,12 +63,13 @@ impl AnimationFlags {
         text
     }
 
-    /// `text` if it is a spelling of these flags that scripts can hold, like `M`, `..` or `M:`,
-    /// all of which the game's scripts use; otherwise [`to_text`](Self::to_text). Compiled
-    /// scripts can also hold no text at all for no flags, which a source script cannot.
+    /// `text` if it still means these flags and the script can hold it; otherwise
+    /// [`to_text`](Self::to_text). Compiled scripts hold any line, as the game's own scripts
+    /// show with spellings like `M`, `..` or `M:`, and even no text for no flags. A source script
+    /// needs one keyword of flag letters and dots, with an optional colon.
     fn spelled(self, text: &str, compiled: bool) -> String {
-        if compiled && text.is_empty() && self.is_empty() {
-            return String::new();
+        if compiled && Self::parse(text) == self && (!text.is_empty() || self.is_empty()) {
+            return text.to_owned();
         }
         let letters = text.strip_suffix(':').unwrap_or(text);
         let valid = !letters.is_empty()
@@ -108,12 +109,13 @@ impl Direction {
         }
     }
 
-    /// `text` if it is a spelling of this direction: a letter in either case, or nothing for
-    /// forward, as an alias that leaves its direction out has; otherwise
-    /// [`to_text`](Self::to_text).
-    fn spelled(self, text: &str) -> &str {
-        let valid = matches!(text, "" | "F" | "f" | "R" | "r") && Self::parse(text) == self;
-        if valid { text } else { self.to_text() }
+    /// `text` if it still means this direction and the script can hold it; otherwise
+    /// [`to_text`](Self::to_text). Compiled scripts hold any line: the game's have aliases with
+    /// no direction, and some with a stray `"`, which both mean forward. A source script can
+    /// only hold a letter, or nothing.
+    fn spelled(self, text: &str, compiled: bool) -> &str {
+        let valid = compiled || matches!(text, "" | "F" | "f" | "R" | "r");
+        if valid && Self::parse(text) == self { text } else { self.to_text() }
     }
 }
 
@@ -377,7 +379,8 @@ pub struct AnimationAlias {
     /// The animation this one plays.
     pub alias: String,
     pub direction: Direction,
-    /// The direction as written, `F`, `R`, or empty, as many of the game's aliases leave it out.
+    /// The direction as written: `F`, `R`, empty, as many of the game's aliases leave it out, or
+    /// even a stray `"` in a few of them.
     /// It is written back while it still spells [`direction`](Self::direction).
     pub direction_text: String,
     pub events: Vec<Event>,
@@ -582,15 +585,13 @@ mod tests {
         assert_eq!(F::empty().spelled("", true), "", "compiled scripts can hold no flags");
         assert_eq!(F::empty().spelled("", false), ".");
 
+        assert_eq!(F::MOVE.spelled("M X", true), "M X", "compiled scripts hold any line");
+
         use Direction::*;
-        assert_eq!(
-            (Forward.spelled(""), Forward.spelled("f"), Backward.spelled("r")),
-            ("", "f", "r")
-        );
-        assert_eq!(
-            (Backward.spelled(""), Forward.spelled("R"), Forward.spelled("FW")),
-            ("R", "F", "F")
-        );
+        assert_eq!((Forward.spelled("", false), Forward.spelled("f", false)), ("", "f"));
+        assert_eq!((Backward.spelled("r", false), Backward.spelled("", false)), ("r", "R"));
+        assert_eq!((Forward.spelled("R", true), Forward.spelled("\"", false)), ("F", "F"));
+        assert_eq!(Forward.spelled("\"", true), "\"", "a typo the game's compiler kept");
     }
 
     #[test]

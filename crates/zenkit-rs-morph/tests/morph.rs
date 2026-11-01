@@ -81,3 +81,20 @@ fn morph_meshes_that_cannot_be_stored_fail() {
     let error = mesh.to_bytes(GameVersion::Gothic2).unwrap_err().to_string();
     assert!(error.contains("27 morph positions for 28"), "{error}");
 }
+
+#[test]
+fn a_game_morph_mesh_writes_back_but_for_its_padding() {
+    let data = sample("G2/ADD_PIRATEFLAG.MMB");
+    let mesh = MorphMesh::from_bytes(&data).unwrap();
+    let written = mesh.to_bytes(GameVersion::Gothic2).unwrap();
+    assert_eq!(written.len(), data.len());
+    // Every differing byte is in the two bytes of padding after a wedge, which the engine leaves
+    // uninitialised and are written as zeros: they lie a whole number of 24-byte wedges apart.
+    let differing: Vec<_> = (0..data.len()).filter(|&i| data[i] != written[i]).collect();
+    let first = differing[0];
+    assert!(
+        differing.iter().all(|&i| written[i] == 0 && matches!((i - first) % 24, 0 | 1)),
+        "{differing:?}"
+    );
+    assert_eq!(MorphMesh::from_bytes(&written).unwrap(), mesh);
+}

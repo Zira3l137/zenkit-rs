@@ -713,7 +713,7 @@ impl Source {
                 line + ")"
             }
             Statement::Alias(a) => {
-                let direction = match a.direction.spelled(&a.direction_text) {
+                let direction = match a.direction.spelled(&a.direction_text, false) {
                     "" => String::new(),
                     text => format!(" {text}"),
                 };

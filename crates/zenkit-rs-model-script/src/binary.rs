@@ -360,7 +360,7 @@ fn write_statement(w: &mut Out, statement: &Statement) {
             w.w.f32(a.blend_out);
             w.line(&a.flags.spelled(&a.flags_text, true));
             w.line(&a.alias);
-            w.line(a.direction.spelled(&a.direction_text));
+            w.line(a.direction.spelled(&a.direction_text, true));
         }),
         Statement::Blend(b) => w.chunk(CHUNK_BLEND, |w| {
             w.line(&b.name);

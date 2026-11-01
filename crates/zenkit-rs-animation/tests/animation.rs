@@ -159,3 +159,14 @@ fn events_read_back() {
     let back = ModelAnimation::from_bytes(&anim.to_bytes().unwrap()).unwrap();
     assert_eq!(back.events, anim.events);
 }
+
+#[test]
+fn a_game_animation_writes_back_byte_for_byte() {
+    let mut data = sample("G2/ALLIGATOR-R_AGRESSIVE.MAN");
+    let anim = ModelAnimation::from_bytes(&data).unwrap();
+    assert_eq!((anim.name.as_str(), anim.frame_count), ("R_AGRESSIVE", 29));
+    // The source date's padding, as in the other samples.
+    let padding = 6 + 6 + 67 + 6 + 14;
+    data[padding..padding + 2].fill(0);
+    assert!(anim.to_bytes().unwrap() == data);
+}

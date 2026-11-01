@@ -510,3 +510,13 @@ fn aliases_without_a_direction_or_flags_keep_them_out() {
     let Statement::Alias(read) = &back.statements[0] else { panic!() };
     assert_eq!((read.direction, read.direction_text.as_str()), (Direction::Forward, ""));
 }
+
+#[test]
+fn a_game_script_writes_back_byte_for_byte() {
+    let data = sample("G2/ALLIGATOR.MSB");
+    let script = ModelScript::from_bytes(&data).unwrap();
+    assert_eq!(script.name, "ALLIGATOR");
+    assert!(script.to_msb().unwrap() == data);
+    let back = ModelScript::from_bytes(&script.to_mds().unwrap()).unwrap();
+    assert_eq!(back.statements.len(), script.statements.len());
+}
