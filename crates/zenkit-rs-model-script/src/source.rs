@@ -296,6 +296,18 @@ impl<'a> Parser<'a> {
         Ok((AnimationFlags::parse(&text), text))
     }
 
+    /// An optional direction, `F` or `R`, as written, or empty.
+    fn maybe_direction(&mut self) -> String {
+        let saved = self.lexer.pos;
+        match self.maybe(Kind::Keyword) {
+            Some(t) if is(t, "F") || is(t, "R") => string(t),
+            _ => {
+                self.lexer.pos = saved;
+                String::new()
+            }
+        }
+    }
+
     /// Whether the next token closes the current block, consuming it. The end of the file closes
     /// every block, since scripts often lack their last braces.
     fn block_ends(&mut self) -> bool {
@@ -547,15 +559,12 @@ impl<'a> Parser<'a> {
             flags: AnimationFlags::empty(),
             flags_text: self.flags()?.1,
             alias: self.string()?,
-            direction: if self.maybe_keyword("R") {
-                Direction::Backward
-            } else {
-                self.maybe_keyword("F");
-                Direction::Forward
-            },
+            direction: Direction::Forward,
+            direction_text: self.maybe_direction(),
             events: Vec::new(),
         };
         alias.flags = AnimationFlags::parse(&alias.flags_text);
+        alias.direction = Direction::parse(&alias.direction_text);
         alias.events = self.events()?;
         Ok(alias)
     }
@@ -686,7 +695,7 @@ impl Source {
                     self.checked(&a.next),
                     self.float(a.blend_in),
                     self.float(a.blend_out),
-                    a.flags.spelled(&a.flags_text),
+                    a.flags.spelled(&a.flags_text, false),
                     self.checked(&a.model),
                     a.direction.to_text(),
                     a.first_frame,
@@ -703,17 +712,22 @@ impl Source {
                 }
                 line + ")"
             }
-            Statement::Alias(a) => format!(
-                "aniAlias ({} {} {} {} {} {} {} {})",
-                self.checked(&a.name),
-                a.layer,
-                self.checked(&a.next),
-                self.float(a.blend_in),
-                self.float(a.blend_out),
-                a.flags.spelled(&a.flags_text),
-                self.checked(&a.alias),
-                a.direction.to_text(),
-            ),
+            Statement::Alias(a) => {
+                let direction = match a.direction.spelled(&a.direction_text) {
+                    "" => String::new(),
+                    text => format!(" {text}"),
+                };
+                format!(
+                    "aniAlias ({} {} {} {} {} {} {}{direction})",
+                    self.checked(&a.name),
+                    a.layer,
+                    self.checked(&a.next),
+                    self.float(a.blend_in),
+                    self.float(a.blend_out),
+                    a.flags.spelled(&a.flags_text, false),
+                    self.checked(&a.alias),
+                )
+            }
             Statement::Blend(b) => format!(
                 "aniBlend ({} {} {} {})",
                 self.checked(&b.name),
@@ -728,7 +742,7 @@ impl Source {
                 self.checked(&c.next),
                 self.float(c.blend_in),
                 self.float(c.blend_out),
-                c.flags.spelled(&c.flags_text),
+                c.flags.spelled(&c.flags_text, false),
                 self.checked(&c.model),
                 c.last_frame,
             ),

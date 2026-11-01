@@ -86,11 +86,15 @@ fn tag(c: &mut Reader) -> Result<EventTag> {
 
 // The struct literals below read their fields straight from the chunk. Rust evaluates a struct
 // literal's fields in the order they are written, so that order is the file's.
-/// Sets a statement's flags from their text, which the struct literals read in file order.
+/// Sets a statement's flags, and an alias's direction, from their text, which the struct
+/// literals read in file order.
 fn parse_flags(mut statement: Statement) -> Statement {
     match &mut statement {
         Statement::Animation(a) => a.flags = AnimationFlags::parse(&a.flags_text),
-        Statement::Alias(a) => a.flags = AnimationFlags::parse(&a.flags_text),
+        Statement::Alias(a) => {
+            a.flags = AnimationFlags::parse(&a.flags_text);
+            a.direction = Direction::parse(&a.direction_text);
+        }
         Statement::Combination(c) => c.flags = AnimationFlags::parse(&c.flags_text),
         _ => {}
     }
@@ -174,7 +178,8 @@ fn read_statement(id: u16, c: &mut Reader) -> Result<Statement> {
             flags: AnimationFlags::empty(),
             flags_text: string(c),
             alias: string(c),
-            direction: Direction::parse(&string(c)),
+            direction: Direction::Forward,
+            direction_text: string(c),
             events: Vec::new(),
         }),
         CHUNK_BLEND => Statement::Blend(AnimationBlend {
@@ -338,7 +343,7 @@ fn write_statement(w: &mut Out, statement: &Statement) {
             w.line(&a.next);
             w.w.f32(a.blend_in);
             w.w.f32(a.blend_out);
-            w.line(&a.flags.spelled(&a.flags_text));
+            w.line(&a.flags.spelled(&a.flags_text, true));
             w.line(&a.model);
             w.line(a.direction.to_text());
             w.w.i32(a.first_frame);
@@ -353,9 +358,9 @@ fn write_statement(w: &mut Out, statement: &Statement) {
             w.line(&a.next);
             w.w.f32(a.blend_in);
             w.w.f32(a.blend_out);
-            w.line(&a.flags.spelled(&a.flags_text));
+            w.line(&a.flags.spelled(&a.flags_text, true));
             w.line(&a.alias);
-            w.line(a.direction.to_text());
+            w.line(a.direction.spelled(&a.direction_text));
         }),
         Statement::Blend(b) => w.chunk(CHUNK_BLEND, |w| {
             w.line(&b.name);
@@ -369,7 +374,7 @@ fn write_statement(w: &mut Out, statement: &Statement) {
             w.line(&c.next);
             w.w.f32(c.blend_in);
             w.w.f32(c.blend_out);
-            w.line(&c.flags.spelled(&c.flags_text));
+            w.line(&c.flags.spelled(&c.flags_text, true));
             w.line(&c.model);
             w.w.i32(c.last_frame);
         }),

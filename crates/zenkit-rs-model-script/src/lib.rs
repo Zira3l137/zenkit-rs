@@ -64,8 +64,12 @@ impl AnimationFlags {
     }
 
     /// `text` if it is a spelling of these flags that scripts can hold, like `M`, `..` or `M:`,
-    /// all of which the game's scripts use; otherwise [`to_text`](Self::to_text).
-    fn spelled(self, text: &str) -> String {
+    /// all of which the game's scripts use; otherwise [`to_text`](Self::to_text). Compiled
+    /// scripts can also hold no text at all for no flags, which a source script cannot.
+    fn spelled(self, text: &str, compiled: bool) -> String {
+        if compiled && text.is_empty() && self.is_empty() {
+            return String::new();
+        }
         let letters = text.strip_suffix(':').unwrap_or(text);
         let valid = !letters.is_empty()
             && letters.bytes().all(|c| {
@@ -102,6 +106,14 @@ impl Direction {
             Self::Forward => "F",
             Self::Backward => "R",
         }
+    }
+
+    /// `text` if it is a spelling of this direction: a letter in either case, or nothing for
+    /// forward, as an alias that leaves its direction out has; otherwise
+    /// [`to_text`](Self::to_text).
+    fn spelled(self, text: &str) -> &str {
+        let valid = matches!(text, "" | "F" | "f" | "R" | "r") && Self::parse(text) == self;
+        if valid { text } else { self.to_text() }
     }
 }
 
@@ -365,6 +377,9 @@ pub struct AnimationAlias {
     /// The animation this one plays.
     pub alias: String,
     pub direction: Direction,
+    /// The direction as written, `F`, `R`, or empty, as many of the game's aliases leave it out.
+    /// It is written back while it still spells [`direction`](Self::direction).
+    pub direction_text: String,
     pub events: Vec<Event>,
 }
 
@@ -558,12 +573,24 @@ mod tests {
     fn flags_keep_their_spelling_while_it_fits() {
         use AnimationFlags as F;
         for text in ["M", "M.", "M:", "..", "mi", "IM"] {
-            assert_eq!(F::parse(text).spelled(text), text);
+            assert_eq!(F::parse(text).spelled(text, false), text);
         }
-        assert_eq!(F::MOVE.spelled(""), "M.");
-        assert_eq!(F::MOVE.spelled("MI"), "M.", "a spelling of other flags");
-        assert_eq!(F::MOVE.spelled("M X"), "M.", "not one keyword");
-        assert_eq!(F::empty().spelled(":"), ".");
+        assert_eq!(F::MOVE.spelled("", true), "M.");
+        assert_eq!(F::MOVE.spelled("MI", false), "M.", "a spelling of other flags");
+        assert_eq!(F::MOVE.spelled("M X", false), "M.", "not one keyword");
+        assert_eq!(F::empty().spelled(":", false), ".");
+        assert_eq!(F::empty().spelled("", true), "", "compiled scripts can hold no flags");
+        assert_eq!(F::empty().spelled("", false), ".");
+
+        use Direction::*;
+        assert_eq!(
+            (Forward.spelled(""), Forward.spelled("f"), Backward.spelled("r")),
+            ("", "f", "r")
+        );
+        assert_eq!(
+            (Backward.spelled(""), Forward.spelled("R"), Forward.spelled("FW")),
+            ("R", "F", "F")
+        );
     }
 
     #[test]

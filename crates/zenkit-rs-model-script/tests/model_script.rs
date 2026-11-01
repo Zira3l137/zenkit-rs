@@ -485,3 +485,28 @@ fn flags_and_particles_are_written_as_the_game_spells_them() {
         assert_eq!(back.statements[1], script.statements[1], "{text}");
     }
 }
+
+#[test]
+fn aliases_without_a_direction_or_flags_keep_them_out() {
+    let mut script = ModelScript::from_bytes(&sample("waran.msb")).unwrap();
+    let Statement::Alias(alias) = &mut script.statements[0] else { panic!() };
+    alias.direction_text.clear();
+    alias.flags = AnimationFlags::empty();
+    alias.flags_text.clear();
+
+    let compiled = script.to_msb().unwrap();
+    // The flags and direction lines are empty, as in the game's scripts that leave them out.
+    let expected = b"\x00\x00\x00\x00\x00\x00\x00\x00\nS_FISTWALK\n\n";
+    assert!(compiled.windows(expected.len()).any(|w| w == expected));
+    assert_eq!(ModelScript::from_bytes(&compiled).unwrap(), script);
+
+    let source = script.to_mds().unwrap();
+    let text = String::from_utf8_lossy(&source);
+    assert!(
+        text.contains("aniAlias (\"S_FISTRUN\" 1 \"S_FISTRUN\" 0.0 0.0 . \"S_FISTWALK\")"),
+        "{text}"
+    );
+    let back = ModelScript::from_bytes(&source).unwrap();
+    let Statement::Alias(read) = &back.statements[0] else { panic!() };
+    assert_eq!((read.direction, read.direction_text.as_str()), (Direction::Forward, ""));
+}
