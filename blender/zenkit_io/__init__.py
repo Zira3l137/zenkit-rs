@@ -1,7 +1,9 @@
-"""Import and export of Gothic textures, meshes and models, through the zenkit-rs library."""
+"""Import and export of Gothic textures, meshes, models and animations, through the zenkit-rs
+library."""
 
 import bpy
 
+from . import animation
 from . import mesh
 from . import model
 from . import preferences
@@ -16,6 +18,8 @@ CLASSES = (
     mesh.ExportMrm,
     model.ImportModel,
     model.ExportModel,
+    animation.ImportAnimation,
+    animation.ExportAnimation,
 )
 
 
@@ -23,6 +27,7 @@ def menu_import(self, context):
     self.layout.operator(texture.ImportTexture.bl_idname, text="Gothic Texture (.tex)")
     self.layout.operator(mesh.ImportMesh.bl_idname, text="Gothic Mesh (.msh, .mrm)")
     self.layout.operator(model.ImportModel.bl_idname, text="Gothic Model (.mdl, .mdh, .mdm)")
+    self.layout.operator(animation.ImportAnimation.bl_idname, text="Gothic Animation (.man)")
 
 
 def menu_export(self, context):
@@ -30,6 +35,7 @@ def menu_export(self, context):
     self.layout.operator(mesh.ExportMsh.bl_idname, text="Gothic Static Mesh (.msh)")
     self.layout.operator(mesh.ExportMrm.bl_idname, text="Gothic Multi-Resolution Mesh (.mrm)")
     self.layout.operator(model.ExportModel.bl_idname, text="Gothic Model (.mdl, .mdh, .mdm)")
+    self.layout.operator(animation.ExportAnimation.bl_idname, text="Gothic Animation (.man)")
 
 
 def menu_image(self, context):

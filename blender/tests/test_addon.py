@@ -16,6 +16,7 @@ from pathlib import Path
 
 import bpy
 import numpy as np
+from mathutils import Quaternion
 
 HERE = Path(__file__).resolve().parent
 samples = HERE.parent.parent / "samples"
@@ -461,6 +462,145 @@ assert not [o for o in bpy.context.scene.objects if o.type == "ARMATURE"]
 sword = bpy.context.scene.objects["ZM_FRILL_0"]
 assert np.allclose(sword.matrix_world.to_translation()[:], (0, 0, 1), atol=1e-5)
 print("model ok")
+
+
+# Animations: OpenGothic builds a sample's matrix from the conjugate of the stored quaternion, which
+# turns a Biped's pelvis, whose bones run along their node's X axis, to point up the spine.
+fistrun = zenkit_py.read_animation(str(samples / "G2" / "HUMANS-S_FISTRUN.MAN"))
+assert (fistrun["fps"], fistrun["frame_count"], len(fistrun["node_indices"])) == (10.0, 20, 25)
+run = np.frombuffer(fistrun["transforms"], "<f4").reshape(20, 25, 4, 4)
+assert np.allclose((run[0, 0] @ run[0, 1])[:3, 0], (0, 1, 0), atol=1e-3)
+assert 80 < run[0, 0][1, 3] < 95, "the hips are not at hip height"
+
+
+def rotation_z(degrees):
+    c, s = np.cos(np.radians(degrees)), np.sin(np.radians(degrees))
+    m = np.eye(4, dtype="<f4")
+    m[:2, :2] = [[c, -s], [s, c]]
+    return m
+
+
+def model_world(nodes, local):
+    """Every node's transform in the model, from transforms relative to the parents."""
+    world = []
+    for (_, parent, _), m in zip(nodes, local, strict=True):
+        world.append(world[parent] @ m if parent >= 0 else m)
+    return world
+
+
+# Three frames on the biped skeleton: at rest, the spine bent and the hips moved, then the head
+# turned and the helmet's slot pushed off the head, which only the slot's object can show.
+rest = [np.frombuffer(rows, "<f4").reshape(4, 4) for _, _, rows in biped_nodes]
+moving = []
+for frame in range(3):
+    local = [m.copy() for m in rest]
+    if frame >= 1:
+        local[1] = local[1] @ rotation_z(30)
+        local[0][2, 3] += 10
+    if frame == 2:
+        local[2] = local[2] @ rotation_z(-20)
+        local[5][0, 3] += 5
+    moving.append(local)
+moving = np.array(moving, "<f4")
+biped_checksum = zenkit_py.read_model(str(work / "BIPED.MDH"))["checksum"]
+test_anim = {
+    "name": "S_TEST",
+    "next": "S_TEST",
+    "layer": 1,
+    "fps": 25.0,
+    "checksum": biped_checksum,
+    "node_indices": list(range(len(biped_nodes))),
+    "transforms": moving.tobytes(),
+    "bbox": ((-50, 0, -50), (50, 200, 50)),
+}
+zenkit_py.write_animation(str(work / "BIPED-S_TEST.MAN"), test_anim)
+stored = zenkit_py.read_animation(str(work / "BIPED-S_TEST.MAN"))
+# Positions are packed into 16 bits over the range they span, here 0.002 apart.
+assert np.allclose(
+    np.frombuffer(stored["transforms"], "<f4").reshape(moving.shape), moving, atol=2e-3
+)
+
+bpy.ops.object.select_all(action="SELECT")
+bpy.ops.object.delete()
+assert bpy.ops.import_scene.zenkit_model(filepath=str(work / "BIPED.MDH")) == {"FINISHED"}
+biped_rig = bpy.context.active_object
+assert bpy.ops.import_anim.zenkit_animation(filepath=str(work / "BIPED-S_TEST.MAN")) == {"FINISHED"}
+action = biped_rig.animation_data.action
+assert action.get("zenkit_name") == "S_TEST" and tuple(action.frame_range) == (0, 2)
+assert bpy.context.scene.render.fps == 25
+helmet = next(o for o in biped_rig.children_recursive if o.get("zenkit_node") == "ZS_HELMET")
+# Before Blender 4.4 an action animates one object, the armature, so the slot stays on the head.
+shown = moving.copy()
+if not hasattr(bpy.types, "ActionSlot"):
+    shown[:, 5] = rest[5]
+to_blender = np.array([[-1, 0, 0], [0, 0, -1], [0, 1, 0]]) * 0.01
+for frame in range(3):
+    bpy.context.scene.frame_set(frame)
+    expected = [m[:3, 3] @ to_blender.T for m in model_world(biped_nodes, shown[frame])]
+    for (name, _, _), place in zip(biped_nodes, expected, strict=True):
+        if name == "ZS_HELMET":
+            got = (biped_rig.matrix_world.inverted() @ helmet.matrix_world).to_translation()
+        else:
+            got = biped_rig.pose.bones[name].head
+        assert np.allclose(got[:], place, atol=1e-4), (frame, name, got[:], place)
+
+assert bpy.ops.export_anim.zenkit_animation(filepath=str(work / "OUT.MAN")) == {"FINISHED"}
+out = zenkit_py.read_animation(str(work / "OUT.MAN"))
+assert (out["name"], out["next"], out["layer"], out["fps"]) == ("S_TEST", "S_TEST", 1, 25.0)
+assert out["checksum"] == biped_checksum and out["node_indices"] == list(range(6))
+assert np.allclose(np.frombuffer(out["transforms"], "<f4").reshape(moving.shape), shown, atol=3e-3)
+# The box holds every node in every frame, in the engine's space.
+top = max(m[1, 3] for local in shown for m in model_world(biped_nodes, local))
+assert np.allclose(out["bbox"][1][1], top, atol=0.01), out["bbox"]
+
+# A pose made in Blender comes out as the bone's turn relative to its parent.
+bones = biped_rig.pose.bones
+spine = bones["BIP01 SPINE"]
+biped_rig.animation_data.action = None
+for bone in bones:
+    bone.location, bone.rotation_quaternion = (0, 0, 0), (1, 0, 0, 0)
+spine.rotation_quaternion = Quaternion((0, 1, 0), 0.5)
+own = bpy.data.actions.new("T_BEND")
+biped_rig.animation_data.action = own
+if hasattr(own, "slots"):
+    biped_rig.animation_data.action_slot = own.slots.new("OBJECT", biped_rig.name)
+for frame in (0, 4):
+    spine.keyframe_insert("rotation_quaternion", frame=frame)
+assert bpy.ops.export_anim.zenkit_animation(filepath=str(work / "BEND.MAN")) == {"FINISHED"}
+bend = zenkit_py.read_animation(str(work / "BEND.MAN"))
+assert bend["name"] == "T_BEND" and bend["frame_count"] == 5
+bent = np.frombuffer(bend["transforms"], "<f4").reshape(5, 6, 4, 4)
+assert np.allclose(bent[:, 0], moving[0, 0], atol=3e-3), "the hips moved"
+assert np.allclose(bent[:, 1, :3, 3], rest[1][:3, 3], atol=3e-3), "the spine came off the hips"
+# Turned about the bone's Y axis, the spine's own axis, its node turns about its X axis.
+assert np.allclose(bent[0, 1, :3, 0], rest[1][:3, 0], atol=1e-3)
+assert not np.allclose(bent[0, 1, :3, 1], rest[1][:3, 1], atol=1e-2)
+
+# The game's own run, on a stand-in skeleton whose rest pose is its first frame, goes out as it came
+# in: real rotations, through bones turned from their nodes.
+indices = fistrun["node_indices"]
+stand_in = [
+    (
+        f"BIP01 N{i}" if i else "BIP01",
+        i - 1,
+        (run[0, indices.index(i)] if i in indices else np.eye(4, dtype="<f4")).tobytes(),
+    )
+    for i in range(max(indices) + 1)
+]
+stand_in_model = {"nodes": stand_in, "root_translation": None, "soft_skins": [], "attachments": []}
+zenkit_py.write_model(str(work / "RUNNER.MDH"), stand_in_model, "G2")
+bpy.ops.object.select_all(action="SELECT")
+bpy.ops.object.delete()
+assert bpy.ops.import_scene.zenkit_model(filepath=str(work / "RUNNER.MDH")) == {"FINISHED"}
+fistrun_path = samples / "G2" / "HUMANS-S_FISTRUN.MAN"
+assert bpy.ops.import_anim.zenkit_animation(filepath=str(fistrun_path)) == {"FINISHED"}
+assert bpy.ops.export_anim.zenkit_animation(filepath=str(work / "RUNNER.MAN")) == {"FINISHED"}
+runner = zenkit_py.read_animation(str(work / "RUNNER.MAN"))
+assert runner["fps"] == 10.0 and runner["frame_count"] == 20
+again = np.frombuffer(runner["transforms"], "<f4").reshape(20, len(stand_in), 4, 4)[:, indices]
+assert np.allclose(again[..., :3, :3], run[..., :3, :3], atol=1e-3)
+assert np.allclose(again[..., :3, 3], run[..., :3, 3], atol=1e-3)
+print("animation ok")
 
 
 def write_vdf(path, files):

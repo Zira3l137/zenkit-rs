@@ -9,6 +9,7 @@ through zenkit-rs, mostly to try the library's readers and writers on real work:
 | Static meshes (`.MSH`)           | As a mesh, with materials             | The active mesh, polygons as they are    |
 | Multi-resolution meshes (`.MRM`) | As a mesh, with materials             | The active mesh, triangulated            |
 | Models (`.MDL`, `.MDH`, `.MDM`)  | As an armature with its meshes        | The active armature and the meshes on it |
+| Animations (`.MAN`)              | As actions on the active armature     | The active armature's action             |
 
 The entries are under File > Import and File > Export, and the image editor's Image menu.
 
@@ -111,6 +112,29 @@ the node as little as that takes. The turn is kept on the bone (the `zenkit_turn
 the node is exported exactly as it came in. Bones made in Blender are nodes as they are.
 Armatures are drawn in front of their meshes.
 
+## Animations
+
+An animation stores, frame by frame, the transform of some of a skeleton's nodes relative to
+their parent, naming each node by its place in the skeleton. It goes onto the active armature,
+which must have been imported from the skeleton it was made for, so that its bones know their
+place: importing warns when the animation's checksum is not the armature's. Several `.MAN` files
+can be picked at once.
+
+Each animation becomes an action, one key per frame of the file from frame 0 on, with linear
+interpolation as the engine blends between frames. Bones get location and rotation keys. Slots
+and mesh nodes are keyed only when the animation moves them relative to their bone, which needs
+Blender 4.4 or later, whose actions can animate several objects at once; older versions warn and
+leave them where they hang. The action keeps what the engine needs besides the motion as custom
+properties, to edit in the Action's properties: the name it is known by in the game
+(`zenkit_name`), its layer (`zenkit_layer`), the animation played after it (`zenkit_next`) and
+its frame rate (`zenkit_fps`). Importing sets the scene's frame rate to the animation's, which
+Match Frame Rate turns off.
+
+Exporting plays the armature's action over its frame range and stores every node of the skeleton
+in every frame, whatever moves it: keys, constraints or drivers. An action made in Blender works
+too; without the properties, it is exported for layer 1 at the scene's frame rate. The file name
+starts with the model's name, as the game expects: `HUMANS-S_RUN.MAN`.
+
 ## How it works
 
 `src/` is the Python module `zenkit_py`, made with [PyO3](https://pyo3.rs). Every mesh crosses
@@ -132,6 +156,12 @@ itself, which turns that shape into Blender meshes and back.
   should be powers of two, as the game's are; exporting warns when they are not. Exporting
   takes a quality: High searches each 4×4 block for its best two colors, which is slow on large
   detailed images; Fast is many times quicker at the cost of somewhat blotchier detail.
+- **Animations.** Each frame stores a node's rotation as a quaternion and its position. The engine
+  builds the node's matrix from the quaternion's conjugate, as OpenGothic does, so the extension
+  does too, and the result is the same kind of transform as the skeleton's. A root's position in
+  an animation is its whole position, root translation included, so it replaces the rest pose's.
+  The positions are packed into 16 bits over the range they span, so exported ones are within a
+  few hundredths of a millimetre of Blender's for a body-sized range.
 - **Skinning.** Soft skins store, for every vertex, each bone's weight and where the vertex lies
   relative to that bone. The engine draws a skin from those alone, ignoring the positions the mesh
   stores, so a body fits whatever skeleton it is drawn on. Import does the same whenever the
@@ -148,6 +178,9 @@ itself, which turns that shape into Blender meshes and back.
   with (vertex updates, edges) is left empty, and whether the game copes with that is untested.
 - Exported materials get the engine's defaults for everything Blender has no equivalent for, like
   the material group that decides footstep sounds.
-- Animations (`.MAN`), morph meshes (`.MMB`) and worlds are not covered yet.
+- Morph meshes (`.MMB`) and worlds are not covered yet.
+- Animations keep no events of their own: the game's `.MAN` files have none, as the script holds
+  them. Exported animations go out for every node of the skeleton, where the game's leave out
+  nodes nothing moves.
 - The engine's nodes have no length: bones reach the child they point to, and bones without one
   are half as long as their parent's.
