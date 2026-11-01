@@ -1,4 +1,7 @@
-"""Gothic static meshes (.MSH) and multi-resolution meshes (.MRM) to and from Blender meshes."""
+"""Gothic static meshes (.MSH) and multi-resolution meshes (.MRM) to and from Blender meshes.
+
+Morph meshes (.MMB) are imported here too; morph.py builds them.
+"""
 
 from pathlib import Path
 
@@ -6,6 +9,7 @@ import bpy
 import zenkit_py
 
 from . import convert
+from . import morph
 from . import preferences
 
 
@@ -19,14 +23,14 @@ def link(context, obj):
 
 
 class ImportMesh(bpy.types.Operator):
-    """Import a Gothic static mesh (.msh) or multi-resolution mesh (.mrm)"""
+    """Import a Gothic static mesh (.msh), multi-resolution mesh (.mrm) or morph mesh (.mmb)"""
 
     bl_idname = "import_scene.zenkit_mesh"
     bl_label = "Import Gothic Mesh"
     bl_options = {"REGISTER", "UNDO"}
 
     filepath: bpy.props.StringProperty(subtype="FILE_PATH")
-    filter_glob: bpy.props.StringProperty(default="*.msh;*.mrm", options={"HIDDEN"})
+    filter_glob: bpy.props.StringProperty(default="*.msh;*.mrm;*.mmb", options={"HIDDEN"})
     scale: bpy.props.FloatProperty(
         name="Scale", default=0.01, min=1e-6, description="Metres per engine unit"
     )
@@ -38,6 +42,8 @@ class ImportMesh(bpy.types.Operator):
 
     def execute(self, context):
         path = Path(self.filepath)
+        if path.suffix.lower() == ".mmb":
+            return self.import_morph(context, path)
         try:
             if path.suffix.lower() == ".mrm":
                 data = zenkit_py.read_mrm(str(path))
@@ -52,6 +58,19 @@ class ImportMesh(bpy.types.Operator):
         self.report(
             {"INFO"},
             f"Imported {path.name}: {len(mesh.vertices)} vertices, {len(mesh.polygons)} faces",
+        )
+        return {"FINISHED"}
+
+    def import_morph(self, context, path):
+        try:
+            data = zenkit_py.read_morph(str(path))
+        except zenkit_py.ZenKitError as error:
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        obj = morph.build_morph(data["name"] or path.stem, data, self.scale, [path.parent])
+        link(context, obj)
+        self.report(
+            {"INFO"}, f"Imported {path.name}: {len(data['animations'])} animations as shape keys"
         )
         return {"FINISHED"}
 

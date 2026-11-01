@@ -602,6 +602,46 @@ assert np.allclose(again[..., :3, :3], run[..., :3, :3], atol=1e-3)
 assert np.allclose(again[..., :3, 3], run[..., :3, 3], atol=1e-3)
 print("animation ok")
 
+# Morph meshes: a shape key per frame, back out the same.
+bpy.ops.object.select_all(action="SELECT")
+bpy.ops.object.delete()
+assert bpy.ops.import_scene.zenkit_mesh(filepath=str(samples / "morph0.mmb")) == {"FINISHED"}
+bow = bpy.context.active_object
+keys = [k.name for k in bow.data.shape_keys.key_blocks]
+assert (
+    keys[:4] == ["Basis", "S_NORMAL", "S_SHOOT 0", "S_SHOOT 1"] and len(keys) == 1 + 1 + 10 + 1 + 29
+)
+assert bpy.ops.export_scene.zenkit_mmb(filepath=str(work / "BOW.MMB")) == {"FINISHED"}
+original, written = (
+    zenkit_py.read_morph(str(samples / "morph0.mmb")),
+    zenkit_py.read_morph(str(work / "BOW.MMB")),
+)
+assert written["name"] == "ITRWSMALLBOW" and written["sources"] == original["sources"]
+for theirs, ours in zip(original["animations"], written["animations"], strict=True):
+    for key in ("name", "layer", "blend_in", "blend_out", "duration", "speed", "flags", "vertices"):
+        assert theirs[key] == ours[key], (theirs["name"], key)
+    assert np.allclose(
+        np.frombuffer(theirs["samples"], "<f4"), np.frombuffer(ours["samples"], "<f4"), atol=1e-4
+    )
+
+# A vertex moved in a shape key joins its animation; new keys make new animations.
+bow.data.shape_keys.key_blocks["S_READY"].data[3].co.z += 0.1
+new = bow.shape_key_add(name="T_WOBBLE 0", from_mix=False)
+new.data[0].co.x += 0.05
+bow.shape_key_add(name="T_WOBBLE 1", from_mix=False).data[0].co.x -= 0.05
+# The keys' values do not change the mesh that is written.
+bow.data.shape_keys.key_blocks["S_READY"].value = 1.0
+assert bpy.ops.export_scene.zenkit_mmb(filepath=str(work / "BOW2.MMB")) == {"FINISHED"}
+edited = zenkit_py.read_morph(str(work / "BOW2.MMB"))
+assert edited["mesh"]["positions"] == written["mesh"]["positions"]
+ready = next(a for a in edited["animations"] if a["name"] == "S_READY")
+assert list(np.frombuffer(ready["vertices"], "<u4")) == [3, 25, 26, 27]
+assert np.allclose(np.frombuffer(ready["samples"], "<f4").reshape(-1, 3)[0], (0, 10, 0), atol=1e-3)
+wobble = edited["animations"][-1]
+assert (wobble["name"], wobble["frame_count"], wobble["flags"]) == ("T_WOBBLE", 2, 0)
+assert list(np.frombuffer(wobble["vertices"], "<u4")) == [0]
+print("morph ok")
+
 
 def write_vdf(path, files):
     """A .VDF of the given name-to-bytes files, all in its root."""

@@ -6,6 +6,7 @@ import bpy
 from . import animation
 from . import mesh
 from . import model
+from . import morph
 from . import preferences
 from . import texture
 
@@ -16,6 +17,7 @@ CLASSES = (
     mesh.ImportMesh,
     mesh.ExportMsh,
     mesh.ExportMrm,
+    morph.ExportMmb,
     model.ImportModel,
     model.ExportModel,
     animation.ImportAnimation,
@@ -25,7 +27,7 @@ CLASSES = (
 
 def menu_import(self, context):
     self.layout.operator(texture.ImportTexture.bl_idname, text="Gothic Texture (.tex)")
-    self.layout.operator(mesh.ImportMesh.bl_idname, text="Gothic Mesh (.msh, .mrm)")
+    self.layout.operator(mesh.ImportMesh.bl_idname, text="Gothic Mesh (.msh, .mrm, .mmb)")
     self.layout.operator(model.ImportModel.bl_idname, text="Gothic Model (.mdl, .mdh, .mdm)")
     self.layout.operator(animation.ImportAnimation.bl_idname, text="Gothic Animation (.man)")
 
@@ -34,6 +36,7 @@ def menu_export(self, context):
     self.layout.operator(texture.ExportTexture.bl_idname, text="Gothic Texture (.tex)")
     self.layout.operator(mesh.ExportMsh.bl_idname, text="Gothic Static Mesh (.msh)")
     self.layout.operator(mesh.ExportMrm.bl_idname, text="Gothic Multi-Resolution Mesh (.mrm)")
+    self.layout.operator(morph.ExportMmb.bl_idname, text="Gothic Morph Mesh (.mmb)")
     self.layout.operator(model.ExportModel.bl_idname, text="Gothic Model (.mdl, .mdh, .mdm)")
     self.layout.operator(animation.ExportAnimation.bl_idname, text="Gothic Animation (.man)")
 

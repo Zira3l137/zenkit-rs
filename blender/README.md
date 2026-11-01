@@ -9,6 +9,7 @@ through zenkit-rs, mostly to try the library's readers and writers on real work:
 | Static meshes (`.MSH`)           | As a mesh, with materials             | The active mesh, polygons as they are    |
 | Multi-resolution meshes (`.MRM`) | As a mesh, with materials             | The active mesh, triangulated            |
 | Models (`.MDL`, `.MDH`, `.MDM`)  | As an armature with its meshes        | The active armature and the meshes on it |
+| Morph meshes (`.MMB`)            | As a mesh with shape keys             | The active mesh and its shape keys       |
 | Animations (`.MAN`)              | As actions on the active armature     | The active armature's action             |
 
 The entries are under File > Import and File > Export, and the image editor's Image menu.
@@ -135,6 +136,18 @@ in every frame, whatever moves it: keys, constraints or drivers. An action made 
 too; without the properties, it is exported for layer 1 at the scene's frame rate. The file name
 starts with the model's name, as the game expects: `HUMANS-S_RUN.MAN`.
 
+## Morph meshes
+
+A morph mesh is a mesh whose vertices animations move, like a talking face or a flag in the wind.
+Each frame of an animation becomes a shape key, named after the animation when it has one frame
+(`S_NORMAL`) or followed by the frame's number when it has more (`S_SHOOT 0`, `S_SHOOT 1`…).
+Exporting does the reverse, whatever the keys' values are. The rest of what the engine needs of
+each animation is kept as the mesh's `zenkit_morph_animations` custom property, to edit there:
+its layer, blend times, speed, duration and flags, and which vertices it moves, so that ones it
+lists but leaves where they are stay in it. Vertices moved in Blender join their animation, and
+shape keys of an animation it does not know export as a new one, with settings like the game's:
+a single-frame one holds its shape until stopped, a longer one plays once at 25 frames a second.
+
 ## How it works
 
 `src/` is the Python module `zenkit_py`, made with [PyO3](https://pyo3.rs). Every mesh crosses
@@ -178,9 +191,10 @@ itself, which turns that shape into Blender meshes and back.
   with (vertex updates, edges) is left empty, and whether the game copes with that is untested.
 - Exported materials get the engine's defaults for everything Blender has no equivalent for, like
   the material group that decides footstep sounds.
-- Morph meshes (`.MMB`) and worlds are not covered yet.
+- Worlds are not covered yet.
 - Animations keep no events of their own: the game's `.MAN` files have none, as the script holds
   them. Exported animations go out for every node of the skeleton, where the game's leave out
   nodes nothing moves.
+- Morph meshes' reduced detail is left out, as for `.MRM`.
 - The engine's nodes have no length: bones reach the child they point to, and bones without one
   are half as long as their parent's.
