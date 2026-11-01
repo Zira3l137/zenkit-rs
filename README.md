@@ -53,6 +53,9 @@ Writing is being added format by format. So far these can be written:
 | `.MSH`                 | `Mesh::to_bytes`, or `Mesh::write` for the mesh inside a world         |
 | `.MRM`                 | `MultiResolutionMesh::to_bytes`                                        |
 | `.MDH`, `.MDM`, `.MDL` | `ModelHierarchy`, `ModelMesh` and `Model::to_bytes`                    |
+| `.MMB`                 | `MorphMesh::to_bytes`                                                  |
+| `.MAN`                 | `ModelAnimation::to_bytes`, after `fit_sample_positions` for new ones  |
+| `.MDS`, `.MSB`         | `ModelScript::to_mds` and `ModelScript::to_msb`                        |
 | Cutscene libraries     | `CutsceneLibrary::to_bytes`, as `OU.BIN` or `OU.CSL`                   |
 | `.ZEN` worlds          | `World::to_bytes`, or `Vobs::write` for a single VOB                   |
 

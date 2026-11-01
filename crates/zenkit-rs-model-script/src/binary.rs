@@ -99,7 +99,10 @@ pub(super) fn read(data: &[u8]) -> Result<ModelScript> {
             CHUNK_ROOT | CHUNK_MODEL | CHUNK_MODEL_END | CHUNK_ANI_ENUM | CHUNK_ANI_ENUM_END => {}
             CHUNK_SOURCE => {
                 let date = Date::read(c)?;
-                script.source = Some(ScriptSource { date, path: string(c) });
+                let path = string(c);
+                let file = path.rsplit(['\\', '/']).next().unwrap_or_default();
+                script.name = file.rsplit_once('.').map_or(file, |(stem, _)| stem).to_owned();
+                script.source = Some(ScriptSource { date, path });
             }
             CHUNK_MESH_AND_TREE => {
                 let disable_mesh = c.u32()? != 0;

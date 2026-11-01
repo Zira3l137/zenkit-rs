@@ -422,6 +422,9 @@ pub struct ScriptSource {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ModelScript {
+    /// The name in `Model("HUMANS")`. Compiled scripts do not store it, so theirs is the name of
+    /// their source file.
+    pub name: String,
     /// `None` if the script does not name one.
     pub skeleton: Option<Skeleton>,
     /// The meshes that can be put on the skeleton (`registerMesh`).
@@ -472,6 +475,16 @@ impl ModelScript {
     /// Finds an animation by name, ignoring ASCII case like the engine does.
     pub fn animation(&self, name: &str) -> Option<&Animation> {
         self.animations().find(|a| a.name.eq_ignore_ascii_case(name))
+    }
+
+    /// Writes the script as source, a `.MDS` file, laid out like the game's: one statement per
+    /// line, and an animation's events in braces below it, with Windows line endings.
+    ///
+    /// Values left at their defaults are left out, like `FPS:25`. Fails if the script holds
+    /// chunks of a compiled script this crate does not know, which have no source form, if a text
+    /// has a quote, a line break or characters beyond Latin-1, or if a number is not finite.
+    pub fn to_mds(&self) -> Result<Vec<u8>> {
+        source::write(self)
     }
 
     /// Writes the script compiled, as a `.MSB` file.

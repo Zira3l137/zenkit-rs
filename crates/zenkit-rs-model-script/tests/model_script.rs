@@ -71,6 +71,7 @@ fn source() {
         ]
     );
     assert_eq!(script.source, None);
+    assert_eq!(script.name, "TestModel");
 
     let kinds: Vec<_> = script
         .statements
@@ -254,6 +255,7 @@ fn compiled() {
     let source = script.source.as_ref().unwrap();
     assert_eq!(source.path, "\\_WORK\\DATA\\ANIMS\\WARAN.MDS");
     assert_eq!((source.date.year, source.date.month, source.date.day), (2002, 8, 28));
+    assert_eq!(script.name, "WARAN");
 
     assert_eq!(script.statements.len(), 62 + 38 + 17 + 1);
     // The script starts with an alias, as written.
@@ -345,6 +347,8 @@ fn source_compiles_to_what_it_reads() {
     let back = ModelScript::from_bytes(&script.to_msb().unwrap()).unwrap();
     let mut expected = script.clone();
     expected.source = Some(ScriptSource::default());
+    // Compiled scripts take their name from the source file, which this one lacks.
+    expected.name = String::new();
     // Compiled scripts do not store ATTACH on tags.
     for statement in &mut expected.statements {
         let events = match statement {
@@ -376,4 +380,82 @@ fn scripts_that_cannot_be_compiled_fail() {
 
     let script = ModelScript { meshes: vec!["A\nB".into()], ..ModelScript::default() };
     assert!(script.to_msb().unwrap_err().to_string().contains("line break"));
+}
+
+#[test]
+fn compiled_scripts_decompile_to_what_they_read() {
+    let script = ModelScript::from_bytes(&sample("waran.msb")).unwrap();
+    let source = script.to_mds().unwrap();
+    let back = ModelScript::from_bytes(&source).unwrap();
+    assert_eq!(back, ModelScript { source: None, ..script.clone() });
+
+    // Laid out like the game's scripts.
+    let text = String::from_utf8(source).unwrap();
+    let start = [
+        "Model (\"WARAN\")",
+        "{",
+        "\tmeshAndTree (\"WAR_BODY\" DONT_USE_MESH)",
+        "",
+        "\tregisterMesh (\"WAR_BODY.ASC\")",
+        "\tregisterMesh (\"WAR_FIRE_BODY.ASC\")",
+        "",
+        "\taniEnum",
+        "\t{",
+        "\t\taniAlias (\"S_FISTRUN\" 1 \"S_FISTRUN\" 0.0 0.0 MI \"S_FISTWALK\" F)",
+        "\t\tani (\"T_FISTRUN_2_FISTRUNL\" 1 \"S_FISTRUNL\" 0.0 0.0 M. \"WARAN_RUN_KM01.ASC\" F 1 8)",
+        "\t\t{",
+        "\t\t\t*eventSFXGrnd (5 \"SNEAK\" EMPTY_SLOT)",
+        "\t\t}",
+        "",
+    ]
+    .join("\r\n");
+    assert!(text.starts_with(&start), "{text}");
+    assert!(text.contains("\t\t\t*eventTag (0 \"DEF_WINDOW\" \"8\t15\")\r\n"), "{text}");
+    assert!(text.contains("\t\t\t*eventSFX (7 \"WAR_ATTACK\" R:2500)\r\n"), "{text}");
+    assert!(text.ends_with("\t}\r\n}\r\n"), "{text}");
+}
+
+#[test]
+fn source_scripts_write_back_what_they_read() {
+    let script = ModelScript::from_bytes(&sample("waran.mds")).unwrap();
+    let back = ModelScript::from_bytes(&script.to_mds().unwrap()).unwrap();
+    assert_eq!(back, script);
+
+    let mut morph = ModelScript { name: "HEAD".into(), ..ModelScript::default() };
+    morph.statements.push(Statement::Animation(Animation {
+        name: "T_HURT".into(),
+        fps: 10.0,
+        speed: 0.5,
+        collision_volume_scale: 1.0,
+        events: vec![Event::Morph(MorphAnimation {
+            frame: 1,
+            animation: "R_HURT".into(),
+            intensity: 0.75,
+            hold_time: 2.0,
+            ..MorphAnimation::default()
+        })],
+        ..Animation::default()
+    }));
+    let source = morph.to_mds().unwrap();
+    let text = String::from_utf8_lossy(&source);
+    assert!(text.contains("F 0 0 FPS:10 SPD:0.5)\r\n"), "{text}");
+    assert!(text.contains("*eventMMStartAni (1 \"R_HURT\" I:0.75 H:2)\r\n"), "{text}");
+    assert_eq!(ModelScript::from_bytes(&source).unwrap(), morph);
+}
+
+#[test]
+fn scripts_without_a_source_form_fail() {
+    let mut script = ModelScript::default();
+    script.statements.push(Statement::Unknown(RawChunk { id: 0xF510, data: vec![0; 4] }));
+    let error = script.to_mds().unwrap_err().to_string();
+    assert!(error.contains("0xf510 has no source form"), "{error}");
+
+    let script = ModelScript { meshes: vec!["A\"B.ASC".into()], ..ModelScript::default() };
+    assert!(script.to_mds().unwrap_err().to_string().contains("quote"));
+
+    let mut script = ModelScript::default();
+    script
+        .statements
+        .push(Statement::Blend(AnimationBlend { blend_in: f32::NAN, ..AnimationBlend::default() }));
+    assert!(script.to_mds().unwrap_err().to_string().contains("not a number"));
 }

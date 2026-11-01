@@ -306,7 +306,7 @@ impl<'a> Parser<'a> {
         if !is(t, "Model") {
             return Err(self.error(t, "expected `Model`"));
         }
-        let _name = self.string()?;
+        script.name = self.string()?;
         self.expect(Kind::LBrace)?;
 
         while !self.block_ends() {
@@ -572,6 +572,228 @@ impl<'a> Parser<'a> {
 
 pub(super) fn parse(src: &[u8]) -> Result<ModelScript> {
     Parser { lexer: Lexer { src, pos: 0, last: None } }.script()
+}
+
+/// Writes a script as source. Texts and numbers are checked as they are written; the first
+/// problem is kept and returned at the end.
+pub(super) fn write(script: &ModelScript) -> Result<Vec<u8>> {
+    let mut w = Source { out: Vec::new(), error: None };
+
+    let name = w.checked(&script.name);
+    w.line(0, &format!("Model ({name})"));
+    w.line(0, "{");
+    if let Some(skeleton) = &script.skeleton {
+        let flag = if skeleton.disable_mesh { " DONT_USE_MESH" } else { "" };
+        let name = w.checked(&skeleton.name);
+        w.line(1, &format!("meshAndTree ({name}{flag})"));
+    }
+    if !script.meshes.is_empty() {
+        w.line(0, "");
+        for mesh in &script.meshes {
+            let mesh = w.checked(mesh);
+            w.line(1, &format!("registerMesh ({mesh})"));
+        }
+    }
+    w.line(0, "");
+    w.line(1, "aniEnum");
+    w.line(1, "{");
+    for statement in &script.statements {
+        let line = w.statement(statement);
+        w.line(2, &line);
+        let events = statement.events();
+        if !events.is_empty() {
+            w.line(2, "{");
+            for event in events {
+                let line = w.event(event);
+                w.line(3, &line);
+            }
+            w.line(2, "}");
+        }
+    }
+    w.line(1, "}");
+    w.line(0, "}");
+
+    match w.error {
+        Some(error) => Err(error),
+        None => Ok(w.out),
+    }
+}
+
+struct Source {
+    out: Vec<u8>,
+    error: Option<Error>,
+}
+
+impl Source {
+    fn fail(&mut self, reason: String) {
+        self.error.get_or_insert(Error::unwritable(FORMAT, reason));
+    }
+
+    fn line(&mut self, depth: usize, text: &str) {
+        if !text.is_empty() {
+            self.out.extend(std::iter::repeat_n(b'\t', depth));
+        }
+        match text::to_latin1(text) {
+            Some(bytes) => self.out.extend(bytes),
+            None => self.fail(format!("{text:?} has characters beyond Latin-1")),
+        }
+        self.out.extend(b"\r\n");
+    }
+
+    /// A quoted string, which ends at a quote or a line break, so cannot hold either.
+    fn string(&self, text: &str) -> String {
+        format!("\"{text}\"")
+    }
+
+    fn checked(&mut self, text: &str) -> String {
+        if text.contains(['"', '\r', '\n', '\0']) {
+            self.fail(format!("{text:?} has a quote or a line break"));
+        }
+        self.string(text)
+    }
+
+    /// A number as scripts write it, shortest first, with a decimal point when it has no
+    /// fraction, like `0.0` or `0.25`.
+    fn float(&mut self, value: f32) -> String {
+        let text = self.named_float(value);
+        if text.contains('.') { text } else { format!("{text}.0") }
+    }
+
+    /// A number after a name, like `FPS:25`, which leaves out a fraction that is zero.
+    fn named_float(&mut self, value: f32) -> String {
+        if !value.is_finite() {
+            self.fail(format!("{value} is not a number scripts can hold"));
+        }
+        value.to_string()
+    }
+
+    fn statement(&mut self, statement: &Statement) -> String {
+        match statement {
+            Statement::Animation(a) => {
+                let mut line = format!(
+                    "ani ({} {} {} {} {} {} {} {} {} {}",
+                    self.checked(&a.name),
+                    a.layer,
+                    self.checked(&a.next),
+                    self.float(a.blend_in),
+                    self.float(a.blend_out),
+                    a.flags.to_text(),
+                    self.checked(&a.model),
+                    a.direction.to_text(),
+                    a.first_frame,
+                    a.last_frame,
+                );
+                if a.fps != 25.0 {
+                    line += &format!(" FPS:{}", self.named_float(a.fps));
+                }
+                if a.speed != 0.0 {
+                    line += &format!(" SPD:{}", self.named_float(a.speed));
+                }
+                if a.collision_volume_scale != 1.0 {
+                    line += &format!(" CVS:{}", self.named_float(a.collision_volume_scale));
+                }
+                line + ")"
+            }
+            Statement::Alias(a) => format!(
+                "aniAlias ({} {} {} {} {} {} {} {})",
+                self.checked(&a.name),
+                a.layer,
+                self.checked(&a.next),
+                self.float(a.blend_in),
+                self.float(a.blend_out),
+                a.flags.to_text(),
+                self.checked(&a.alias),
+                a.direction.to_text(),
+            ),
+            Statement::Blend(b) => format!(
+                "aniBlend ({} {} {} {})",
+                self.checked(&b.name),
+                self.checked(&b.next),
+                self.float(b.blend_in),
+                self.float(b.blend_out),
+            ),
+            Statement::Combination(c) => format!(
+                "aniComb ({} {} {} {} {} {} {} {})",
+                self.checked(&c.name),
+                c.layer,
+                self.checked(&c.next),
+                self.float(c.blend_in),
+                self.float(c.blend_out),
+                c.flags.to_text(),
+                self.checked(&c.model),
+                c.last_frame,
+            ),
+            Statement::Disable(name) => format!("aniDisable ({})", self.checked(name)),
+            Statement::ModelTag(tag) => {
+                // The shipped scripts leave out a model tag's frame, which is always zero there.
+                let frame = if tag.frame == 0 { String::new() } else { format!("{} ", tag.frame) };
+                format!("modelTag ({frame}{})", self.tag_arguments(tag))
+            }
+            Statement::Unknown(raw) => {
+                let id = raw.id;
+                self.fail(format!("compiled chunk {id:#06x} has no source form"));
+                String::new()
+            }
+        }
+    }
+
+    /// A tag's name, arguments and `ATTACH`.
+    fn tag_arguments(&mut self, tag: &EventTag) -> String {
+        let mut parts = vec![self.checked(&tag.name)];
+        parts.extend(tag.arguments.iter().map(|a| self.checked(a)));
+        if tag.attached {
+            parts.push("ATTACH".into());
+        }
+        parts.join(" ")
+    }
+
+    fn event(&mut self, event: &Event) -> String {
+        let sound = |w: &mut Self, keyword: &str, s: &SoundEffect| {
+            let mut line = format!("{keyword} ({} {}", s.frame, w.checked(&s.name));
+            if s.range != 1000.0 {
+                line += &format!(" R:{}", w.named_float(s.range));
+            }
+            if s.empty_slot {
+                line += " EMPTY_SLOT";
+            }
+            line + ")"
+        };
+        match event {
+            Event::Tag(tag) => format!("*eventTag ({} {})", tag.frame, self.tag_arguments(tag)),
+            Event::Sound(s) => sound(self, "*eventSFX", s),
+            Event::GroundSound(s) => sound(self, "*eventSFXGrnd", s),
+            Event::Particle(p) => {
+                let index = if p.index == 0 { String::new() } else { format!(" {}", p.index) };
+                let attach = if p.attached { " ATTACH" } else { "" };
+                let (name, position) = (self.checked(&p.name), self.checked(&p.position));
+                format!("*eventPFX ({}{index} {name} {position}{attach})", p.frame)
+            }
+            Event::ParticleStop(p) => format!("*eventPFXStop ({} {})", p.frame, p.index),
+            Event::Morph(m) => {
+                let mut line =
+                    format!("*eventMMStartAni ({} {}", m.frame, self.checked(&m.animation));
+                if !m.node.is_empty() {
+                    line += &format!(" {}", self.checked(&m.node));
+                }
+                if m.intensity != 0.0 {
+                    line += &format!(" I:{}", self.named_float(m.intensity));
+                }
+                if m.hold_time != 0.0 {
+                    line += &format!(" H:{}", self.named_float(m.hold_time));
+                }
+                line + ")"
+            }
+            Event::Tremor(t) => format!(
+                "*eventCamTremor ({} {} {} {} {})",
+                t.frame, t.range, t.duration, t.min_amplifier, t.max_amplifier
+            ),
+            Event::Unknown(raw) => {
+                let id = raw.id;
+                self.fail(format!("compiled event chunk {id:#06x} has no source form"));
+                String::new()
+            }
+        }
+    }
 }
 
 #[cfg(test)]
