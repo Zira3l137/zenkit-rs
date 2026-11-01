@@ -159,6 +159,12 @@ script registers on it (Meshes picks all or none instead), and an action per ani
 Animations field picks which by name, with `*` for anything (`S_*RUN*`), since the humans' script
 names over a thousand.
 
+The skeleton is looked for under the name the engine compiles it with. When the script leaves out
+the mesh of its `meshAndTree` source (`DONT_USE_MESH`), that's the model's name: `HUMANS.MDS` has
+`meshAndTree ("HUM_BODY_NAKED0.ASC" DONT_USE_MESH)`, and its skeleton is `HUMANS.MDH`, while
+`HUM_BODY_NAKED0.MDM` is only a body. Otherwise it's the source's name, with its mesh in a `.MDM`
+of the same name, or both in a `.MDL`.
+
 The script itself becomes a text in the Text Editor, as source, to edit there; a compiled
 `.MSB` is turned into source on the way. Exporting writes the text as a compiled `.MSB` or as
 source (`.MDS`), by the file's extension, and with Export Animations, each of its `ani`

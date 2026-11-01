@@ -65,25 +65,30 @@ def import_script(context, path, scale, meshes="FIRST", pattern="*"):
     `pattern`. Gives the armature, the actions and the names of the animations not found."""
     info = zenkit_py.read_script(str(path))
     folders = folders_for(path)
-    if not info["skeleton"]:
-        raise LookupError(f"{path.name} names no skeleton")
-    skeleton_name = stem(info["skeleton"])
-    kinds = (".MDH",) if info["disable_mesh"] else (".MDL", ".MDH")
+    model = info["name"].upper()
+    tree = stem(info["skeleton"]) if info["skeleton"] else None
+    # Named as the engine compiles them (OpenGothic's Resources::implLoadMesh): a skeleton whose
+    # own mesh is left out under the model's name, HUMANS.MDH for meshAndTree("HUM_BODY_NAKED0.ASC"
+    # DONT_USE_MESH); one with it under the source's, its mesh in a .MDM of that name or with it
+    # in a .MDL. The other name is tried after.
+    names = [model] if info["disable_mesh"] or tree is None else [tree]
+    names += [name for name in (tree, model) if name is not None and name not in names]
+    tried = [name + kind for name in names for kind in (".MDH", ".MDL")]
     skeleton = next(
-        (data for kind in kinds if (data := load_model(skeleton_name + kind, folders))), None
+        (data for name in tried if (data := load_model(name, folders)) and data["nodes"]), None
     )
-    if skeleton is None or not skeleton["nodes"]:
-        raise LookupError(f"the skeleton {skeleton_name} was not found")
+    if skeleton is None:
+        raise LookupError(f"no skeleton was found; looked for {', '.join(tried)}")
 
     rig = build_skeleton(context, info["name"], skeleton, scale)
     armature = rig.armature
     armature.data[animation.MODEL] = info["name"]
     worn = [] if info["disable_mesh"] else [skeleton]
     if not info["disable_mesh"] and not skeleton["soft_skins"] and not skeleton["attachments"]:
-        worn.append(load_model(skeleton_name + ".MDM", folders))
+        worn.append(load_model(tree + ".MDM", folders))
     registered = {"FIRST": info["meshes"][:1], "ALL": info["meshes"], "NONE": []}[meshes]
     if not info["disable_mesh"]:
-        registered = [name for name in registered if stem(name) != skeleton_name]
+        registered = [name for name in registered if stem(name) != tree]
     worn += [load_model(stem(name) + ".MDM", folders) for name in registered]
     for data in worn:
         if data is not None:

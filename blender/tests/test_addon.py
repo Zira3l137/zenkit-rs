@@ -646,7 +646,7 @@ print("morph ok")
 # to it, and the script itself as a text.
 script_source = """Model ("BIPED")
 {
-	meshAndTree ("BIPED" DONT_USE_MESH)
+	meshAndTree ("HUM_BODY_NAKED0.ASC" DONT_USE_MESH)
 	registerMesh ("BIPED_BODY.ASC")
 
 	aniEnum
@@ -661,10 +661,14 @@ script_source = """Model ("BIPED")
 """
 zenkit_py.write_script(str(work / "BIPED.MSB"), script_source)
 info = zenkit_py.read_script(str(work / "BIPED.MSB"))
-assert (info["name"], info["skeleton"], info["disable_mesh"]) == ("BIPED", "BIPED", True)
+assert (info["name"], info["disable_mesh"]) == ("BIPED", True)
+assert info["skeleton"].upper().startswith("HUM_BODY_NAKED0")
 assert [a["name"] for a in info["animations"]] == ["S_TEST", "S_GONE"]
 assert info["animations"][0]["fps"] == 10.0 and "*eventSFX" in info["text"]
 
+# As in HUMANS.MDS, the skeleton's source is a body whose mesh is left out, so the compiled
+# skeleton is named after the model, BIPED.MDH, while a mesh of the source's name lies beside it.
+shutil.copy(work / "BIPED_BODY.MDM", work / "HUM_BODY_NAKED0.MDM")
 bpy.ops.object.select_all(action="SELECT")
 bpy.ops.object.delete()
 assert bpy.ops.import_scene.zenkit_script(filepath=str(work / "BIPED.MSB")) == {"FINISHED"}
@@ -703,7 +707,7 @@ try:
         filepath=str(samples / "G2" / "ALLIGATOR.MSB"), pattern="R_AGRESSIVE"
     )
 except RuntimeError as error:
-    assert "KRO_BODY" in str(error), error
+    assert "ALLIGATOR.MDH" in str(error), error
     print("game script skipped: the alligator's skeleton is not in the game's archives")
 else:
     alligator = bpy.context.active_object
