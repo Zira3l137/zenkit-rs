@@ -13,15 +13,20 @@
 //!                   "model", "direction", "first_frame", "last_frame", "fps", "speed",
 //!                   "collision_volume_scale"}, one per `ani`, which each have a `.MAN` file
 //! ```
+//!
+//! [`update_script`] writes the settings of the animations Blender holds into a script's text.
 
 use std::path::PathBuf;
 
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use zenkit::Date;
+use zenkit::model_script::Animation;
+use zenkit::model_script::AnimationFlags;
 use zenkit::model_script::Direction;
 use zenkit::model_script::ModelScript;
 use zenkit::model_script::ScriptSource;
+use zenkit::model_script::Statement;
 
 use crate::fail;
 use crate::invalid;
@@ -64,6 +69,79 @@ pub(crate) fn write_script(path: PathBuf, text: &str) -> PyResult<()> {
         }
     };
     write(&path, &bytes.map_err(fail)?)
+}
+
+#[derive(FromPyObject)]
+#[pyo3(from_item_all)]
+pub(crate) struct AnimationSettings {
+    name: String,
+    layer: u32,
+    next: String,
+    blend_in: f32,
+    blend_out: f32,
+    /// The flag letters, like `MI`.
+    flags: String,
+    fps: f32,
+    frames: u32,
+}
+
+/// The source text of a script with each of `animations` written into its `ani` of the same
+/// name, or added as a new `ani` at the end of the animations if it has none. Everything else,
+/// events included, stays as it was.
+#[pyfunction]
+pub(crate) fn update_script(text: &str, animations: Vec<AnimationSettings>) -> PyResult<String> {
+    let mut script = parse(text)?;
+    for settings in animations {
+        let found = script.statements.iter_mut().find_map(|s| match s {
+            Statement::Animation(a) if a.name.eq_ignore_ascii_case(&settings.name) => Some(a),
+            _ => None,
+        });
+        let anim = match found {
+            Some(anim) => anim,
+            None => {
+                let last_frame = settings.frames.saturating_sub(1) as i32;
+                let new = Animation {
+                    name: settings.name.clone(),
+                    model: format!("{}.ASC", settings.name),
+                    last_frame,
+                    speed: 0.0,
+                    collision_volume_scale: 1.0,
+                    ..Animation::default()
+                };
+                script.statements.push(Statement::Animation(new));
+                let Some(Statement::Animation(anim)) = script.statements.last_mut() else {
+                    unreachable!()
+                };
+                anim
+            }
+        };
+        anim.layer = settings.layer;
+        anim.next = settings.next;
+        anim.blend_in = settings.blend_in;
+        anim.blend_out = settings.blend_out;
+        anim.fps = settings.fps;
+        let flags = flags_of(&settings.flags);
+        // An unchanged spelling of the same flags, like `M.` rather than `M`, is kept.
+        if flags != anim.flags {
+            anim.flags = flags;
+            anim.flags_text = String::new();
+        }
+    }
+    let bytes = script.to_mds().map_err(fail)?;
+    Ok(bytes.iter().map(|&b| char::from(b)).collect())
+}
+
+fn flags_of(letters: &str) -> AnimationFlags {
+    let flag = |c: char| match c.to_ascii_uppercase() {
+        'M' => AnimationFlags::MOVE,
+        'R' => AnimationFlags::ROTATE,
+        'E' => AnimationFlags::QUEUE,
+        'F' => AnimationFlags::FLY,
+        'I' => AnimationFlags::IDLE,
+        'P' => AnimationFlags::IN_PLACE,
+        _ => AnimationFlags::empty(),
+    };
+    letters.chars().map(flag).collect()
 }
 
 fn parse(text: &str) -> PyResult<ModelScript> {

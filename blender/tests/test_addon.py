@@ -529,7 +529,8 @@ assert bpy.ops.import_scene.zenkit_model(filepath=str(work / "BIPED.MDH")) == {"
 biped_rig = bpy.context.active_object
 assert bpy.ops.import_anim.zenkit_animation(filepath=str(work / "BIPED-S_TEST.MAN")) == {"FINISHED"}
 action = biped_rig.animation_data.action
-assert action.get("zenkit_name") == "S_TEST" and tuple(action.frame_range) == (0, 2)
+assert action.zenkit.name == "S_TEST" and tuple(action.frame_range) == (0, 2)
+assert action.zenkit.model == "BIPED" and action.zenkit.fps == 25.0
 assert bpy.context.scene.render.fps == 25
 helmet = next(o for o in biped_rig.children_recursive if o.get("zenkit_node") == "ZS_HELMET")
 # Before Blender 4.4 an action animates one object, the armature, so the slot stays on the head.
@@ -605,6 +606,47 @@ assert np.allclose(again[..., :3, :3], run[..., :3, :3], atol=1e-3)
 assert np.allclose(again[..., :3, 3], run[..., :3, 3], atol=1e-3)
 print("animation ok")
 
+
+class Layout:
+    """Stands in for a panel's layout, checking every call against Blender's: that layouts have
+    the function, that it takes those keywords, and that the properties, lists and operators it
+    names exist. Panels are never drawn in the background, so this is how they are tried."""
+
+    def __getattr__(self, name):
+        function = bpy.types.UILayout.bl_rna.functions.get(name)
+        assert function is not None, f"layouts have no {name}"
+        keywords = set(function.parameters.keys())
+
+        def call(*args, **kwargs):
+            assert set(kwargs) <= keywords, (name, set(kwargs) - keywords)
+            if name in ("prop", "template_ID"):
+                assert args[1] in args[0].bl_rna.properties, (name, args[1])
+            if name == "template_list":
+                assert args[3] in args[2].bl_rna.properties, args[3]
+                assert args[5] in args[4].bl_rna.properties, args[5]
+            if name == "operator" or "new" in kwargs:
+                module, operator = (args[0] if name == "operator" else kwargs["new"]).split(".")
+                getattr(getattr(bpy.ops, module), operator).get_rna_type()
+            return Layout()
+
+        return call
+
+
+ui = sys.modules[package + ".ui"]
+
+
+def draw_panels():
+    """Draws every panel of the Gothic tab that shows for the active object."""
+    drawn = []
+    for panel in (c for c in ui.CLASSES if issubclass(c, bpy.types.Panel)):
+        parent = getattr(ui, getattr(panel, "bl_parent_id", ""), None)
+        shown = getattr(parent or panel, "poll", lambda context: True)(bpy.context)
+        if shown:
+            panel.draw(types.SimpleNamespace(layout=Layout()), bpy.context)
+            drawn.append(panel.bl_label)
+    return drawn
+
+
 # Morph meshes: a shape key per frame, back out the same.
 bpy.ops.object.select_all(action="SELECT")
 bpy.ops.object.delete()
@@ -617,6 +659,9 @@ assert (
 # The keys start at 0, so the mesh shows its rest shape.
 reference = bow.data.shape_keys.reference_key
 assert all(k.value == 0.0 for k in bow.data.shape_keys.key_blocks if k != reference)
+shoot = bow.data.zenkit_morph.animations["S_SHOOT"]
+assert (shoot.layer, shoot.fps, shoot.until_stopped, shoot.repeat) == (1, 25.0, False, False)
+assert np.isclose(shoot.duration, 0.4)
 assert bpy.ops.export_scene.zenkit_mmb(filepath=str(work / "BOW.MMB")) == {"FINISHED"}
 original, written = (
     zenkit_py.read_morph(str(samples / "morph0.mmb")),
@@ -646,10 +691,34 @@ assert np.allclose(np.frombuffer(ready["samples"], "<f4").reshape(-1, 3)[0], (0,
 wobble = edited["animations"][-1]
 assert (wobble["name"], wobble["frame_count"], wobble["flags"]) == ("T_WOBBLE", 2, 0)
 assert list(np.frombuffer(wobble["vertices"], "<u4")) == [0]
+
+# The Morph Mesh panel: an animation of two frames made there, the selected frame shown and edited,
+# and exported into the export folder.
+morph_out = work / "panel_morph"
+morph_out.mkdir()
+bpy.context.scene.zenkit.folder = str(morph_out)
+assert bpy.ops.zenkit.new_morph_animation(name="t_blink") == {"FINISHED"}
+assert bpy.ops.zenkit.add_morph_frame() == {"FINISHED"}
+blink_keys = [k.name for k in bow.data.shape_keys.key_blocks if k.name.startswith("T_BLINK")]
+assert blink_keys == ["T_BLINK 0", "T_BLINK 1"] and bow.data.zenkit_morph.frame == 1
+assert bow.active_shape_key.name == "T_BLINK 1" and bow.active_shape_key.value == 1.0
+others = [k for k in bow.data.shape_keys.key_blocks if k not in (bow.active_shape_key, reference)]
+assert all(k.value == 0.0 for k in others)
+bow.active_shape_key.data[5].co.z += 0.2
+assert "Morph Mesh" in draw_panels()
+assert bpy.ops.zenkit.export_morph() == {"FINISHED"}
+panel_morph = zenkit_py.read_morph(str(morph_out / "ITRWSMALLBOW.MMB"))
+blink = next(a for a in panel_morph["animations"] if a["name"] == "T_BLINK")
+assert blink["frame_count"] == 2 and list(np.frombuffer(blink["vertices"], "<u4")) == [5]
+assert np.isclose(blink["speed"], 0.025) and blink["duration"] == -1000.0
+# The wobble's keys had no settings; exporting gave them some, which the panel now shows.
+assert "T_WOBBLE" in bow.data.zenkit_morph.animations
 print("morph ok")
 
 # Model scripts: the skeleton, its registered mesh and the animations a script names, found next
-# to it, and the script itself as a text.
+# to it, and the script itself as a text. Earlier tests' animations of the biped go first.
+for stale in list(bpy.data.actions):
+    bpy.data.actions.remove(stale)
 script_source = """Model ("BIPED")
 {
 	meshAndTree ("HUM_BODY_NAKED0.ASC" DONT_USE_MESH)
@@ -681,19 +750,20 @@ assert bpy.ops.import_scene.zenkit_script(filepath=str(work / "BIPED.MSB")) == {
 model_rig = bpy.context.active_object
 assert model_rig.type == "ARMATURE" and model_rig.name == "BIPED"
 assert [o.name for o in model_rig.children if o.name.startswith("ZM_SKIN_")] == ["ZM_SKIN_0"]
-assert model_rig.data["zenkit_model"] == "BIPED"
-text = bpy.data.texts[model_rig.data["zenkit_script"]]
+assert model_rig.data.zenkit.model == "BIPED"
+text = model_rig.data.zenkit.script
+assert zenkit_py.parse_script(text.as_string())["animations"] == info["animations"]
+played = model_rig.animation_data.action
+assert played.zenkit.name == "S_TEST" and played.zenkit.checksum == str(biped_checksum)
+# The script's settings for the animation are the action's.
+assert (played.zenkit.fps, played.zenkit.flags, played.zenkit.next) == (10.0, {"M"}, "S_TEST")
+assert np.isclose(played.zenkit.blend_in, 0.1)
 # Everything is in a collection named after the model, the body in one named after its file.
 model_collection = bpy.data.collections["BIPED"]
 assert model_rig.users_collection[0] == model_collection
 (skin,) = [o for o in model_rig.children if o.name.startswith("ZM_SKIN_")]
 assert skin.users_collection[0].name == "BIPED_BODY.MDM"
 assert skin.users_collection[0] in model_collection.children[:]
-assert zenkit_py.parse_script(text.as_string())["animations"] == info["animations"]
-played = model_rig.animation_data.action
-assert played.get("zenkit_name") == "S_TEST" and played.get("zenkit_checksum") == str(
-    biped_checksum
-)
 
 # Exported, the script's animations take their layer, frame rate and next animation from it.
 (work / "out").mkdir()
@@ -710,6 +780,72 @@ assert bpy.ops.export_scene.zenkit_script(
 ) == {"FINISHED"}
 assert zenkit_py.read_script(str(work / "out" / "BIPED.MDS"))["animations"] == info["animations"]
 
+# The Model, Animations and Export panels: settings changed there, a new animation, and the whole
+# model written at once, named as the game looks for it.
+deselect_all()
+model_rig.select_set(True)
+bpy.context.view_layer.objects.active = model_rig
+played.zenkit.layer = 3
+played.zenkit.flags = {"M", "I"}
+assert bpy.ops.zenkit.new_animation(name="t_wave") == {"FINISHED"}
+wave = model_rig.animation_data.action
+assert (wave.zenkit.name, wave.zenkit.model) == ("T_WAVE", "BIPED")
+# The list's selection is the action the armature plays: picking a row plays it.
+model_rig.zenkit_animation_index = bpy.data.actions.find(played.name)
+assert model_rig.animation_data.action == played and bpy.context.scene.render.fps == 10
+listed, _ = ui.ZENKIT_UL_animations.filter_items(
+    types.SimpleNamespace(filter_name="", bitflag_filter_item=1), bpy.context, bpy.data, "actions"
+)
+assert sorted(a.zenkit.name for a, f in zip(bpy.data.actions, listed) if f) == ["S_TEST", "T_WAVE"]
+
+export = sys.modules[package + ".export"]
+files = export.plan(model_rig)
+assert (files.skeleton, list(files.meshes), files.script) == (
+    "BIPED.MDH",
+    ["BIPED_BODY.MDM"],
+    "BIPED.MSB",
+)
+assert [n for n, _ in files.animations] == ["BIPED-S_TEST.MAN", "BIPED-T_WAVE.MAN"]
+assert files.unused == ["S_GONE"]
+assert draw_panels() == ["Model", "Animations", "Export"]
+
+panel_out = work / "panel"
+panel_out.mkdir()
+bpy.context.scene.zenkit.folder = str(panel_out)
+assert bpy.ops.zenkit.export_model() == {"FINISHED"}
+assert sorted(p.name for p in panel_out.iterdir()) == [
+    "BIPED-S_TEST.MAN",
+    "BIPED-T_WAVE.MAN",
+    "BIPED.MDH",
+    "BIPED.MSB",
+    "BIPED_BODY.MDM",
+]
+for name in ("BIPED.MDH", "BIPED_BODY.MDM"):
+    assert zenkit_py.read_model(str(panel_out / name))["checksum"] == biped_checksum
+# The script got the animations' settings and the new animation, and kept the rest.
+exported = zenkit_py.read_script(str(panel_out / "BIPED.MSB"))
+by_name = {a["name"]: a for a in exported["animations"]}
+assert list(by_name) == ["S_TEST", "S_GONE", "T_WAVE"]
+assert (by_name["S_TEST"]["layer"], by_name["S_TEST"]["flags"]) == (3, "MI")
+assert by_name["S_GONE"] == info["animations"][1]
+assert "*eventSFX" in exported["text"] and "T_WAVE" in model_rig.data.zenkit.script.as_string()
+test_man = zenkit_py.read_animation(str(panel_out / "BIPED-S_TEST.MAN"))
+assert (test_man["layer"], test_man["fps"]) == (3, 10.0)
+
+# A model without a script gets one from the Model panel, its meshes registered by file.
+bpy.ops.object.select_all(action="SELECT")
+bpy.ops.object.delete()
+assert bpy.ops.import_scene.zenkit_model(filepath=str(work / "BIPED.MDH")) == {"FINISHED"}
+assert bpy.ops.import_scene.zenkit_model(filepath=str(work / "BIPED_BODY.MDM")) == {"FINISHED"}
+bare = bpy.context.view_layer.objects.active
+assert bare.type == "ARMATURE" and bare.data.zenkit.script is None
+assert export.plan(bare).script is None
+assert bpy.ops.zenkit.new_script() == {"FINISHED"}
+made = zenkit_py.parse_script(bare.data.zenkit.script.as_string())
+assert (made["name"], made["meshes"], made["disable_mesh"]) == ("BIPED", ["BIPED_BODY.ASC"], True)
+assert export.plan(bare).skeleton == "BIPED.MDH"
+print("panels ok")
+
 # The game's own: without the game, the alligator's skeleton is nowhere, and the import says so.
 # With the installed extension pointed at Gothic II, it comes from the archives, and one of its
 # animations goes out as it came in.
@@ -724,7 +860,7 @@ except RuntimeError as error:
 else:
     alligator = bpy.context.active_object
     assert alligator.name.startswith("ALLIGATOR")
-    assert alligator.animation_data.action.get("zenkit_name") == "R_AGRESSIVE"
+    assert alligator.animation_data.action.zenkit.name == "R_AGRESSIVE"
     assert bpy.ops.export_anim.zenkit_animation(filepath=str(work / "ALLIGATOR.MAN")) == {
         "FINISHED"
     }

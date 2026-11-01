@@ -9,8 +9,9 @@ Each frame of the file becomes one frame of the action, from frame 0 on. Bones g
 rotation keys; slots and mesh nodes, which hang from bones as objects, are keyed only when the
 animation moves them relative to their bone, which needs the slotted actions of Blender 4.4 or
 later, as one action then animates several objects. The engine plays the frames at the
-animation's own frame rate, kept with the action, as are its layer and the animation that follows
-it, as custom properties to edit.
+animation's own frame rate, kept with the action's settings (`Action.zenkit`) with its name in
+the game, layer and the animation that follows it. The action belongs to the armature's model by
+name, which is how the panels list a model's animations.
 
 Exporting goes the other way: the action is played frame by frame, and every node's transform
 relative to its parent is stored, whatever drives it (keys, constraints or drivers).
@@ -32,15 +33,6 @@ from .model import armature_checksum
 from .model import armature_of
 from .model import node_frame
 from .model import scene_nodes
-
-NAME = "zenkit_name"
-LAYER = "zenkit_layer"
-NEXT = "zenkit_next"
-FPS = "zenkit_fps"
-EVENTS = "zenkit_events"
-CHECKSUM = "zenkit_checksum"
-# On armatures: the model a script imported them for, which their animations' files start with.
-MODEL = "zenkit_model"
 
 LINEAR = bpy.types.Keyframe.bl_rna.properties["interpolation"].enum_items["LINEAR"].value
 
@@ -96,7 +88,7 @@ def play(action, armature):
         current = item.animation_data.action if item.animation_data else None
         if is_slotted(action) and slot_for(action, item) is not None:
             assign(action, item, make_slot=False)
-        elif current is not None and NAME in current:
+        elif current is not None and current.zenkit.model:
             item.animation_data.action = None
 
 
@@ -179,14 +171,15 @@ def build_action(armature, data, scale, name=None):
     local[..., :3, 3] *= scale
 
     action = bpy.data.actions.new(name or data["name"])
-    action[NAME] = data["name"]
-    action[LAYER] = data["layer"]
-    action[NEXT] = data["next"]
-    action[FPS] = data["fps"]
+    settings = action.zenkit
+    settings.model = model_name(armature)
+    settings.name = data["name"]
+    settings.layer = max(data["layer"], 1)
+    settings.next = data["next"]
+    settings.fps = data["fps"]
     # As text: Blender's integer properties are signed 32-bit, too small for a checksum.
-    action[CHECKSUM] = str(data["checksum"])
-    if data["events"]:
-        action[EVENTS] = json.dumps(data["events"])
+    settings.checksum = str(data["checksum"])
+    settings.events = json.dumps(data["events"]) if data["events"] else ""
     action.use_fake_user = True
     if frames:
         action.use_frame_range = True
@@ -268,35 +261,49 @@ def gather_animation(context, armature, action, scale):
         scene.frame_set(current)
 
     engine = convert.to_engine(np.array(positions)) / scale
-    fps = action.get(FPS) or scene.render.fps / scene.render.fps_base
-    events = json.loads(action[EVENTS]) if EVENTS in action else []
+    settings = action.zenkit
     return {
-        "name": action.get(NAME, action.name),
-        "next": action.get(NEXT, ""),
-        "layer": action.get(LAYER, 1),
-        "fps": float(fps),
+        "name": settings.game_name(action),
+        "next": settings.next.upper(),
+        "layer": settings.layer,
+        "fps": settings.fps,
         "checksum": armature_checksum(armature),
         "node_indices": list(range(len(nodes))),
         "transforms": b"".join(rows),
         "bbox": (tuple(engine.min(axis=0)), tuple(engine.max(axis=0))),
-        "events": events,
+        "events": json.loads(settings.events) if settings.events else [],
     }
 
 
 def model_name(armature):
-    """What the files of an armature's animations start with: the model a script named, or the
-    armature's name."""
-    return armature.data.get(MODEL, armature.name).upper()
+    """The model an armature is, which its files are named after: its own name until it is given
+    one."""
+    return (armature.data.zenkit.model or armature.name).upper()
 
 
-def show(context, action, armature, match_fps):
-    """Plays an imported action, with the scene's frames set to it."""
+def adopt(armature):
+    """Gives an armature its model's name for good, so that renaming the armature later does not
+    part it from its animations."""
+    armature.data.zenkit.model = model_name(armature)
+
+
+def actions_of(armature):
+    """The actions of an armature's model's animations, by name."""
+    model = model_name(armature)
+    return sorted(
+        (a for a in bpy.data.actions if a.zenkit.model.upper() == model), key=lambda a: a.name
+    )
+
+
+def show(context, action, armature, match_fps=True):
+    """Plays an action on its armature, with the scene's frames, and its frame rate if
+    `match_fps`, set to the animation's."""
     play(action, armature)
     start, end = frame_range(action)
     context.scene.frame_start, context.scene.frame_end = start, end
     context.scene.frame_set(start)
-    fps = action.get(FPS)
-    if match_fps and fps and float(fps).is_integer():
+    fps = action.zenkit.fps
+    if match_fps and float(fps).is_integer():
         context.scene.render.fps, context.scene.render.fps_base = int(fps), 1.0
 
 
@@ -339,6 +346,7 @@ class ImportAnimation(bpy.types.Operator):
         if context.object is not None and context.object.mode == "EDIT":
             bpy.ops.object.mode_set(mode="OBJECT")
         armature = armature_of(context.active_object)
+        adopt(armature)
         checksum = armature_checksum(armature)
         last = None
         foreign, unkeyed = [], set()
@@ -391,7 +399,7 @@ class ExportAnimation(bpy.types.Operator):
     def invoke(self, context, event):
         armature = armature_of(context.active_object)
         action = armature.animation_data.action
-        name = f"{model_name(armature)}-{action.get(NAME, action.name).upper()}.MAN"
+        name = f"{model_name(armature)}-{action.zenkit.game_name(action)}.MAN"
         start = preferences.folder("anims")
         self.filepath = str(start / name) if start else name
         context.window_manager.fileselect_add(self)

@@ -64,5 +64,6 @@ fn zenkit_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(script::read_script, m)?)?;
     m.add_function(wrap_pyfunction!(script::parse_script, m)?)?;
     m.add_function(wrap_pyfunction!(script::write_script, m)?)?;
+    m.add_function(wrap_pyfunction!(script::update_script, m)?)?;
     Ok(())
 }

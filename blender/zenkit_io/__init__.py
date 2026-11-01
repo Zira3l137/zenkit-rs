@@ -4,12 +4,15 @@ zenkit-rs library."""
 import bpy
 
 from . import animation
+from . import export
 from . import mesh
 from . import model
 from . import morph
 from . import preferences
+from . import properties
 from . import script
 from . import texture
+from . import ui
 
 CLASSES = (
     preferences.Preferences,
@@ -24,7 +27,8 @@ CLASSES = (
     animation.ImportAnimation,
     animation.ExportAnimation,
     script.ImportScript,
-    script.ExportScript,
+    export.ExportScript,
+    *ui.CLASSES,
 )
 
 
@@ -43,7 +47,7 @@ def menu_export(self, context):
     self.layout.operator(morph.ExportMmb.bl_idname, text="Gothic Morph Mesh (.mmb)")
     self.layout.operator(model.ExportModel.bl_idname, text="Gothic Model (.mdl, .mdh, .mdm)")
     self.layout.operator(animation.ExportAnimation.bl_idname, text="Gothic Animation (.man)")
-    self.layout.operator(script.ExportScript.bl_idname, text="Gothic Model Script (.msb, .mds)")
+    self.layout.operator(export.ExportScript.bl_idname, text="Gothic Model Script (.msb, .mds)")
 
 
 def menu_image(self, context):
@@ -51,6 +55,7 @@ def menu_image(self, context):
 
 
 def register():
+    properties.register()
     for cls in CLASSES:
         bpy.utils.register_class(cls)
     bpy.types.TOPBAR_MT_file_import.append(menu_import)
@@ -64,3 +69,4 @@ def unregister():
     bpy.types.TOPBAR_MT_file_import.remove(menu_import)
     for cls in reversed(CLASSES):
         bpy.utils.unregister_class(cls)
+    properties.unregister()

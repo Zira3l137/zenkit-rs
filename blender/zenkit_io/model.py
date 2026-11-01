@@ -20,6 +20,7 @@ checksum of the armature it is exported from.
 """
 
 import math
+import re
 import zlib
 from dataclasses import dataclass
 from dataclasses import field
@@ -47,6 +48,7 @@ PLACEHOLDER = "zenkit_placeholder"
 SKIN = "ZM_SKIN_"
 FRILL = "ZM_FRILL_"
 MESH_NAMES = (SKIN.rstrip("_"), FRILL.rstrip("_"))
+MESH_FILE = re.compile(r"^(.+\.MD[ML])(?:\.\d{3})?$", re.IGNORECASE)
 
 # Blender bones point along their Y axis, while a node may point along any of its axes (the
 # bones of 3ds Max's Biped, which Gothic's skeletons come from, along X). A bone starts as its
@@ -153,7 +155,8 @@ class Rig:
 
 def build_skeleton(context, name, data, scale, collection=None):
     """A Rig of a new armature for the model's nodes, with an object for each slot and mesh
-    node, linked to `collection` or the active one and left in object mode."""
+    node, linked to `collection` or the active one and left in object mode. The armature's model
+    is `name`."""
     collection = collection or context.collection
     nodes = data["nodes"]
     kinds = node_kinds(nodes)
@@ -181,6 +184,7 @@ def build_skeleton(context, name, data, scale, collection=None):
 
     armature = bpy.data.armatures.new(name)
     armature[ROOT_TRANSLATION] = list(data["root_translation"])
+    armature.zenkit.model = name.upper()
     obj = bpy.data.objects.new(name, armature)
     obj.show_in_front = True
     link(context, obj, collection)
@@ -404,9 +408,9 @@ def import_model(context, path, scale, use_active=False):
 
 
 def file_collection(name, parent):
-    """A collection inside `parent` for the meshes of the file `name`, named after it. An empty
-    one of the name, left behind when its objects were deleted, is taken rather than making
-    another with `.001` after it."""
+    """A collection inside `parent` for the meshes of the file `name`, named after it so that
+    they go back out into it. An empty one of the name, left behind when its objects were
+    deleted, is taken rather than making another with `.001` after it."""
     collection = bpy.data.collections.get(name.upper())
     if collection is not None and not collection.all_objects and not collection.children:
         for scene in bpy.data.scenes:
@@ -419,6 +423,17 @@ def file_collection(name, parent):
     collection = bpy.data.collections.new(name.upper())
     parent.children.link(collection)
     return collection
+
+
+def mesh_file(obj):
+    """The model file an object's meshes belong to, by the collection it is in: `X.MDM` or
+    `X.MDL`, Blender's `.001` for a second collection of the name left out. `None` if it is in
+    no such collection."""
+    for collection in obj.users_collection:
+        match = MESH_FILE.match(collection.name)
+        if match:
+            return match[1].upper()
+    return None
 
 
 def add_meshes(context, folder, data, rig, scale, collection):
@@ -520,8 +535,23 @@ def add_weights(obj, skin, names):
         start += count
 
 
-def gather_model(armature, depsgraph, scale):
-    """A model dict of an armature, the slots and mesh nodes hanging from it and its meshes."""
+def model_meshes(armature):
+    """The objects of an armature whose meshes go into its model files: its skins, the meshes on
+    its bones and its mesh nodes that have a mesh."""
+    found = []
+    for name, _, _, item in scene_nodes(armature):
+        is_mesh = isinstance(item, bpy.types.Object) and item.type == "MESH"
+        if is_mesh and not name.upper().startswith("ZS_") and not item.data.get(PLACEHOLDER):
+            found.append(item)
+    for obj in armature.children:
+        if obj.type == "MESH" and not is_node_object(obj) and not is_stand_in(obj):
+            found.append(obj)
+    return found
+
+
+def gather_model(armature, depsgraph, scale, meshes=None):
+    """A model dict of an armature, the slots and mesh nodes hanging from it and its meshes, or
+    only those of its meshes that are in `meshes`, a set of objects, if given."""
     nodes = scene_nodes(armature)
     index = {name: i for i, (name, _, _, _) in enumerate(nodes)}
     engine_nodes = []
@@ -536,13 +566,16 @@ def gather_model(armature, depsgraph, scale):
     for name, _, _, item in nodes:
         is_mesh = isinstance(item, bpy.types.Object) and item.type == "MESH"
         is_slot = name.upper().startswith("ZS_")
-        if is_mesh and not is_slot and not item.data.get(PLACEHOLDER):
+        wanted = meshes is None or item in meshes
+        if is_mesh and not is_slot and wanted and not item.data.get(PLACEHOLDER):
             mesh = convert.gather_mesh(item, depsgraph, scale, True, item.matrix_world)
             attachments.append({"node": name, "mesh": mesh})
 
     soft_skins = []
     for obj in armature.children:
         if obj.type != "MESH" or is_node_object(obj) or is_stand_in(obj):
+            continue
+        if meshes is not None and obj not in meshes:
             continue
         if obj.parent_type == "BONE" and obj.parent_bone in index:
             space = armature.matrix_world @ node_frame(armature.data.bones[obj.parent_bone])
