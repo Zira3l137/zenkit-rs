@@ -106,6 +106,10 @@ name = "rewrite_world"
 required-features = ["vfs", "world"]
 
 [[example]]
+name = "rewrite_all"
+required-features = ["vfs", "model", "morph", "animation"]
+
+[[example]]
 name = "dialogue"
 required-features = ["cutscene"]
 
