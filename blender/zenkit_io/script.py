@@ -3,7 +3,8 @@
 A model script names a model's skeleton, the meshes it can wear and its animations, each of which
 the engine loads from a file named after the model and the animation: HUMANS-S_RUN.MAN.
 Importing one brings in all of that, found next to the script, in the models folder or in the
-game's archives: an armature of the skeleton, the meshes on it and an action per animation.
+game's archives: an armature of the skeleton, the meshes on it and an action per animation, in a
+collection named after the model, the meshes in one inside it per file they came from.
 
 The script itself becomes a text in Blender's Text Editor, as source, to edit there. Exporting
 writes that text as a script, compiled or source, and each of its animations that has an action
@@ -24,6 +25,7 @@ from .model import add_meshes
 from .model import armature_checksum
 from .model import armature_of
 from .model import build_skeleton
+from .model import file_collection
 
 SCRIPT = "zenkit_script"
 
@@ -74,25 +76,25 @@ def import_script(context, path, scale, meshes="FIRST", pattern="*"):
     names = [model] if info["disable_mesh"] or tree is None else [tree]
     names += [name for name in (tree, model) if name is not None and name not in names]
     tried = [name + kind for name in names for kind in (".MDH", ".MDL")]
-    skeleton = next(
-        (data for name in tried if (data := load_model(name, folders)) and data["nodes"]), None
-    )
+    found = ((name, load_model(name, folders)) for name in tried)
+    skeleton_file, skeleton = next(((n, d) for n, d in found if d and d["nodes"]), (None, None))
     if skeleton is None:
         raise LookupError(f"no skeleton was found; looked for {', '.join(tried)}")
 
-    rig = build_skeleton(context, info["name"], skeleton, scale)
+    collection = file_collection(model, context.collection)
+    rig = build_skeleton(context, info["name"], skeleton, scale, collection)
     armature = rig.armature
     armature.data[animation.MODEL] = info["name"]
-    worn = [] if info["disable_mesh"] else [skeleton]
+    worn = [] if info["disable_mesh"] else [(skeleton_file, skeleton)]
     if not info["disable_mesh"] and not skeleton["soft_skins"] and not skeleton["attachments"]:
-        worn.append(load_model(tree + ".MDM", folders))
+        worn.append((tree + ".MDM", load_model(tree + ".MDM", folders)))
     registered = {"FIRST": info["meshes"][:1], "ALL": info["meshes"], "NONE": []}[meshes]
     if not info["disable_mesh"]:
         registered = [name for name in registered if stem(name) != tree]
-    worn += [load_model(stem(name) + ".MDM", folders) for name in registered]
-    for data in worn:
+    worn += [(stem(n) + ".MDM", load_model(stem(n) + ".MDM", folders)) for n in registered]
+    for name, data in worn:
         if data is not None:
-            add_meshes(context, path.parent, data, rig, scale)
+            add_meshes(context, path.parent, data, rig, scale, file_collection(name, collection))
 
     actions, missing = [], []
     for ani in info["animations"]:

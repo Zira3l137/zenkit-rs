@@ -151,9 +151,10 @@ class Rig:
     objects: dict = field(default_factory=dict)
 
 
-def build_skeleton(context, name, data, scale):
+def build_skeleton(context, name, data, scale, collection=None):
     """A Rig of a new armature for the model's nodes, with an object for each slot and mesh
-    node, linked to the scene and left in object mode."""
+    node, linked to `collection` or the active one and left in object mode."""
+    collection = collection or context.collection
     nodes = data["nodes"]
     kinds = node_kinds(nodes)
     world = rest_world(nodes, scale)
@@ -182,7 +183,7 @@ def build_skeleton(context, name, data, scale):
     armature[ROOT_TRANSLATION] = list(data["root_translation"])
     obj = bpy.data.objects.new(name, armature)
     obj.show_in_front = True
-    link(context, obj)
+    link(context, obj, collection)
 
     bpy.ops.object.mode_set(mode="EDIT")
     edit_bones = {}
@@ -210,7 +211,7 @@ def build_skeleton(context, name, data, scale):
             continue
         marker = marker or placeholder(scale)
         node_obj = bpy.data.objects.new(node_name, marker)
-        context.collection.objects.link(node_obj)
+        collection.objects.link(node_obj)
         node_obj[NODE] = node_name
         node_obj[INDEX] = i
         node_obj.parent = obj
@@ -391,7 +392,8 @@ def import_model(context, path, scale, use_active=False):
             rig = build_skeleton(context, path.stem, data, scale)
     else:
         rig = meshes_rig(context, data, path.parent, scale)
-    add_meshes(context, path.parent, data, rig, scale)
+    parent = rig.armature.users_collection[0] if rig.armature else context.collection
+    add_meshes(context, path.parent, data, rig, scale, file_collection(path.name, parent))
 
     if rig.armature is not None:
         for other in context.selected_objects:
@@ -401,9 +403,28 @@ def import_model(context, path, scale, use_active=False):
     return data, rig
 
 
-def add_meshes(context, folder, data, rig, scale):
-    """Adds a model dict's meshes to the scene, bound to `rig`, with textures looked for in
-    `folder` first."""
+def file_collection(name, parent):
+    """A collection inside `parent` for the meshes of the file `name`, named after it. An empty
+    one of the name, left behind when its objects were deleted, is taken rather than making
+    another with `.001` after it."""
+    collection = bpy.data.collections.get(name.upper())
+    if collection is not None and not collection.all_objects and not collection.children:
+        for scene in bpy.data.scenes:
+            for other in [scene.collection, *bpy.data.collections]:
+                if collection in other.children[:] and other != parent:
+                    other.children.unlink(collection)
+        if collection not in parent.children[:]:
+            parent.children.link(collection)
+        return collection
+    collection = bpy.data.collections.new(name.upper())
+    parent.children.link(collection)
+    return collection
+
+
+def add_meshes(context, folder, data, rig, scale, collection):
+    """Adds a model dict's meshes to the scene, bound to `rig`, into `collection`, with the mesh
+    nodes that get one; the collection is removed if nothing went into it. Textures are looked for
+    in `folder` first."""
     folders = [folder]
     armature = rig.armature
     to_world = armature.matrix_world if armature is not None else Matrix.Identity(4)
@@ -413,7 +434,7 @@ def add_meshes(context, folder, data, rig, scale):
         name = free_name(SKIN)
         mesh = convert.build_mesh(name, skin["mesh"], scale, folders, positions)
         obj = bpy.data.objects.new(name, mesh)
-        link(context, obj)
+        link(context, obj, collection)
         add_weights(obj, skin, rig.names)
         if armature is not None:
             obj.parent = armature
@@ -424,6 +445,9 @@ def add_meshes(context, folder, data, rig, scale):
         target = rig.objects.get(node)
         if target is not None and target.type == "MESH" and target.data.get(PLACEHOLDER):
             target.data = convert.build_mesh(node, attachment["mesh"], scale, folders)
+            for other in list(target.users_collection):
+                other.objects.unlink(target)
+            collection.objects.link(target)
             continue
 
         # A mesh node's mesh is named after it; a mesh on a bone is a frill.
@@ -433,7 +457,7 @@ def add_meshes(context, folder, data, rig, scale):
         obj = bpy.data.objects.new(
             name, convert.build_mesh(name, attachment["mesh"], scale, folders)
         )
-        link(context, obj)
+        link(context, obj, collection)
         if is_frill:
             obj[ATTACHMENT] = node
         if bone is not None:
@@ -443,6 +467,9 @@ def add_meshes(context, folder, data, rig, scale):
             obj.matrix_world = to_world @ node_frame(bone)
         elif node in rig.names:
             obj.matrix_world = to_world @ rig.world[rig.names.index(node)]
+
+    if not collection.objects and not collection.children:
+        bpy.data.collections.remove(collection)
 
 
 def skin_positions(skin, world, scale):

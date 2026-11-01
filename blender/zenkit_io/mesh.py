@@ -13,9 +13,10 @@ from . import morph
 from . import preferences
 
 
-def link(context, obj):
-    """Adds a new object to the scene and makes it the only one selected."""
-    context.collection.objects.link(obj)
+def link(context, obj, collection=None):
+    """Adds a new object to the scene, in `collection` or else the active one, and makes it the
+    only one selected."""
+    (collection or context.collection).objects.link(obj)
     for other in context.selected_objects:
         other.select_set(False)
     obj.select_set(True)

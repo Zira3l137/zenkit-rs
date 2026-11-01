@@ -290,6 +290,9 @@ assert bpy.ops.import_scene.zenkit_model(filepath=str(work / "BIPED_BODY.MDM")) 
 assert len([o for o in bpy.context.scene.objects if o.type == "ARMATURE"]) == 1
 (body,) = [o for o in skeleton.children if o.type == "MESH" and "zenkit_node" not in o]
 assert body.modifiers[0].object == skeleton
+# Meshes go into a collection named after their file, inside the armature's.
+assert [c.name for c in body.users_collection] == ["BIPED_BODY.MDM"]
+assert bpy.data.collections["BIPED_BODY.MDM"] in skeleton.users_collection[0].children[:]
 assert np.allclose([v.co[:] for v in body.data.vertices], expected, atol=1e-5)
 
 # On a skeleton with a longer spine, the body follows its bones, as the engine draws it: what
@@ -680,6 +683,12 @@ assert model_rig.type == "ARMATURE" and model_rig.name == "BIPED"
 assert [o.name for o in model_rig.children if o.name.startswith("ZM_SKIN_")] == ["ZM_SKIN_0"]
 assert model_rig.data["zenkit_model"] == "BIPED"
 text = bpy.data.texts[model_rig.data["zenkit_script"]]
+# Everything is in a collection named after the model, the body in one named after its file.
+model_collection = bpy.data.collections["BIPED"]
+assert model_rig.users_collection[0] == model_collection
+(skin,) = [o for o in model_rig.children if o.name.startswith("ZM_SKIN_")]
+assert skin.users_collection[0].name == "BIPED_BODY.MDM"
+assert skin.users_collection[0] in model_collection.children[:]
 assert zenkit_py.parse_script(text.as_string())["animations"] == info["animations"]
 played = model_rig.animation_data.action
 assert played.get("zenkit_name") == "S_TEST" and played.get("zenkit_checksum") == str(

@@ -81,7 +81,8 @@ armature are told apart by name where they carry no mark from an import: `ZS_` i
 new slots that way, and `ZM_` a mesh node, except `ZM_SKIN` and `ZM_FRILL`, which stay meshes.
 
 A `.MDL` holds a skeleton and its meshes, a `.MDH` only the skeleton and a `.MDM` only the
-meshes. A `.MDM` brings in just its meshes. They go onto the active armature if that is their
+meshes. Each file's meshes go into a collection named after it, like
+`HUM_BODY_NAKED0.MDM`, inside the armature's. A `.MDM` brings in just its meshes. They go onto the active armature if that is their
 skeleton, which the checksum that ties a skeleton to its meshes and animations tells. Otherwise
 they come in on their own, their vertex groups named after the skeleton's bones if the skeleton
 is found next to the file, in the models folder or in the game's archives, so that they bind to
@@ -154,8 +155,8 @@ a single-frame one holds its shape until stopped, a longer one plays once at 25 
 A model script names a model's skeleton, the meshes it can wear and its animations; the engine
 loads each animation from a file named after the model and it, like `HUMANS-S_RUN.MAN`.
 Importing a script brings in all of that, looked for next to the script, in the models folder and
-in the game's archives: an armature of the skeleton, named after the model, the first mesh the
-script registers on it (Meshes picks all or none instead), and an action per animation. The
+in the game's archives, into a collection named after the model: an armature of the skeleton, the
+first mesh the script registers on it (Meshes picks all or none instead), and an action per animation. The
 Animations field picks which by name, with `*` for anything (`S_*RUN*`), since the humans' script
 names over a thousand.
 
