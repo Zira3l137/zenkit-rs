@@ -3,6 +3,7 @@
 
 use std::path::Path;
 
+use zenkit_rs_core::GameVersion;
 use zenkit_rs_core::math::Vec3;
 use zenkit_rs_morph::MorphMesh;
 
@@ -48,4 +49,35 @@ fn truncated_files_fail_cleanly() {
     for len in 0..data.len() {
         let _ = MorphMesh::from_bytes(&data[..len]);
     }
+}
+
+#[test]
+fn bow_writes_back_byte_for_byte() {
+    let mut data = sample("morph0.mmb");
+    let mesh = MorphMesh::from_bytes(&data).unwrap();
+    // The two bytes of padding after each wedge are left uninitialised by the engine and written
+    // as zeros. The mesh's arrays start 41 bytes in, after the marker and header chunks, the mesh
+    // chunk's header, the version and the arrays' length; the wedges follow the 28 positions,
+    // 28 normals and 44 triangles.
+    let wedges = 41 + 28 * 12 + 28 * 12 + 44 * 6;
+    for wedge in 0..mesh.mesh.sub_meshes[0].wedges.len() {
+        let padding = wedges + wedge * 24 + 22;
+        data[padding..padding + 2].fill(0);
+    }
+    let written = mesh.to_bytes(GameVersion::Gothic1).unwrap();
+    assert_eq!(written.len(), data.len());
+    assert!(written == data);
+}
+
+#[test]
+fn morph_meshes_that_cannot_be_stored_fail() {
+    let mut mesh = MorphMesh::from_bytes(&sample("morph0.mmb")).unwrap();
+    mesh.animations[1].samples.pop();
+    let error = mesh.to_bytes(GameVersion::Gothic2).unwrap_err().to_string();
+    assert!(error.contains("\"S_SHOOT\" has 29 samples"), "{error}");
+
+    let mut mesh = MorphMesh::from_bytes(&sample("morph0.mmb")).unwrap();
+    mesh.morph_positions.pop();
+    let error = mesh.to_bytes(GameVersion::Gothic2).unwrap_err().to_string();
+    assert!(error.contains("27 morph positions for 28"), "{error}");
 }
