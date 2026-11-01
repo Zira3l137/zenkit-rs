@@ -656,9 +656,19 @@ keys = [k.name for k in bow.data.shape_keys.key_blocks]
 assert (
     keys[:4] == ["Basis", "S_NORMAL", "S_SHOOT 0", "S_SHOOT 1"] and len(keys) == 1 + 1 + 10 + 1 + 29
 )
-# The keys start at 0, so the mesh shows its rest shape.
+# The keys start at 0 but for the frame of the first animation its action shows, so the mesh
+# never shows several frames at once.
 reference = bow.data.shape_keys.reference_key
-assert all(k.value == 0.0 for k in bow.data.shape_keys.key_blocks if k != reference)
+assert [k.name for k in bow.data.shape_keys.key_blocks if k.value and k != reference] == [
+    "S_NORMAL"
+]
+# Each animation has an action to watch it with: S_SHOOT shows its frame 3 at frame 3.
+bow.data.shape_keys.animation_data.action = bpy.data.actions["ITRWSMALLBOW S_SHOOT"]
+bpy.context.view_layer.objects.active = bow
+bpy.context.scene.frame_set(3)
+shooting = [k.name for k in bow.data.shape_keys.key_blocks if k.value > 0.5 and k != reference]
+assert shooting == ["S_SHOOT 3"], shooting
+bow.data.shape_keys.animation_data.action = None
 shoot = bow.data.zenkit_morph.animations["S_SHOOT"]
 assert (shoot.layer, shoot.fps, shoot.until_stopped, shoot.repeat) == (1, 25.0, False, False)
 assert np.isclose(shoot.duration, 0.4)

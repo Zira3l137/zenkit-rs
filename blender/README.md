@@ -192,7 +192,9 @@ frame, whatever moves it: keys, constraints or drivers.
 A morph mesh is a mesh whose vertices animations move, like a talking face or a flag in the wind.
 Each frame of an animation becomes a shape key, named after the animation when it has one frame
 (`S_NORMAL`) or followed by the frame's number when it has more (`S_SHOOT 0`, `S_SHOOT 1`…). The
-keys start at 0, so the mesh shows its rest shape. Exporting does the reverse, whatever the keys'
+keys start at 0. Each animation also gets an action, `<MESH> <ANIMATION>`, that plays it on the
+keys, one scene frame per animation frame, to watch it; the first is assigned, and the others are
+picked in the Shape Key Editor. Exporting reads the keys, not these actions. Exporting does the reverse, whatever the keys'
 values are. Each animation's settings are in the Morph Mesh panel; which vertices it moves is kept
 too, so that ones it lists but leaves where they are stay in it. Vertices moved in Blender join
 their animation, and shape keys named like an animation the panel does not list export as a new

@@ -77,7 +77,40 @@ def build_morph(name, data, scale, folders):
         vertices_of[anim["name"]] = vertices.tolist()
     mesh[VERTICES] = vertices_of
     mesh[SOURCES] = list(data["sources"])
+    add_previews(obj)
     return obj
+
+
+def add_previews(obj):
+    """An action per animation that plays it on the shape keys, one frame of the scene per frame
+    of the animation, each key at 1 on its frame and 0 on the others, blending linearly between,
+    and every other animation's keys at 0, to watch it. The first is assigned; exporting reads the keys, not these."""
+    keys = obj.data.shape_keys
+    edit = bpy.context.preferences.edit
+    interpolation = edit.keyframe_new_interpolation_type
+    edit.keyframe_new_interpolation_type = "LINEAR"
+    try:
+        actions = []
+        for name, frames in animation_keys(obj).items():
+            action = bpy.data.actions.new(f"{obj.name} {name}")
+            action.use_fake_user = True
+            keys.animation_data_create().action = action
+            # Other animations' keys are held at 0, or switching actions would leave them showing.
+            for key in keys.key_blocks:
+                if key != keys.reference_key and key not in frames:
+                    key.value = 0.0
+                    key.keyframe_insert("value", frame=0)
+            for frame in range(len(frames)):
+                for i, key in enumerate(frames):
+                    key.value = 1.0 if i == frame else 0.0
+                    key.keyframe_insert("value", frame=frame)
+            actions.append(action)
+    finally:
+        edit.keyframe_new_interpolation_type = interpolation
+    for key in keys.key_blocks:
+        if key != keys.reference_key:
+            key.value = 0.0
+    keys.animation_data.action = actions[0] if actions else None
 
 
 def animation_keys(obj):
