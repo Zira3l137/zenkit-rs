@@ -1,10 +1,6 @@
 use std::path::Path;
 
-use zenkit_rs_model_script::AnimationFlags;
-use zenkit_rs_model_script::Direction;
-use zenkit_rs_model_script::EventType;
-use zenkit_rs_model_script::ModelScript;
-use zenkit_rs_model_script::Skeleton;
+use zenkit_rs_model_script::*;
 
 fn sample(name: &str) -> Vec<u8> {
     std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples").join(name)).unwrap()
@@ -32,6 +28,29 @@ fn line_endings() {
     }
 }
 
+/// The events of an animation, alias, blend or combination, by kind.
+macro_rules! expect {
+    ($value:expr, $pattern:pat => $out:expr) => {
+        match $value {
+            $pattern => $out,
+            other => panic!("expected {}, found {other:?}", stringify!($pattern)),
+        }
+    };
+}
+
+fn tag(frame: i32, name: &str, arguments: &[&str], attached: bool) -> Event {
+    Event::Tag(EventTag {
+        frame,
+        name: name.into(),
+        arguments: arguments.iter().map(|a| a.to_string()).collect(),
+        attached,
+    })
+}
+
+fn sound(frame: i32, name: &str, range: f32, empty_slot: bool) -> SoundEffect {
+    SoundEffect { frame, name: name.into(), range, empty_slot }
+}
+
 #[test]
 fn source() {
     let script = ModelScript::from_bytes(&sample("waran.mds")).unwrap();
@@ -51,9 +70,43 @@ fn source() {
             "AnotherTestModelMesh(6).asc",
         ]
     );
+    assert_eq!(script.source, None);
 
-    assert_eq!(script.animations.len(), 3);
-    let a = &script.animations[0];
+    let kinds: Vec<_> = script
+        .statements
+        .iter()
+        .map(|s| match s {
+            Statement::Animation(a) => format!("ani {}", a.name),
+            Statement::Alias(a) => format!("alias {}", a.name),
+            Statement::Blend(b) => format!("blend {}", b.name),
+            Statement::Combination(c) => format!("comb {}", c.name),
+            Statement::Disable(name) => format!("disable {name}"),
+            Statement::ModelTag(t) => format!("tag {}", t.argument(0)),
+            Statement::Unknown(c) => format!("unknown {:#x}", c.id),
+        })
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            "ani aniName1",
+            "ani aniName2",
+            "blend blendName1",
+            "blend blendName2",
+            "ani aniName3",
+            "blend blendName3",
+            "alias aliasName1",
+            "alias aliasName2",
+            "comb combName1",
+            "comb combName2",
+            "disable disable1",
+            "disable disable2",
+            "tag tag1",
+            "tag tag2",
+        ]
+    );
+
+    let animations: Vec<_> = script.animations().collect();
+    let a = animations[0];
     assert_eq!(a.name, "aniName1");
     assert_eq!(a.layer, 111);
     assert_eq!(a.next, "aniNext1");
@@ -66,11 +119,9 @@ fn source() {
     assert_eq!(a.fps, 25.0);
     assert_eq!(a.speed, 0.0);
     assert_eq!(a.collision_volume_scale, 0.2);
-    assert!(a.particles.is_empty() && a.particle_stops.is_empty());
-    assert!(a.sounds.is_empty() && a.ground_sounds.is_empty());
-    assert!(a.events.is_empty() && a.morphs.is_empty() && a.tremors.is_empty());
+    assert!(a.events.is_empty());
 
-    let a = &script.animations[1];
+    let a = animations[1];
     assert_eq!(a.name, "aniName2");
     assert_eq!(a.layer, 112);
     assert_eq!(a.next, "aniNext2");
@@ -80,60 +131,63 @@ fn source() {
     assert_eq!(a.direction, Direction::Backward);
     assert_eq!((a.first_frame, a.last_frame), (222, 332));
     assert_eq!((a.fps, a.collision_volume_scale), (25.0, 1.0));
-
-    assert_eq!(a.events.len(), 3);
-    assert_eq!(a.events[0].frame, 0);
-    assert_eq!(a.events[0].kind, EventType::DropTorch);
-    assert!(a.events[0].attached);
-    assert_eq!(a.events[1].frame, 1);
-    assert_eq!(a.events[1].kind, EventType::ComboWindow);
-    assert_eq!(a.events[1].frames, [1, 2, 3, 4, 5]);
-    assert!(!a.events[1].attached);
-    assert_eq!(a.events[2].frame, 0);
-    assert_eq!(a.events[2].kind, EventType::CreateItem);
-    assert_eq!(a.events[2].slot, "eventSlot");
-    assert_eq!(a.events[2].item, "eventItem");
-    assert!(!a.events[2].attached);
-
-    assert_eq!(a.sounds.len(), 3);
-    assert_eq!((a.sounds[0].frame, a.sounds[0].name.as_str()), (3, "sfxName1"));
-    assert!(a.sounds[0].empty_slot);
-    assert_eq!(a.sounds[0].range, 1000.0);
-    assert_eq!((a.sounds[1].frame, a.sounds[1].name.as_str()), (4, "sfxName2"));
-    assert_eq!(a.sounds[1].range, 67.4);
-    assert!(!a.sounds[1].empty_slot);
-    assert_eq!(a.sounds[2].range, 98.1);
-    assert!(a.sounds[2].empty_slot);
-
-    assert_eq!(a.ground_sounds.len(), 1);
-    assert_eq!(a.ground_sounds[0].frame, 5);
-    assert_eq!(a.ground_sounds[0].name, "sfxGrndName");
-    assert!(!a.ground_sounds[0].empty_slot);
-
-    assert_eq!(a.particles.len(), 3);
-    let p = &a.particles;
-    assert_eq!((p[0].frame, p[0].index, p[0].attached), (6, 0, true));
-    assert_eq!((p[0].name.as_str(), p[0].position.as_str()), ("pfxName1", "pfxPosition1"));
-    assert_eq!((p[1].frame, p[1].index, p[1].attached), (7, 991, false));
-    assert_eq!((p[1].name.as_str(), p[1].position.as_str()), ("pfxName2", "pfxPosition2"));
-    assert_eq!((p[2].frame, p[2].index, p[2].attached), (9, 991, true));
-    assert_eq!((p[2].name.as_str(), p[2].position.as_str()), ("pfxName3", "pfxPosition3"));
-
-    assert_eq!(a.particle_stops.len(), 1);
-    assert_eq!((a.particle_stops[0].frame, a.particle_stops[0].index), (8, 992));
-
-    assert_eq!(a.morphs.len(), 2);
-    assert_eq!((a.morphs[0].frame, a.morphs[0].animation.as_str()), (9, "mmAni1"));
-    assert!(a.morphs[0].node.is_empty());
-    assert_eq!((a.morphs[1].frame, a.morphs[1].animation.as_str()), (10, "mmAni2"));
-    assert_eq!(a.morphs[1].node, "mmNode");
-
-    assert_eq!(a.tremors.len(), 1);
-    assert_eq!(a.tremors[0].frame, 11);
-    assert_eq!(a.tremors[0].values, [881, 882, 883, 884]);
+    assert_eq!(
+        a.events,
+        [
+            tag(0, "DEF_DROP_TORCH", &[], true),
+            tag(1, "DEF_WINDOW", &["1 2 3 4 5"], false),
+            tag(0, "DEF_CREATE_ITEM", &["eventSlot", "eventItem"], false),
+            Event::Sound(sound(3, "sfxName1", 1000.0, true)),
+            Event::Sound(sound(4, "sfxName2", 67.4, false)),
+            Event::Sound(sound(4, "sfxName3", 98.1, true)),
+            Event::GroundSound(sound(5, "sfxGrndName", 1000.0, false)),
+            Event::Particle(ParticleEffect {
+                frame: 6,
+                index: 0,
+                name: "pfxName1".into(),
+                position: "pfxPosition1".into(),
+                attached: true
+            }),
+            Event::Particle(ParticleEffect {
+                frame: 7,
+                index: 991,
+                name: "pfxName2".into(),
+                position: "pfxPosition2".into(),
+                attached: false
+            }),
+            Event::Particle(ParticleEffect {
+                frame: 9,
+                index: 991,
+                name: "pfxName3".into(),
+                position: "pfxPosition3".into(),
+                attached: true
+            }),
+            Event::ParticleStop(ParticleEffectStop { frame: 8, index: 992 }),
+            Event::Morph(MorphAnimation {
+                frame: 9,
+                animation: "mmAni1".into(),
+                ..Default::default()
+            }),
+            Event::Morph(MorphAnimation {
+                frame: 10,
+                animation: "mmAni2".into(),
+                node: "mmNode".into(),
+                ..Default::default()
+            }),
+            Event::Tremor(CameraTremor {
+                frame: 11,
+                range: 881,
+                duration: 882,
+                min_amplifier: 883,
+                max_amplifier: 884
+            }),
+        ]
+    );
+    let window = expect!(&a.events[1], Event::Tag(t) => t);
+    assert_eq!((window.kind(), window.frames()), (EventType::ComboWindow, vec![1, 2, 3, 4, 5]));
 
     // Its events have no braces around them.
-    let a = &script.animations[2];
+    let a = animations[2];
     assert_eq!(a.name, "aniName3");
     assert_eq!(a.layer, 113);
     assert_eq!(a.next, "aniNext3");
@@ -142,47 +196,53 @@ fn source() {
     assert_eq!(a.model, "aniModel3");
     assert_eq!(a.direction, Direction::Forward);
     assert_eq!((a.first_frame, a.last_frame), (223, 333));
-    assert_eq!(a.events.len(), 1);
-    assert_eq!(a.events[0].kind, EventType::CreateItem);
-    assert_eq!(a.events[0].slot, "eventSlot");
-    assert_eq!(a.events[0].item, "eventItem");
-    assert_eq!(a.ground_sounds.len(), 1);
-    assert_eq!(a.ground_sounds[0].frame, 5);
-    assert_eq!(a.ground_sounds[0].name, "sfxGrndName");
+    assert_eq!(
+        a.events,
+        [
+            tag(0, "DEF_CREATE_ITEM", &["eventSlot", "eventItem"], false),
+            Event::GroundSound(sound(5, "sfxGrndName", 1000.0, false)),
+        ]
+    );
 
-    let names: Vec<_> = script.blends.iter().map(|b| (b.name.as_str(), b.next.as_str())).collect();
+    let blends: Vec<_> = script.blends().collect();
+    let names: Vec<_> = blends.iter().map(|b| (b.name.as_str(), b.next.as_str())).collect();
     assert_eq!(
         names,
         [("blendName1", "blendNext1"), ("blendName2", "blendNext2"), ("blendName3", "blendNext3")]
     );
-    assert_eq!((script.blends[2].blend_in, script.blends[2].blend_out), (223.1, 333.1));
+    assert_eq!((blends[2].blend_in, blends[2].blend_out), (223.1, 333.1));
+    assert_eq!(blends[2].events, [Event::Sound(sound(4, "sfxName2", 67.4, false))]);
 
-    assert_eq!(script.aliases.len(), 2);
-    let a = &script.aliases[0];
+    let aliases: Vec<_> = script.aliases().collect();
+    assert_eq!(aliases.len(), 2);
+    let a = aliases[0];
     assert_eq!((a.name.as_str(), a.layer, a.next.as_str()), ("aliasName1", 114, "aliasNext1"));
     assert_eq!((a.blend_in, a.blend_out), (100.1, 200.2));
     assert_eq!(a.flags, AnimationFlags::ROTATE | AnimationFlags::QUEUE);
     assert_eq!((a.alias.as_str(), a.direction), ("aliasAlias1", Direction::Forward));
-    let a = &script.aliases[1];
+    let a = aliases[1];
     assert_eq!((a.name.as_str(), a.layer, a.next.as_str()), ("aliasName2", 115, "aliasNext2"));
     assert_eq!((a.blend_in, a.blend_out), (101.1, 201.2));
     assert_eq!(a.flags, AnimationFlags::FLY);
     assert_eq!((a.alias.as_str(), a.direction), ("aliasAlias2", Direction::Backward));
 
-    assert_eq!(script.combinations.len(), 2);
-    let c = &script.combinations[0];
+    let combinations: Vec<_> = script.combinations().collect();
+    assert_eq!(combinations.len(), 2);
+    let c = combinations[0];
     assert_eq!((c.name.as_str(), c.layer, c.next.as_str()), ("combName1", 116, "combNext1"));
     assert_eq!((c.blend_in, c.blend_out), (102.1, 202.2));
     assert_eq!(c.flags, AnimationFlags::MOVE);
     assert_eq!((c.model.as_str(), c.last_frame), ("combModel1", 226));
-    let c = &script.combinations[1];
+    assert_eq!(c.events, [tag(0, "DEF_DROP_TORCH", &[], true)]);
+    let c = combinations[1];
     assert_eq!((c.name.as_str(), c.layer, c.next.as_str()), ("combName2", 117, "combNext2"));
     assert_eq!((c.blend_in, c.blend_out), (103.1, 203.2));
     assert_eq!(c.flags, AnimationFlags::IDLE);
     assert_eq!((c.model.as_str(), c.last_frame), ("combModel2", 227));
 
-    assert_eq!(script.disabled_animations, ["disable1", "disable2"]);
-    assert_eq!(script.hit_limbs, ["tag1", "tag2"]);
+    assert!(script.disabled_animations().eq(["disable1", "disable2"]));
+    let limbs: Vec<_> = script.model_tags().map(|t| (t.kind(), t.argument(0))).collect();
+    assert_eq!(limbs, [(EventType::HitLimb, "tag1"), (EventType::HitLimb, "tag2")]);
 }
 
 #[test]
@@ -191,9 +251,24 @@ fn compiled() {
 
     assert_eq!(script.skeleton, Some(Skeleton { name: "WAR_BODY".into(), disable_mesh: true }));
     assert_eq!(script.meshes, ["WAR_BODY.ASC", "WAR_FIRE_BODY.ASC"]);
+    let source = script.source.as_ref().unwrap();
+    assert_eq!(source.path, "\\_WORK\\DATA\\ANIMS\\WARAN.MDS");
+    assert_eq!((source.date.year, source.date.month, source.date.day), (2002, 8, 28));
 
-    assert_eq!(script.animations.len(), 62);
-    let a = &script.animations[0];
+    assert_eq!(script.statements.len(), 62 + 38 + 17 + 1);
+    // The script starts with an alias, as written.
+    let first = expect!(&script.statements[0], Statement::Alias(a) => a);
+    assert_eq!(
+        (first.name.as_str(), first.layer, first.next.as_str()),
+        ("S_FISTRUN", 1, "S_FISTRUN")
+    );
+    assert_eq!((first.blend_in, first.blend_out), (0.0, 0.0));
+    assert_eq!(first.flags, AnimationFlags::MOVE | AnimationFlags::IDLE);
+    assert_eq!((first.alias.as_str(), first.direction), ("S_FISTWALK", Direction::Forward));
+
+    let animations: Vec<_> = script.animations().collect();
+    assert_eq!(animations.len(), 62);
+    let a = animations[0];
     assert_eq!(a.name, "T_FISTRUN_2_FISTRUNL");
     assert_eq!(a.layer, 1);
     assert_eq!(a.next, "S_FISTRUNL");
@@ -203,39 +278,44 @@ fn compiled() {
     assert_eq!(a.direction, Direction::Forward);
     assert_eq!((a.first_frame, a.last_frame), (1, 8));
     assert_eq!((a.fps, a.speed, a.collision_volume_scale), (25.0, 0.0, 1.0));
-    assert_eq!(a.ground_sounds.len(), 1);
-    assert_eq!((a.ground_sounds[0].frame, a.ground_sounds[0].name.as_str()), (5, "SNEAK"));
-    assert!(a.sounds.is_empty() && a.particles.is_empty() && a.particle_stops.is_empty());
-    assert!(a.morphs.is_empty() && a.events.is_empty() && a.tremors.is_empty());
+    assert_eq!(a.events, [Event::GroundSound(sound(5, "SNEAK", 1000.0, true))]);
 
-    assert_eq!(script.aliases.len(), 38);
-    let a = &script.aliases[0];
-    assert_eq!((a.name.as_str(), a.layer, a.next.as_str()), ("S_FISTRUN", 1, "S_FISTRUN"));
-    assert_eq!((a.blend_in, a.blend_out), (0.0, 0.0));
-    assert_eq!(a.flags, AnimationFlags::MOVE | AnimationFlags::IDLE);
-    assert_eq!((a.alias.as_str(), a.direction), ("S_FISTWALK", Direction::Forward));
+    // A sound, then the ground sounds after it, in file order.
+    let kinds: Vec<_> = animations[1]
+        .events
+        .iter()
+        .map(|e| expect!(e, Event::Sound(s) | Event::GroundSound(s) => s.frame))
+        .collect();
+    assert_eq!(kinds, [10, 9, 15]);
 
-    assert_eq!(script.blends.len(), 17);
-    let b = &script.blends[0];
+    assert_eq!(script.aliases().count(), 38);
+    let b = script.blends().next().unwrap();
     assert_eq!((b.name.as_str(), b.next.as_str()), ("T_FISTRUNR_2_FISTRUN", "S_FISTRUN"));
     assert_eq!((b.blend_in, b.blend_out), (0.0, 0.0));
+    assert_eq!(script.blends().count(), 17);
 
-    assert_eq!(script.combinations.len(), 1);
-    let c = &script.combinations[0];
+    let c = script.combinations().next().unwrap();
     assert_eq!((c.name.as_str(), c.layer, c.next.as_str()), ("T_LOOK", 9, "T_LOOK"));
     assert_eq!((c.blend_in, c.blend_out), (0.3, 0.3));
     assert_eq!(c.flags, AnimationFlags::MOVE);
     assert_eq!((c.model.as_str(), c.last_frame), ("C_LOOK_", 9));
+    assert_eq!(script.disabled_animations().count(), 0);
 
-    assert!(script.disabled_animations.is_empty());
-
-    let events = &script.animations[47].events;
-    assert_eq!(events.len(), 4);
-    assert_eq!(events[0].kind, EventType::HitLimb);
-    assert_eq!(events[0].slot, "BIP01 TONGUE04");
-    assert_eq!(events[3].frame, 0);
-    assert_eq!(events[3].kind, EventType::ComboWindow);
-    assert_eq!(events[3].frames, [8, 15]);
+    let events = &animations[47].events;
+    assert_eq!(
+        events,
+        &[
+            tag(0, "DEF_HIT_LIMB", &["BIP01 TONGUE04"], false),
+            tag(0, "DEF_OPT_FRAME", &["8"], false),
+            tag(0, "DEF_HIT_END", &["15"], false),
+            tag(0, "DEF_WINDOW", &["8\t15"], false),
+            Event::GroundSound(sound(3, "SNEAK", 1000.0, true)),
+            Event::Sound(sound(7, "WAR_ATTACK", 2500.0, false)),
+            Event::GroundSound(sound(11, "SNEAK", 1000.0, true)),
+        ]
+    );
+    let window = expect!(&events[3], Event::Tag(t) => t);
+    assert_eq!((window.kind(), window.frames()), (EventType::ComboWindow, vec![8, 15]));
 }
 
 #[test]

@@ -51,7 +51,7 @@ fn run(gothic: &Path, name: &str) -> Result<()> {
 
 fn from_script(vfs: &Vfs, stem: &str) -> Result<()> {
     let script: ModelScript = vfs.load(&format!("{stem}.MSB"))?;
-    println!("{} animations, meshes: {:?}", script.animations.len(), script.meshes);
+    println!("{} animations, meshes: {:?}", script.animations().count(), script.meshes);
 
     let skeleton: ModelHierarchy = vfs.load(&format!("{stem}.MDH"))?;
     print_skeleton(&skeleton);
@@ -62,7 +62,7 @@ fn from_script(vfs: &Vfs, stem: &str) -> Result<()> {
         print_mesh(&mesh);
     }
 
-    let Some(animation) = script.animation("S_RUNL").or(script.animations.first()) else {
+    let Some(animation) = script.animation("S_RUNL").or(script.animations().next()) else {
         return Ok(());
     };
     let file = format!("{stem}-{}.MAN", animation.name);

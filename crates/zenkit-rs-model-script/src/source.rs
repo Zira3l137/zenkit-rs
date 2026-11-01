@@ -19,7 +19,9 @@ use super::AnimationCombination;
 use super::AnimationFlags;
 use super::CameraTremor;
 use super::Direction;
+use super::Event;
 use super::EventTag;
+use super::EventType;
 use super::FORMAT;
 use super::ModelScript;
 use super::MorphAnimation;
@@ -27,6 +29,7 @@ use super::ParticleEffect;
 use super::ParticleEffectStop;
 use super::Skeleton;
 use super::SoundEffect;
+use super::Statement;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
@@ -290,16 +293,6 @@ impl<'a> Parser<'a> {
         Ok(AnimationFlags::parse(&string(t)))
     }
 
-    /// Steps over a block whose contents are not kept, up to its closing brace.
-    fn skip_block(&mut self) {
-        loop {
-            match self.lexer.next().kind {
-                Kind::RBrace | Kind::Eof => break,
-                _ => {}
-            }
-        }
-    }
-
     /// Whether the next token closes the current block, consuming it. The end of the file closes
     /// every block, since scripts often lack their last braces.
     fn block_ends(&mut self) -> bool {
@@ -345,22 +338,18 @@ impl<'a> Parser<'a> {
 
         while !self.block_ends() {
             let t = self.expect(Kind::Keyword)?;
-            if is(t, "ani") {
-                script.animations.push(self.ani()?);
+            let statement = if is(t, "ani") {
+                Statement::Animation(self.ani()?)
             } else if is(t, "aniBlend") {
-                script.blends.push(self.ani_blend()?);
+                Statement::Blend(self.ani_blend()?)
             } else if is(t, "aniAlias") {
-                script.aliases.push(self.ani_alias()?);
+                Statement::Alias(self.ani_alias()?)
             } else if is(t, "aniComb") {
-                script.combinations.push(self.ani_comb()?);
+                Statement::Combination(self.ani_comb()?)
             } else if is(t, "aniDisable") {
-                script.disabled_animations.push(self.string()?);
+                Statement::Disable(self.string()?)
             } else if is(t, "modelTag") {
-                let kind = self.string()?;
-                if !kind.eq_ignore_ascii_case("DEF_HIT_LIMB") {
-                    warn!("{}: unexpected model tag {kind:?}", self.lexer.at(t.start));
-                }
-                script.hit_limbs.push(self.string()?);
+                Statement::ModelTag(self.tag(t)?)
             } else {
                 warn!(
                     "{}: unexpected {:?} in aniEnum, skipping the line",
@@ -368,7 +357,9 @@ impl<'a> Parser<'a> {
                     string(t)
                 );
                 self.lexer.eat_while(|c| c != b'\n');
-            }
+                continue;
+            };
+            script.statements.push(statement);
         }
         Ok(())
     }
@@ -392,32 +383,50 @@ impl<'a> Parser<'a> {
         ani.direction = Direction::parse(&string(t));
         ani.first_frame = self.int()?;
         ani.last_frame = self.int()?;
-        ani.fps = self.maybe_named("FPS")?.unwrap_or(25.0);
-        ani.collision_volume_scale = self.maybe_named("CVS")?.unwrap_or(1.0);
-
-        // The braces around the events are optional; without them the events simply follow.
-        self.maybe(Kind::LBrace);
-        self.events(&mut ani)?;
+        ani.fps = 25.0;
+        ani.collision_volume_scale = 1.0;
+        // Any of them, in any order.
+        loop {
+            if let Some(fps) = self.maybe_named("FPS")? {
+                ani.fps = fps;
+            } else if let Some(speed) = self.maybe_named("SPD")? {
+                ani.speed = speed;
+            } else if let Some(cvs) = self.maybe_named("CVS")? {
+                ani.collision_volume_scale = cvs;
+            } else {
+                break;
+            }
+        }
+        ani.events = self.events()?;
         Ok(ani)
     }
 
-    /// Reads events until something that is not one. With braces that is the closing brace; without
-    /// them it is the next statement, which is left for the caller.
-    fn events(&mut self, ani: &mut Animation) -> Result<()> {
-        while !self.block_ends() {
+    /// Reads the events that follow a statement. They are usually in braces, but scripts also
+    /// leave the braces out, or the closing one, and then the events end at the next statement.
+    fn events(&mut self) -> Result<Vec<Event>> {
+        let braced = self.maybe(Kind::LBrace).is_some();
+        let mut events = Vec::new();
+        loop {
+            if braced && self.block_ends() {
+                break;
+            }
             let saved = self.lexer.pos;
-            let t = self.expect(Kind::Keyword)?;
-            if is(t, "*eventTag") {
-                let frame = self.maybe_int()?.unwrap_or(0);
-                let kind = self.string()?;
-                let a = self.maybe_string();
-                let b = self.maybe_string();
-                let attached = self.maybe_keyword("ATTACH");
-                ani.events.push(EventTag::new(frame, &kind, a, b, attached));
+            let t = self.lexer.next();
+            if t.kind != Kind::Keyword {
+                if braced {
+                    return Err(
+                        self.error(t, format!("expected an event, found {}", t.kind.describe()))
+                    );
+                }
+                self.lexer.pos = saved;
+                break;
+            }
+            let event = if is(t, "*eventTag") {
+                Event::Tag(self.tag(t)?)
             } else if is(t, "*eventSFX") {
-                ani.sounds.push(self.sound()?);
+                Event::Sound(self.sound()?)
             } else if is(t, "*eventSFXGrnd") {
-                ani.ground_sounds.push(self.sound()?);
+                Event::GroundSound(self.sound()?)
             } else if is(t, "*eventPFX") {
                 let frame = self.int()?;
                 let index = self.maybe_int()?.unwrap_or(0);
@@ -425,48 +434,88 @@ impl<'a> Parser<'a> {
                 let position = self.string()?;
                 // Some scripts quote it: "ATTACH".
                 let attached = self.maybe_keyword("ATTACH") || self.maybe(Kind::String).is_some();
-                ani.particles.push(ParticleEffect { frame, index, name, position, attached });
+                Event::Particle(ParticleEffect { frame, index, name, position, attached })
             } else if is(t, "*eventPFXStop") {
-                ani.particle_stops
-                    .push(ParticleEffectStop { frame: self.int()?, index: self.int()? });
+                Event::ParticleStop(ParticleEffectStop { frame: self.int()?, index: self.int()? })
             } else if is(t, "*eventMMStartAni") {
-                ani.morphs.push(MorphAnimation {
+                let mut morph = MorphAnimation {
                     frame: self.int()?,
                     animation: self.string()?,
                     node: self.maybe_string().unwrap_or_default(),
-                });
+                    ..MorphAnimation::default()
+                };
+                loop {
+                    if let Some(intensity) = self.maybe_named("I")? {
+                        morph.intensity = intensity;
+                    } else if let Some(hold_time) = self.maybe_named("H")? {
+                        morph.hold_time = hold_time;
+                    } else {
+                        break;
+                    }
+                }
+                Event::Morph(morph)
             } else if is(t, "*eventCamTremor") {
-                ani.tremors.push(CameraTremor {
+                Event::Tremor(CameraTremor {
                     frame: self.int()?,
-                    values: [self.int()?, self.int()?, self.int()?, self.int()?],
-                });
+                    range: self.int()?,
+                    duration: self.int()?,
+                    min_amplifier: self.int()?,
+                    max_amplifier: self.int()?,
+                })
+            } else if t.text.first() == Some(&b'*') {
+                warn!("{}: skipping unknown event {:?}", self.lexer.at(t.start), string(t));
+                self.lexer.eat_while(|c| c != b'\n');
+                continue;
             } else {
+                // The next statement. In braces, the closing brace is missing, as in some mods'
+                // scripts, which the engine accepts.
                 self.lexer.pos = saved;
                 break;
-            }
+            };
+            events.push(event);
         }
-        Ok(())
+        Ok(events)
+    }
+
+    /// The arguments of `*eventTag` and `modelTag`: an optional frame, the event's name, up to
+    /// four arguments and `ATTACH`.
+    fn tag(&mut self, keyword: Token) -> Result<EventTag> {
+        let frame = self.maybe_int()?.unwrap_or(0);
+        let name = self.string()?;
+        if EventType::from_name(&name) == EventType::Unknown {
+            warn!("{}: unknown event type {name:?}", self.lexer.at(keyword.start));
+        }
+        let mut arguments = Vec::new();
+        while arguments.len() < 4
+            && let Some(argument) = self.maybe_string()
+        {
+            arguments.push(argument);
+        }
+        let attached = self.maybe_keyword("ATTACH");
+        Ok(EventTag { frame, name, arguments, attached })
     }
 
     /// `*eventSFX` and `*eventSFXGrnd` share their syntax.
     fn sound(&mut self) -> Result<SoundEffect> {
-        Ok(SoundEffect {
-            frame: self.int()?,
-            name: self.string()?,
-            range: self.maybe_named("R")?.unwrap_or(1000.0),
-            // The typo is common in the shipped scripts.
-            empty_slot: self.maybe_keyword("EMPTY_SLOT") || self.maybe_keyword("EMTPY_SLOT"),
-        })
+        let mut sound =
+            SoundEffect { frame: self.int()?, name: self.string()?, ..SoundEffect::default() };
+        if let Some(range) = self.maybe_named("R")? {
+            sound.range = range;
+        }
+        // The typo is common in the shipped scripts.
+        sound.empty_slot = self.maybe_keyword("EMPTY_SLOT") || self.maybe_keyword("EMTPY_SLOT");
+        Ok(sound)
     }
 
     fn ani_blend(&mut self) -> Result<AnimationBlend> {
         let name = self.string()?;
         let _layer = self.maybe_int()?;
-        let blend = AnimationBlend {
+        let mut blend = AnimationBlend {
             name,
             next: self.string()?,
             blend_in: self.maybe_number()?.unwrap_or(0.0),
             blend_out: self.maybe_number()?.unwrap_or(0.0),
+            events: Vec::new(),
         };
 
         // Some mods add flags, which mean nothing here. A keyword that is not made of flag
@@ -479,14 +528,12 @@ impl<'a> Parser<'a> {
             _ => self.lexer.pos = saved,
         }
 
-        if self.maybe(Kind::LBrace).is_some() {
-            self.skip_block();
-        }
+        blend.events = self.events()?;
         Ok(blend)
     }
 
     fn ani_alias(&mut self) -> Result<AnimationAlias> {
-        Ok(AnimationAlias {
+        let mut alias = AnimationAlias {
             name: self.string()?,
             layer: self.int()? as u32,
             next: self.string()?,
@@ -500,11 +547,14 @@ impl<'a> Parser<'a> {
                 self.maybe_keyword("F");
                 Direction::Forward
             },
-        })
+            events: Vec::new(),
+        };
+        alias.events = self.events()?;
+        Ok(alias)
     }
 
     fn ani_comb(&mut self) -> Result<AnimationCombination> {
-        let comb = AnimationCombination {
+        let mut comb = AnimationCombination {
             name: self.string()?,
             layer: self.int()? as u32,
             next: self.string()?,
@@ -513,10 +563,9 @@ impl<'a> Parser<'a> {
             flags: self.flags()?,
             model: self.string()?,
             last_frame: self.int()?,
+            events: Vec::new(),
         };
-        if self.maybe(Kind::LBrace).is_some() {
-            self.skip_block();
-        }
+        comb.events = self.events()?;
         Ok(comb)
     }
 }
@@ -585,7 +634,7 @@ mod tests {
     fn numbers_keep_their_longest_valid_prefix() {
         let src = b"Model(\"M\") { aniEnum { aniBlend(\"A\" \"B\" 1.5.0 2) } }";
         let script = parse(src).unwrap();
-        assert_eq!(script.blends[0].blend_in, 1.5);
-        assert_eq!(script.blends[0].blend_out, 2.0);
+        let blend = script.blends().next().unwrap();
+        assert_eq!((blend.blend_in, blend.blend_out), (1.5, 2.0));
     }
 }

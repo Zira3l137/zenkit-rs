@@ -3,14 +3,15 @@
 //! their frames.
 //!
 //! The game ships compiled `.MSB` files; mods often ship the `.MDS` source instead. Both are read
-//! into the same [`ModelScript`].
+//! into the same [`ModelScript`], which keeps the script's statements, and each animation's
+//! events, in the order they are written.
 
 mod binary;
 mod source;
 
 use bitflags::bitflags;
-use tracing::warn;
 use zenkit_rs_core::Asset;
+use zenkit_rs_core::Date;
 use zenkit_rs_core::Result;
 
 const FORMAT: &str = "model script";
@@ -73,7 +74,7 @@ impl Direction {
 /// What an [`EventTag`] tells the game to do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum EventType {
-    /// A type this crate does not know. The event is kept so that its frame is not lost.
+    /// A type this crate does not know. The event keeps its name and arguments regardless.
     #[default]
     Unknown,
     CreateItem,
@@ -128,15 +129,11 @@ impl EventType {
         ("DEF_WINDOW", Self::ComboWindow),
     ];
 
-    fn parse(name: &str) -> Self {
-        Self::NAMES
-            .iter()
+    /// The type an event name stands for, ignoring ASCII case like the engine does.
+    pub fn from_name(name: &str) -> Self {
+        (Self::NAMES.iter())
             .find(|(n, _)| n.eq_ignore_ascii_case(name))
-            .map(|&(_, kind)| kind)
-            .unwrap_or_else(|| {
-                warn!("unknown event type {name:?}");
-                Self::Unknown
-            })
+            .map_or(Self::Unknown, |&(_, kind)| kind)
     }
 }
 
@@ -149,16 +146,17 @@ pub enum FightMode {
     Bow,
     Crossbow,
     Magic,
+    /// No weapon, an empty argument.
     #[default]
     None,
 }
 
 impl FightMode {
     fn parse(name: &str) -> Self {
-        match name.to_ascii_uppercase().as_str() {
+        match name.trim().to_ascii_uppercase().as_str() {
             "FIST" => Self::Fist,
-            "1H" => Self::OneHanded,
-            "2H" => Self::TwoHanded,
+            "1H" | "1HS" => Self::OneHanded,
+            "2H" | "2HS" => Self::TwoHanded,
             "BOW" => Self::Bow,
             "CBOW" => Self::Crossbow,
             "MAG" => Self::Magic,
@@ -167,49 +165,42 @@ impl FightMode {
     }
 }
 
-/// A gameplay event on one frame of an animation (`*eventTag`).
+/// A gameplay event on one frame of an animation (`*eventTag`), or for every animation of the
+/// model (`modelTag`).
 ///
-/// Which fields are set depends on [`kind`](Self::kind): item events name a `slot` and an `item`,
-/// [`SwapMesh`](EventType::SwapMesh) swaps `slot` with `slot2`, combat events list `frames`.
+/// Its name and arguments are kept as written, so that it is written back the same; the methods
+/// read them by [`kind`](Self::kind). Item events name a slot and then an item,
+/// [`SwapMesh`](EventType::SwapMesh) two slots, [`HitLimb`](EventType::HitLimb) up to four
+/// slots, and combat events a list of frames.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct EventTag {
     pub frame: i32,
-    pub kind: EventType,
-    pub slot: String,
-    pub slot2: String,
-    pub item: String,
-    pub frames: Vec<i32>,
-    pub fight_mode: FightMode,
+    /// Like `DEF_CREATE_ITEM`.
+    pub name: String,
+    /// Compiled scripts store four, the unused ones empty; empty ones at the end are left out.
+    pub arguments: Vec<String>,
+    /// `ATTACH`, which only source scripts store.
     pub attached: bool,
 }
 
 impl EventTag {
-    /// Sorts an event's free-form arguments into fields. Source and compiled scripts store the
-    /// same two leading arguments, so both readers build events through here.
-    fn new(frame: i32, kind: &str, a: Option<String>, b: Option<String>, attached: bool) -> Self {
-        let kind = EventType::parse(kind);
-        let mut event = Self { frame, kind, attached, ..Self::default() };
-        let a = a.unwrap_or_default();
+    pub fn kind(&self) -> EventType {
+        EventType::from_name(&self.name)
+    }
 
-        use EventType::*;
-        match kind {
-            CreateItem | ExchangeItem => {
-                event.slot = a;
-                event.item = b.unwrap_or_default();
-            }
-            SwapMesh => {
-                event.slot = a;
-                event.slot2 = b.unwrap_or_default();
-            }
-            InsertItem | RemoveItem | DestroyItem | PlaceMunition | RemoveMunition | DrawSound
-            | UndrawSound | InventoryTorch | HitLimb | HitDirection => event.slot = a,
-            SetFightMode => event.fight_mode = FightMode::parse(&a),
-            DamageMultiplier | ParryFrame | OptimalFrame | HitEnd | ComboWindow => {
-                event.frames = a.split_ascii_whitespace().filter_map(|f| f.parse().ok()).collect();
-            }
-            Unknown | PlaceItem | DrawTorch | DropTorch => {}
-        }
-        event
+    /// An argument, or the empty string if there are fewer.
+    pub fn argument(&self, index: usize) -> &str {
+        self.arguments.get(index).map_or("", String::as_str)
+    }
+
+    /// The frames combat events list in their first argument, like `"8 15"`.
+    pub fn frames(&self) -> Vec<i32> {
+        self.argument(0).split_ascii_whitespace().filter_map(|f| f.parse().ok()).collect()
+    }
+
+    /// The stance a [`SetFightMode`](EventType::SetFightMode) event switches to.
+    pub fn fight_mode(&self) -> FightMode {
+        FightMode::parse(self.argument(0))
     }
 }
 
@@ -239,7 +230,9 @@ pub struct ParticleEffectStop {
 pub struct SoundEffect {
     pub frame: i32,
     pub name: String,
+    /// How far away it is heard, in centimetres.
     pub range: f32,
+    /// Played on a free sound slot of the model rather than cutting off the one playing.
     pub empty_slot: bool,
 }
 
@@ -250,19 +243,49 @@ impl Default for SoundEffect {
 }
 
 /// Starts a morph mesh animation, usually on the head (`*eventMMStartAni`).
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct MorphAnimation {
     pub frame: i32,
     pub animation: String,
-    /// The node holding the morph mesh. Empty for the default one.
+    /// The node holding the morph mesh. Empty for the default one, `BIP01 HEAD`.
     pub node: String,
+    /// `I:`, said to blend the morph animation with the one playing.
+    pub intensity: f32,
+    /// `H:`, how long the animation is held, in seconds.
+    pub hold_time: f32,
 }
 
-/// Shakes the camera (`*eventCamTremor`). The meaning of the four values is unknown.
+/// Shakes the camera (`*eventCamTremor`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct CameraTremor {
     pub frame: i32,
-    pub values: [i32; 4],
+    /// How far away it is felt, in centimetres.
+    pub range: i32,
+    /// In milliseconds.
+    pub duration: i32,
+    pub min_amplifier: i32,
+    pub max_amplifier: i32,
+}
+
+/// A chunk of a compiled script this crate does not know, kept so that it is written back.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RawChunk {
+    pub id: u16,
+    pub data: Vec<u8>,
+}
+
+/// Something an animation does on one of its frames.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Event {
+    Tag(EventTag),
+    Sound(SoundEffect),
+    GroundSound(SoundEffect),
+    Particle(ParticleEffect),
+    ParticleStop(ParticleEffectStop),
+    Morph(MorphAnimation),
+    Tremor(CameraTremor),
+    /// An event of a compiled script this crate does not know, like `*eventSwapMesh`.
+    Unknown(RawChunk),
 }
 
 /// An animation played from a `.MAN` file (`ani`).
@@ -281,16 +304,11 @@ pub struct Animation {
     pub first_frame: i32,
     pub last_frame: i32,
     pub fps: f32,
-    /// Only stored in compiled scripts; zero in source scripts.
+    /// `SPD:`, zero when not given.
     pub speed: f32,
     pub collision_volume_scale: f32,
-    pub events: Vec<EventTag>,
-    pub particles: Vec<ParticleEffect>,
-    pub particle_stops: Vec<ParticleEffectStop>,
-    pub sounds: Vec<SoundEffect>,
-    pub ground_sounds: Vec<SoundEffect>,
-    pub morphs: Vec<MorphAnimation>,
-    pub tremors: Vec<CameraTremor>,
+    /// In the order they are written.
+    pub events: Vec<Event>,
 }
 
 /// Another name for an animation, optionally played backwards (`aniAlias`).
@@ -305,6 +323,7 @@ pub struct AnimationAlias {
     /// The animation this one plays.
     pub alias: String,
     pub direction: Direction,
+    pub events: Vec<Event>,
 }
 
 /// A transition that only blends from one animation to the next (`aniBlend`).
@@ -314,6 +333,7 @@ pub struct AnimationBlend {
     pub next: String,
     pub blend_in: f32,
     pub blend_out: f32,
+    pub events: Vec<Event>,
 }
 
 /// An animation mixed from several others by direction, like looking around (`aniComb`).
@@ -328,6 +348,54 @@ pub struct AnimationCombination {
     /// The common prefix of the animations being mixed.
     pub model: String,
     pub last_frame: i32,
+    pub events: Vec<Event>,
+}
+
+/// One statement of a script's `aniEnum` block.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Statement {
+    Animation(Animation),
+    Alias(AnimationAlias),
+    Blend(AnimationBlend),
+    Combination(AnimationCombination),
+    /// Turns off the animation of this name (`aniDisable`).
+    Disable(String),
+    /// An event for every animation of the model, in practice the bones that can hit in combat:
+    /// `modelTag("DEF_HIT_LIMB" "ZS_RIGHTHAND")`.
+    ModelTag(EventTag),
+    /// A statement of a compiled script this crate does not know, like `aniMaxFPS`.
+    Unknown(RawChunk),
+}
+
+impl Statement {
+    /// The events of an animation, alias, blend or combination; empty for other statements.
+    pub fn events(&self) -> &[Event] {
+        match self {
+            Self::Animation(a) => &a.events,
+            Self::Alias(a) => &a.events,
+            Self::Blend(b) => &b.events,
+            Self::Combination(c) => &c.events,
+            Self::Disable(_) | Self::ModelTag(_) | Self::Unknown(_) => &[],
+        }
+    }
+
+    pub(crate) fn events_mut(&mut self) -> Option<&mut Vec<Event>> {
+        match self {
+            Self::Animation(a) => Some(&mut a.events),
+            Self::Alias(a) => Some(&mut a.events),
+            Self::Blend(b) => Some(&mut b.events),
+            Self::Combination(c) => Some(&mut c.events),
+            Self::Disable(_) | Self::ModelTag(_) | Self::Unknown(_) => None,
+        }
+    }
+}
+
+/// The source file a compiled script was made from.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ScriptSource {
+    /// Like `\_WORK\DATA\ANIMS\HUMANS.MDS`.
+    pub path: String,
+    pub date: Date,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -336,14 +404,22 @@ pub struct ModelScript {
     pub skeleton: Option<Skeleton>,
     /// The meshes that can be put on the skeleton (`registerMesh`).
     pub meshes: Vec<String>,
-    /// Names of animations turned off (`aniDisable`).
-    pub disabled_animations: Vec<String>,
-    pub animations: Vec<Animation>,
-    pub aliases: Vec<AnimationAlias>,
-    pub blends: Vec<AnimationBlend>,
-    pub combinations: Vec<AnimationCombination>,
-    /// Bones that can be hit in combat (`modelTag("DEF_HIT_LIMB" ...)`).
-    pub hit_limbs: Vec<String>,
+    /// The `aniEnum` block, in the order it is written, which the engine reads it in.
+    pub statements: Vec<Statement>,
+    /// Compiled scripts only.
+    pub source: Option<ScriptSource>,
+}
+
+macro_rules! statements {
+    ($(#[$doc:meta])* $name:ident, $variant:ident, $ty:ty) => {
+        $(#[$doc])*
+        pub fn $name(&self) -> impl Iterator<Item = &$ty> + '_ {
+            self.statements.iter().filter_map(|s| match s {
+                Statement::$variant(x) => Some(x),
+                _ => None,
+            })
+        }
+    };
 }
 
 impl ModelScript {
@@ -357,9 +433,23 @@ impl ModelScript {
         }
     }
 
+    statements!(animations, Animation, Animation);
+    statements!(aliases, Alias, AnimationAlias);
+    statements!(blends, Blend, AnimationBlend);
+    statements!(combinations, Combination, AnimationCombination);
+    statements!(model_tags, ModelTag, EventTag);
+
+    /// The names of the animations turned off (`aniDisable`).
+    pub fn disabled_animations(&self) -> impl Iterator<Item = &str> + '_ {
+        self.statements.iter().filter_map(|s| match s {
+            Statement::Disable(name) => Some(name.as_str()),
+            _ => None,
+        })
+    }
+
     /// Finds an animation by name, ignoring ASCII case like the engine does.
     pub fn animation(&self, name: &str) -> Option<&Animation> {
-        self.animations.iter().find(|a| a.name.eq_ignore_ascii_case(name))
+        self.animations().find(|a| a.name.eq_ignore_ascii_case(name))
     }
 }
 
@@ -382,20 +472,21 @@ mod tests {
     }
 
     #[test]
-    fn events_sort_their_arguments() {
-        let s = |v: &str| Some(v.to_owned());
-
-        let e = EventTag::new(3, "DEF_CREATE_ITEM", s("ZS_LEFTHAND"), s("ITFO_APPLE"), false);
-        assert_eq!((e.kind, e.slot.as_str()), (EventType::CreateItem, "ZS_LEFTHAND"));
-        assert_eq!(e.item, "ITFO_APPLE");
-
-        let e = EventTag::new(0, "DEF_WINDOW", s("8\t15"), None, false);
-        assert_eq!(e.frames, [8, 15]);
-
-        let e = EventTag::new(0, "DEF_FIGHTMODE", s("2h"), None, false);
-        assert_eq!(e.fight_mode, FightMode::TwoHanded);
-
-        let e = EventTag::new(7, "DEF_SOMETHING_NEW", s("x"), None, true);
-        assert_eq!((e.kind, e.frame, e.attached), (EventType::Unknown, 7, true));
+    fn events_read_their_arguments_by_kind() {
+        let tag = |name: &str, args: &[&str]| EventTag {
+            name: name.into(),
+            arguments: args.iter().map(|a| a.to_string()).collect(),
+            ..EventTag::default()
+        };
+        let e = tag("def_create_item", &["ZS_LEFTHAND", "ITFO_APPLE"]);
+        assert_eq!(
+            (e.kind(), e.argument(0), e.argument(1)),
+            (EventType::CreateItem, "ZS_LEFTHAND", "ITFO_APPLE")
+        );
+        assert_eq!(e.argument(2), "");
+        assert_eq!(tag("DEF_WINDOW", &["8\t15"]).frames(), [8, 15]);
+        assert_eq!(tag("DEF_FIGHTMODE", &["2hs"]).fight_mode(), FightMode::TwoHanded);
+        assert_eq!(tag("DEF_FIGHTMODE", &[""]).fight_mode(), FightMode::None);
+        assert_eq!(tag("DEF_SOMETHING_NEW", &["x"]).kind(), EventType::Unknown);
     }
 }
