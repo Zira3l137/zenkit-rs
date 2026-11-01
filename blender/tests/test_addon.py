@@ -611,6 +611,9 @@ keys = [k.name for k in bow.data.shape_keys.key_blocks]
 assert (
     keys[:4] == ["Basis", "S_NORMAL", "S_SHOOT 0", "S_SHOOT 1"] and len(keys) == 1 + 1 + 10 + 1 + 29
 )
+# The keys start at 0, so the mesh shows its rest shape.
+reference = bow.data.shape_keys.reference_key
+assert all(k.value == 0.0 for k in bow.data.shape_keys.key_blocks if k != reference)
 assert bpy.ops.export_scene.zenkit_mmb(filepath=str(work / "BOW.MMB")) == {"FINISHED"}
 original, written = (
     zenkit_py.read_morph(str(samples / "morph0.mmb")),

@@ -49,6 +49,8 @@ def build_morph(name, data, scale, folders):
         offsets = convert.to_blender(offsets) * scale
         for frame in range(frames):
             key = obj.shape_key_add(name=key_name(anim["name"], frame, frames), from_mix=False)
+            # New shape keys start at 1, which would show every frame at once.
+            key.value = 0.0
             co = base.copy()
             co[vertices] += offsets[frame]
             key.data.foreach_set("co", co.astype(np.float32).ravel())
