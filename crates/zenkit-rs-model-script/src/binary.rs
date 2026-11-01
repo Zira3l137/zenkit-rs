@@ -4,8 +4,10 @@
 
 use tracing::warn;
 use zenkit_rs_core::Date;
+use zenkit_rs_core::Error;
 use zenkit_rs_core::Result;
 use zenkit_rs_core::io::Reader;
+use zenkit_rs_core::io::Writer;
 use zenkit_rs_core::text;
 
 use super::Animation;
@@ -18,6 +20,7 @@ use super::Direction;
 use super::Event;
 use super::EventTag;
 use super::EventType;
+use super::FORMAT;
 use super::ModelScript;
 use super::MorphAnimation;
 use super::ParticleEffect;
@@ -184,11 +187,12 @@ fn read_statement(id: u16, c: &mut Reader) -> Result<Statement> {
 
 fn read_event(id: u16, c: &mut Reader) -> Result<Event> {
     let sound = |c: &mut Reader| {
-        Ok::<_, zenkit_rs_core::Error>(SoundEffect {
+        Ok::<_, Error>(SoundEffect {
             frame: c.i32()?,
             name: string(c),
             range: c.f32()?,
-            empty_slot: c.u32()? != 0,
+            // A float, like the engine's other event values.
+            empty_slot: c.f32()? != 0.0,
         })
     };
     Ok(match id {
@@ -221,4 +225,176 @@ fn read_event(id: u16, c: &mut Reader) -> Result<Event> {
         }),
         id => Event::Unknown(RawChunk { id, data: c.rest().to_vec() }),
     })
+}
+
+/// Writes a script compiled. Statements carry their texts, so every text is checked before
+/// anything is written, by encoding it as it goes: the first failure is kept and returned at the
+/// end, as the archive writer does.
+pub(super) fn write(script: &ModelScript) -> Result<Vec<u8>> {
+    let mut w = Out { w: Writer::new(), error: None };
+    let source = script.source.clone().unwrap_or_default();
+    // The directory of the source file, which the root chunk names.
+    let directory = source.path.rfind('\\').map_or("", |end| &source.path[..=end]);
+
+    w.chunk(CHUNK_ROOT, |w| {
+        w.w.u32(1);
+        w.line(directory);
+    });
+    w.chunk(CHUNK_SOURCE, |w| {
+        source.date.write(&mut w.w);
+        w.line(&source.path);
+    });
+    w.chunk(CHUNK_MODEL, |_| ());
+    if let Some(skeleton) = &script.skeleton {
+        w.chunk(CHUNK_MESH_AND_TREE, |w| {
+            w.w.u32(skeleton.disable_mesh.into());
+            w.line(&skeleton.name);
+        });
+    }
+    for mesh in &script.meshes {
+        w.chunk(CHUNK_REGISTER_MESH, |w| w.line(mesh));
+    }
+    w.chunk(CHUNK_ANI_ENUM, |_| ());
+    for statement in &script.statements {
+        write_statement(&mut w, statement);
+        let events = statement.events();
+        if !events.is_empty() {
+            w.chunk(CHUNK_EVENTS, |w| w.w.u32(events.len() as u32));
+            events.iter().for_each(|event| write_event(&mut w, event));
+            w.chunk(CHUNK_EVENTS_END, |_| ());
+        }
+    }
+    w.chunk(CHUNK_ANI_ENUM_END, |_| ());
+    w.chunk(CHUNK_MODEL_END, |_| ());
+    w.chunk(CHUNK_END, |_| ());
+
+    match w.error {
+        Some(error) => Err(error),
+        None => Ok(w.w.into_inner()),
+    }
+}
+
+struct Out {
+    w: Writer,
+    error: Option<Error>,
+}
+
+impl Out {
+    fn chunk(&mut self, id: u16, contents: impl FnOnce(&mut Self)) {
+        self.w.u16(id);
+        let length_at = self.w.position();
+        self.w.u32(0);
+        contents(self);
+        let length = self.w.position() - length_at - 4;
+        self.w.patch_u32(length_at, length as u32);
+    }
+
+    fn line(&mut self, value: &str) {
+        match text::to_line(FORMAT, value) {
+            Ok(bytes) => self.w.line(&bytes),
+            Err(error) => {
+                self.error.get_or_insert(error);
+            }
+        }
+    }
+
+    fn tag(&mut self, tag: &EventTag) {
+        if tag.arguments.len() > 4 {
+            let reason =
+                format!("{:?} has {} arguments, at most 4 fit", tag.name, tag.arguments.len());
+            self.error.get_or_insert(Error::unwritable(FORMAT, reason));
+        }
+        self.w.i32(tag.frame);
+        self.line(&tag.name);
+        for i in 0..4 {
+            self.line(tag.argument(i));
+        }
+    }
+}
+
+fn write_statement(w: &mut Out, statement: &Statement) {
+    match statement {
+        Statement::Animation(a) => w.chunk(CHUNK_ANIMATION, |w| {
+            w.line(&a.name);
+            w.w.u32(a.layer);
+            w.line(&a.next);
+            w.w.f32(a.blend_in);
+            w.w.f32(a.blend_out);
+            w.line(&a.flags.to_text());
+            w.line(&a.model);
+            w.line(a.direction.to_text());
+            w.w.i32(a.first_frame);
+            w.w.i32(a.last_frame);
+            w.w.f32(a.fps);
+            w.w.f32(a.speed);
+            w.w.f32(a.collision_volume_scale);
+        }),
+        Statement::Alias(a) => w.chunk(CHUNK_ALIAS, |w| {
+            w.line(&a.name);
+            w.w.u32(a.layer);
+            w.line(&a.next);
+            w.w.f32(a.blend_in);
+            w.w.f32(a.blend_out);
+            w.line(&a.flags.to_text());
+            w.line(&a.alias);
+            w.line(a.direction.to_text());
+        }),
+        Statement::Blend(b) => w.chunk(CHUNK_BLEND, |w| {
+            w.line(&b.name);
+            w.line(&b.next);
+            w.w.f32(b.blend_in);
+            w.w.f32(b.blend_out);
+        }),
+        Statement::Combination(c) => w.chunk(CHUNK_COMBINATION, |w| {
+            w.line(&c.name);
+            w.w.u32(c.layer);
+            w.line(&c.next);
+            w.w.f32(c.blend_in);
+            w.w.f32(c.blend_out);
+            w.line(&c.flags.to_text());
+            w.line(&c.model);
+            w.w.i32(c.last_frame);
+        }),
+        Statement::Disable(name) => w.chunk(CHUNK_DISABLE, |w| w.line(name)),
+        Statement::ModelTag(tag) => w.chunk(CHUNK_MODEL_TAG, |w| w.tag(tag)),
+        Statement::Unknown(raw) => w.chunk(raw.id, |w| w.w.bytes(&raw.data)),
+    }
+}
+
+fn write_event(w: &mut Out, event: &Event) {
+    let sound = |w: &mut Out, s: &SoundEffect| {
+        w.w.i32(s.frame);
+        w.line(&s.name);
+        w.w.f32(s.range);
+        w.w.f32(if s.empty_slot { 1.0 } else { 0.0 });
+    };
+    match event {
+        Event::Sound(s) => w.chunk(CHUNK_EVENT_SFX, |w| sound(w, s)),
+        Event::GroundSound(s) => w.chunk(CHUNK_EVENT_SFX_GROUND, |w| sound(w, s)),
+        Event::Tag(tag) => w.chunk(CHUNK_EVENT_TAG, |w| w.tag(tag)),
+        Event::Particle(p) => w.chunk(CHUNK_EVENT_PFX, |w| {
+            w.w.i32(p.frame);
+            w.w.i32(p.index);
+            w.line(&p.name);
+            w.line(&p.position);
+            w.w.u32(p.attached.into());
+        }),
+        Event::ParticleStop(p) => w.chunk(CHUNK_EVENT_PFX_STOP, |w| {
+            w.w.i32(p.frame);
+            w.w.i32(p.index);
+        }),
+        Event::Morph(m) => w.chunk(CHUNK_EVENT_MORPH, |w| {
+            w.w.i32(m.frame);
+            w.line(&m.animation);
+            w.line(&m.node);
+            w.w.f32(m.intensity);
+            w.w.f32(m.hold_time);
+        }),
+        Event::Tremor(t) => w.chunk(CHUNK_EVENT_TREMOR, |w| {
+            for v in [t.frame, t.range, t.duration, t.min_amplifier, t.max_amplifier] {
+                w.w.i32(v);
+            }
+        }),
+        Event::Unknown(raw) => w.chunk(raw.id, |w| w.w.bytes(&raw.data)),
+    }
 }

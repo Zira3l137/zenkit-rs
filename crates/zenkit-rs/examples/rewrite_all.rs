@@ -5,7 +5,7 @@
 //! cargo run --release --example rewrite_all -- "C:\Games\Gothic II" MAN
 //! ```
 //!
-//! Takes `MAN`, `MMB`, `MRM`, `MDH`, `MDM` or `MDL`. Files are written for the game whose folder
+//! Takes `MAN`, `MMB`, `MRM`, `MDH`, `MDM`, `MDL` or `MSB`. Files are written for the game whose folder
 //! it is, told by whether `System\Gothic2.exe` exists. It prints how many files come out byte for
 //! byte the same, then groups the others by the chunks their differences lie in, with the first
 //! difference of one file of each group.
@@ -27,11 +27,12 @@ use zenkit::animation::ModelAnimation;
 use zenkit::model::Model;
 use zenkit::model::ModelHierarchy;
 use zenkit::model::ModelMesh;
+use zenkit::model_script::ModelScript;
 use zenkit::morph::MorphMesh;
 use zenkit::mrm::MultiResolutionMesh;
 
 fn main() -> ExitCode {
-    let [gothic, kind] = common::args("rewrite_all <gothic folder> <MAN|MMB|MRM|MDH|MDM|MDL>");
+    let [gothic, kind] = common::args("rewrite_all <gothic folder> <MAN|MMB|MRM|MDH|MDM|MDL|MSB>");
     common::init_logging();
     common::finish(run(Path::new(&gothic), &kind.to_ascii_uppercase()))
 }
@@ -78,6 +79,7 @@ fn run(gothic: &Path, kind: &str) -> Result<()> {
         "MDH" => |d, _| rewrite(d, ModelHierarchy::from_bytes, ModelHierarchy::to_bytes),
         "MDM" => |d, game| rewrite(d, ModelMesh::from_bytes, |m| m.to_bytes(game)),
         "MDL" => |d, game| rewrite(d, Model::from_bytes, |m| m.to_bytes(game)),
+        "MSB" => |d, _| rewrite(d, ModelScript::from_bytes, ModelScript::to_msb),
         other => {
             let reason = format!("cannot rewrite {other:?} files");
             return Err(Error::unsupported("rewrite_all", reason));

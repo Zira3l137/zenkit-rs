@@ -329,3 +329,51 @@ fn truncated_scripts_never_panic() {
         let _ = ModelScript::from_bytes(&compiled[..len]);
     }
 }
+
+#[test]
+fn compiled_writes_back_byte_for_byte() {
+    let data = sample("waran.msb");
+    let script = ModelScript::from_bytes(&data).unwrap();
+    let written = script.to_msb().unwrap();
+    assert_eq!(written.len(), data.len());
+    assert!(written == data);
+}
+
+#[test]
+fn source_compiles_to_what_it_reads() {
+    let script = ModelScript::from_bytes(&sample("waran.mds")).unwrap();
+    let back = ModelScript::from_bytes(&script.to_msb().unwrap()).unwrap();
+    let mut expected = script.clone();
+    expected.source = Some(ScriptSource::default());
+    // Compiled scripts do not store ATTACH on tags.
+    for statement in &mut expected.statements {
+        let events = match statement {
+            Statement::Animation(a) => &mut a.events,
+            Statement::Alias(a) => &mut a.events,
+            Statement::Blend(b) => &mut b.events,
+            Statement::Combination(c) => &mut c.events,
+            _ => continue,
+        };
+        for event in events {
+            if let Event::Tag(tag) = event {
+                tag.attached = false;
+            }
+        }
+    }
+    assert_eq!(back, expected);
+}
+
+#[test]
+fn scripts_that_cannot_be_compiled_fail() {
+    let mut script = ModelScript::default();
+    script.statements.push(Statement::ModelTag(EventTag {
+        name: "DEF_HIT_LIMB".into(),
+        arguments: vec!["A".into(); 5],
+        ..EventTag::default()
+    }));
+    let error = script.to_msb().unwrap_err().to_string();
+    assert!(error.contains("5 arguments"), "{error}");
+
+    let script = ModelScript { meshes: vec!["A\nB".into()], ..ModelScript::default() };
+    assert!(script.to_msb().unwrap_err().to_string().contains("line break"));
+}

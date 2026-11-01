@@ -41,19 +41,34 @@ bitflags! {
 }
 
 impl AnimationFlags {
+    const LETTERS: [(u8, Self); 6] = [
+        (b'M', Self::MOVE),
+        (b'R', Self::ROTATE),
+        (b'E', Self::QUEUE),
+        (b'F', Self::FLY),
+        (b'I', Self::IDLE),
+        (b'P', Self::IN_PLACE),
+    ];
+
+    /// The flags as scripts write them, as in the game's compiled scripts: a lone flag is
+    /// followed by a dot, like `M.`, and no flags at all are a single dot.
+    fn to_text(self) -> String {
+        let mut text: String = (Self::LETTERS.iter())
+            .filter(|(_, flag)| self.contains(*flag))
+            .map(|&(letter, _)| char::from(letter))
+            .collect();
+        if text.len() < 2 {
+            text.push('.');
+        }
+        text
+    }
+
     /// Parses the letters of a flags field like `MI` or `M.`. Any other character, usually `.`
     /// for "not set", is ignored.
     fn parse(text: &str) -> Self {
-        text.bytes()
-            .map(|c| match c.to_ascii_uppercase() {
-                b'M' => Self::MOVE,
-                b'R' => Self::ROTATE,
-                b'E' => Self::QUEUE,
-                b'F' => Self::FLY,
-                b'I' => Self::IDLE,
-                b'P' => Self::IN_PLACE,
-                _ => Self::empty(),
-            })
+        (text.bytes())
+            .filter_map(|c| Self::LETTERS.iter().find(|(l, _)| *l == c.to_ascii_uppercase()))
+            .map(|&(_, flag)| flag)
             .collect()
     }
 }
@@ -68,6 +83,13 @@ pub enum Direction {
 impl Direction {
     fn parse(text: &str) -> Self {
         if text.starts_with(['R', 'r']) { Self::Backward } else { Self::Forward }
+    }
+
+    fn to_text(self) -> &'static str {
+        match self {
+            Self::Forward => "F",
+            Self::Backward => "R",
+        }
     }
 }
 
@@ -451,6 +473,15 @@ impl ModelScript {
     pub fn animation(&self, name: &str) -> Option<&Animation> {
         self.animations().find(|a| a.name.eq_ignore_ascii_case(name))
     }
+
+    /// Writes the script compiled, as a `.MSB` file.
+    ///
+    /// A script read from source has no [`source`](Self::source), and is written with an empty
+    /// source path and date. `ATTACH` on tag events is not stored. Fails if a tag has more than
+    /// four arguments, or a text has a line break or characters beyond Latin-1.
+    pub fn to_msb(&self) -> Result<Vec<u8>> {
+        binary::write(self)
+    }
 }
 
 impl Asset for ModelScript {
@@ -469,6 +500,21 @@ mod tests {
         assert_eq!(AnimationFlags::parse("M."), AnimationFlags::MOVE);
         assert_eq!(AnimationFlags::parse(".F"), AnimationFlags::FLY);
         assert_eq!(AnimationFlags::parse("."), AnimationFlags::empty());
+    }
+
+    #[test]
+    fn flags_are_written_like_the_games() {
+        use AnimationFlags as F;
+        for (flags, text) in [
+            (F::empty(), "."),
+            (F::MOVE, "M."),
+            (F::MOVE | F::FLY, "MF"),
+            (F::IDLE | F::MOVE, "MI"),
+            (F::all(), "MREFIP"),
+        ] {
+            assert_eq!(flags.to_text(), text);
+            assert_eq!(F::parse(text), flags);
+        }
     }
 
     #[test]

@@ -107,7 +107,7 @@ required-features = ["vfs", "world"]
 
 [[example]]
 name = "rewrite_all"
-required-features = ["vfs", "model", "morph", "animation"]
+required-features = ["vfs", "model", "morph", "animation", "model-script"]
 
 [[example]]
 name = "dialogue"
