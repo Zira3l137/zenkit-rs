@@ -3,6 +3,12 @@
 version = 4
 
 [[package]]
+name = "bitflags"
+version = "2.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ded4057c258ba199e2d26386d3af3780957ecaee6c4ef4041c6b4b8b97c0b06"
+
+[[package]]
 name = "cfg-if"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -352,16 +358,28 @@ dependencies = [
 name = "zenkit-rs"
 version = "0.1.0"
 dependencies = [
+ "zenkit-rs-animation",
  "zenkit-rs-archive",
  "zenkit-rs-core",
  "zenkit-rs-material",
  "zenkit-rs-mesh",
  "zenkit-rs-model",
+ "zenkit-rs-model-script",
+ "zenkit-rs-morph",
  "zenkit-rs-mrm",
  "zenkit-rs-save",
  "zenkit-rs-texture",
  "zenkit-rs-vfs",
  "zenkit-rs-world",
+]
+
+[[package]]
+name = "zenkit-rs-animation"
+version = "0.1.0"
+dependencies = [
+ "tracing",
+ "zenkit-rs-core",
+ "zerocopy",
 ]
 
 [[package]]
@@ -425,6 +443,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "zenkit-rs-model-script"
+version = "0.1.0"
+dependencies = [
+ "bitflags",
+ "tracing",
+ "zenkit-rs-core",
+]
+
+[[package]]
+name = "zenkit-rs-morph"
+version = "0.1.0"
+dependencies = [
+ "tracing",
+ "zenkit-rs-core",
+ "zenkit-rs-mrm",
+ "zerocopy",
+]
+
+[[package]]
 name = "zenkit-rs-mrm"
 version = "0.1.0"
 dependencies = [
@@ -452,6 +489,7 @@ name = "zenkit-rs-texture"
 version = "0.1.0"
 dependencies = [
  "texpresso",
+ "tracing",
  "zenkit-rs-core",
  "zerocopy",
 ]

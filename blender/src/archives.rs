@@ -1,8 +1,8 @@
-//! The game's `.VDF` archives, for finding the textures and skeletons meshes and models need.
-
-use std::path::PathBuf;
+//! The game's `.VDF` archives, for finding the textures, skeletons and animations that meshes,
+//! models and model scripts need.
 
 use std::path::Path;
+use std::path::PathBuf;
 
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
@@ -50,6 +50,19 @@ impl Archives {
         let kind = crate::model::kind(Path::new(name))?;
         match self.vfs.find(name).and_then(|node| node.data()) {
             Some(data) => crate::model::to_dict(py, data, kind).map(Some),
+            None => Ok(None),
+        }
+    }
+
+    /// An animation (`.MAN`) by its file name, like `HUMANS-S_RUN.MAN`, as an animation dict, or
+    /// `None` if no archive has it.
+    fn read_animation<'py>(
+        &self,
+        py: Python<'py>,
+        name: &str,
+    ) -> PyResult<Option<Bound<'py, PyDict>>> {
+        match self.vfs.find(name).and_then(|node| node.data()) {
+            Some(data) => crate::animation::to_dict(py, data).map(Some),
             None => Ok(None),
         }
     }

@@ -4,9 +4,12 @@
 //! engine's coordinates, see [`mesh`]. Large arrays travel as `bytes` of little-endian numbers,
 //! which NumPy reads without copying them element by element.
 
+mod animation;
 mod archives;
 mod mesh;
 mod model;
+mod morph;
+mod script;
 mod texture;
 
 use std::path::PathBuf;
@@ -54,5 +57,12 @@ fn zenkit_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(mesh::write_mrm, m)?)?;
     m.add_function(wrap_pyfunction!(model::read_model, m)?)?;
     m.add_function(wrap_pyfunction!(model::write_model, m)?)?;
+    m.add_function(wrap_pyfunction!(morph::read_morph, m)?)?;
+    m.add_function(wrap_pyfunction!(morph::write_morph, m)?)?;
+    m.add_function(wrap_pyfunction!(animation::read_animation, m)?)?;
+    m.add_function(wrap_pyfunction!(animation::write_animation, m)?)?;
+    m.add_function(wrap_pyfunction!(script::read_script, m)?)?;
+    m.add_function(wrap_pyfunction!(script::parse_script, m)?)?;
+    m.add_function(wrap_pyfunction!(script::write_script, m)?)?;
     Ok(())
 }

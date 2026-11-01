@@ -21,6 +21,9 @@ zenkit = { package = "zenkit-rs", path = "../crates/zenkit-rs", default-features
     "mesh",
     "mrm",
     "model",
+    "morph",
+    "animation",
+    "model-script",
     "parallel",
     # The game's archives are mapped rather than read whole: only what is looked up is loaded.
     "mmap",
