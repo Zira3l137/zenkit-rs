@@ -3,8 +3,10 @@ use std::collections::btree_map::Entry;
 use std::fmt;
 use std::ops::Deref;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::time::SystemTime;
 
+use tracing::warn;
 use zenkit_rs_core::Error;
 use zenkit_rs_core::Result;
 use zenkit_rs_core::io::Reader;
@@ -37,13 +39,29 @@ pub(super) struct FileData {
     storage: Arc<Storage>,
     start: usize,
     end: usize,
+    zipped: Option<Zipped>,
+}
+
+/// A file of a compressed archive, whose window holds a ZippedStream.
+#[derive(Clone)]
+struct Zipped {
+    size: usize,
+    /// The contents once something asks for them, or why they could not be decompressed, shared
+    /// by every clone so the file is decompressed once.
+    contents: Arc<OnceLock<std::result::Result<Box<[u8]>, String>>>,
 }
 
 impl FileData {
     /// `start..end` must lie within `storage`.
     pub(super) fn new(storage: Arc<Storage>, start: usize, end: usize) -> Self {
         debug_assert!(start <= end && end <= storage.len());
-        Self { storage, start, end }
+        Self { storage, start, end, zipped: None }
+    }
+
+    /// A file of `size` bytes stored compressed in `start..end`, see [`zipped`](crate::zipped).
+    pub(super) fn zipped(storage: Arc<Storage>, start: usize, end: usize, size: usize) -> Self {
+        let zipped = Some(Zipped { size, contents: Arc::new(OnceLock::new()) });
+        Self { zipped, ..Self::new(storage, start, end) }
     }
 
     pub(super) fn whole(storage: Storage) -> Self {
@@ -51,8 +69,19 @@ impl FileData {
         Self::new(Arc::new(storage), 0, end)
     }
 
-    fn bytes(&self) -> &[u8] {
-        &self.storage[self.start..self.end]
+    fn bytes(&self) -> Result<&[u8]> {
+        let stored = &self.storage[self.start..self.end];
+        let Some(zipped) = &self.zipped else {
+            return Ok(stored);
+        };
+        let contents = zipped.contents.get_or_init(|| {
+            crate::zipped::decode(stored).map(Vec::into_boxed_slice).map_err(|e| e.to_string())
+        });
+        contents.as_deref().map_err(|reason| Error::malformed("VDF archive", reason.clone()))
+    }
+
+    fn len(&self) -> usize {
+        self.zipped.as_ref().map_or(self.end - self.start, |zipped| zipped.size)
     }
 }
 
@@ -132,9 +161,32 @@ impl Node {
     }
 
     /// The contents of a file node, or `None` for a directory.
+    ///
+    /// Files of compressed archives are decompressed the first time they are asked for. If that
+    /// fails, this logs a warning and gives no bytes; [`try_data`](Self::try_data) gives the
+    /// error instead.
     pub fn data(&self) -> Option<&[u8]> {
+        match self.try_data() {
+            Ok(data) => data,
+            Err(error) => {
+                warn!("cannot decompress {:?}: {}", self.path, error.report());
+                Some(&[])
+            }
+        }
+    }
+
+    /// [`data`](Self::data), failing if a file of a compressed archive cannot be decompressed.
+    pub fn try_data(&self) -> Result<Option<&[u8]>> {
         match &self.kind {
-            Kind::File(data) => Some(data.bytes()),
+            Kind::File(data) => data.bytes().map(Some),
+            Kind::Dir(_) => Ok(None),
+        }
+    }
+
+    /// The size of a file node's contents, without decompressing them, or `None` for a directory.
+    pub fn size(&self) -> Option<usize> {
+        match &self.kind {
+            Kind::File(data) => Some(data.len()),
             Kind::Dir(_) => None,
         }
     }
@@ -220,7 +272,7 @@ impl fmt::Debug for Node {
         s.field("path", &self.path).field("time", &self.time);
         match &self.kind {
             Kind::Dir(children) => s.field("children", &children.values()),
-            Kind::File(data) => s.field("size", &(data.end - data.start)),
+            Kind::File(data) => s.field("size", &data.len()),
         };
         s.finish()
     }

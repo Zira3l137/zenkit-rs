@@ -23,6 +23,7 @@ mod host;
 mod node;
 mod par;
 mod write;
+mod zipped;
 
 use std::collections::btree_map::Entry;
 use std::path::Path;
@@ -169,8 +170,9 @@ impl Vfs {
         // they are about; a span below the active level is not recorded at all.
         let _span = warn_span!("load", file = name).entered();
         let node = self.find(name).ok_or_else(|| Error::NotFound(name.into()))?;
-        let data = node.data().ok_or_else(|| Error::NotFound(name.into()))?;
-        T::from_bytes(data).context(|| format!("cannot load {name:?}"))
+        let context = || format!("cannot load {name:?}");
+        let data = node.try_data().context(context)?.ok_or_else(|| Error::NotFound(name.into()))?;
+        T::from_bytes(data).context(context)
     }
 
     /// [Loads](Self::load) many files at once, in parallel with the `parallel` feature. Results

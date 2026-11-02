@@ -39,7 +39,9 @@ pub(crate) const SIGNATURE_G2: &[u8; 16] = b"PSVDSC_V2.00\n\r\n\r";
 const SIGNATURE_VDFSTOOL: &[u8; 16] = b"PSVDSC_V2.00\x1A\x1A\x1A\x1A";
 
 pub(crate) const FLAGS_NORMAL: u32 = 0x50;
-const FLAGS_ZIPPED: u32 = 0xA0;
+/// Union's compressed archives, whose files are stored as ZippedStreams, see
+/// [`zipped`](crate::zipped). The catalog is the same.
+pub(crate) const FLAGS_ZIPPED: u32 = 0xA0;
 
 pub(crate) const ENTRY_DIR: u32 = 0x8000_0000;
 pub(crate) const ENTRY_LAST: u32 = 0x4000_0000;
@@ -74,6 +76,7 @@ struct Catalog<'a> {
     entries: &'a [Entry],
     time: SystemTime,
     overwrite: Overwrite,
+    zipped: bool,
     budget: usize,
 }
 
@@ -87,16 +90,14 @@ pub(super) fn parse(storage: Arc<Storage>, overwrite: Overwrite) -> Result<Child
         return Err(Error::malformed(FORMAT, format!("unknown signature \"{found}\"")));
     }
 
-    match header.flags.get() {
-        FLAGS_NORMAL => {}
-        FLAGS_ZIPPED => {
-            return Err(Error::unsupported(
-                FORMAT,
-                "compressed (Union ZippedStream) archives are not supported yet",
-            ));
+    let zipped = match header.flags.get() {
+        FLAGS_NORMAL => false,
+        FLAGS_ZIPPED => true,
+        flags => {
+            warn!("unknown volume flags {flags:#x}, assuming uncompressed");
+            false
         }
-        flags => warn!("unknown volume flags {flags:#x}, assuming uncompressed"),
-    }
+    };
 
     match header.catalog_offset.get() {
         0 => {}
@@ -109,6 +110,7 @@ pub(super) fn parse(storage: Arc<Storage>, overwrite: Overwrite) -> Result<Child
         entries,
         time: dos_time(header.timestamp.get()),
         overwrite,
+        zipped,
         budget: entries.len(),
     };
 
@@ -142,6 +144,9 @@ fn read_dir(catalog: &mut Catalog, first: usize, depth: usize, out: &mut Childre
             read_dir(catalog, entry.offset.get() as usize, depth + 1, &mut children)?;
             let node = Node::new(name, catalog.time, Kind::Dir(children));
             merge(out, None, node, catalog.overwrite);
+        } else if let Some(data) = catalog.zipped.then(|| zipped_file(catalog, entry)).flatten() {
+            let node = Node::new(name, catalog.time, Kind::File(data));
+            merge(out, None, node, catalog.overwrite);
         } else {
             let start = entry.offset.get() as usize;
             let end = start.checked_add(entry.size.get() as usize);
@@ -160,6 +165,13 @@ fn read_dir(catalog: &mut Catalog, first: usize, depth: usize, out: &mut Childre
     }
 
     Ok(())
+}
+
+/// A file of a compressed archive, or `None` if it is stored as it is, as Union stores sounds.
+fn zipped_file(catalog: &Catalog, entry: &Entry) -> Option<FileData> {
+    let (start, size) = (entry.offset.get() as usize, entry.size.get() as usize);
+    let len = crate::zipped::scan(catalog.storage.get(start..)?, size)?;
+    Some(FileData::zipped(Arc::clone(catalog.storage), start, start + len, size))
 }
 
 /// Names are space-padded to 64 bytes.

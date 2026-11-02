@@ -121,13 +121,49 @@ fn rejects_unknown_signature() {
     assert_eq!(vfs.root().children().len(), 0);
 }
 
+/// The same files as `basic.vdf`, packed by Union's tools, which compress every file.
 #[test]
-fn rejects_compressed_archives_for_now() {
-    let mut bytes = std::fs::read(sample("basic.vdf")).unwrap();
-    bytes[292..296].copy_from_slice(&0xA0u32.to_le_bytes());
+fn mount_compressed_disk() {
+    let mut vfs = Vfs::new();
+    vfs.mount_disk(sample("basic_zipped.vdf"), Overwrite::Older).unwrap();
+    check(&vfs);
 
-    let err = Vfs::new().mount_disk_bytes(bytes, Overwrite::Older).unwrap_err();
-    assert!(matches!(err, Error::Unsupported { .. }), "{err}");
+    let mut host = Vfs::new();
+    host.mount_host(sample("basic.vdf.dir"), "/", Overwrite::All).unwrap();
+    for path in ["README.md", "config.yml", "licenses/MIT.md", "licenses/gpl/LGPL-3.0.md"] {
+        let file = vfs.resolve(path).unwrap();
+        let data = file.try_data().unwrap().unwrap();
+        assert_eq!(data, host.resolve(path).unwrap().data().unwrap(), "{path}");
+        assert_eq!(file.size(), Some(data.len()));
+    }
+    assert_eq!(vfs.find("gpl-3.0.md").unwrap().size(), Some(34915));
+}
+
+#[test]
+fn broken_compressed_files_fail_to_load() {
+    let mut bytes = std::fs::read(sample("basic_zipped.vdf")).unwrap();
+    // The zlib data of MIT.MD's first block.
+    let catalog = u32::from_le_bytes(bytes[288..292].try_into().unwrap()) as usize;
+    let entry =
+        (0..7).map(|i| catalog + i * 80).find(|&e| bytes[e..].starts_with(b"MIT.MD")).unwrap();
+    let offset = u32::from_le_bytes(bytes[entry + 64..entry + 68].try_into().unwrap()) as usize;
+    bytes[offset + 26..offset + 40].fill(0xFF);
+
+    let mut vfs = Vfs::new();
+    vfs.mount_disk_bytes(bytes, Overwrite::Older).unwrap();
+    let mit = vfs.find("mit.md").unwrap();
+    assert!(matches!(mit.try_data(), Err(Error::Malformed { .. })));
+    assert_eq!(mit.data(), Some(&[][..]));
+    assert_eq!(vfs.find("readme.md").unwrap().data().unwrap().len(), 76, "the others still read");
+
+    struct Text;
+    impl zenkit_rs_core::Asset for Text {
+        fn from_bytes(_: &[u8]) -> zenkit_rs_core::Result<Self> {
+            Ok(Text)
+        }
+    }
+    let err = vfs.load::<Text>("MIT.MD").err().unwrap();
+    assert!(err.report().to_string().contains("compressed file"), "{}", err.report());
 }
 
 #[test]

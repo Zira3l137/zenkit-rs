@@ -15,6 +15,8 @@ bitflags = { version = "2", default-features = false }
 crc32fast = { version = "1", default-features = false, features = ["std"] }
 # Glam is re-exported from zenkit-rs-core, so applications use the same version.
 glam = { version = "0.34", default-features = false, features = ["std"] }
+# Union's compressed VDF archives store files as blocks of zlib data.
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 # ASCII archives store raw bytes as hex.
 hex = { version = "0.4", default-features = false, features = ["std"] }
 memmap2 = { version = "0.9", default-features = false }

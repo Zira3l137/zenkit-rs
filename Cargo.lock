@@ -527,6 +527,7 @@ dependencies = [
 name = "zenkit-rs-vfs"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "memmap2",
  "rayon",
  "time",
