@@ -84,7 +84,7 @@ pub struct PolygonFlags {
     pub is_dynamically_lit: bool,
     /// Gothic 1 only.
     pub is_lod: bool,
-    /// Gothic 1 only.
+    /// The axis the polygon's normal points along most: 0 for X, 1 for Y, 2 for Z. Gothic 1 only.
     pub normal_axis: u8,
     pub sector_index: i16,
 }
@@ -361,8 +361,8 @@ impl Mesh {
                     | (u8::from(f.should_relight) << 4)
                     | (u8::from(f.is_dynamically_lit) << 7));
             } else {
-                w.u8(common | (u8::from(f.is_lod) << 4) | ((f.normal_axis & 1) << 7));
-                w.u8((f.normal_axis >> 1) & 1);
+                w.u8(common | (u8::from(f.is_lod) << 4));
+                w.u8(f.normal_axis & 0b11);
             }
             w.i16(f.sector_index);
 
@@ -462,9 +462,10 @@ fn read_polygons(c: &mut Reader, mesh: &mut Mesh, gothic2: bool, wide: bool) -> 
                 is_lod: bit(f, 4),
                 is_outdoor: bit(f, 5),
                 is_ghost_occluder: bit(f, 6),
-                // The two-bit axis straddles the byte boundary: bit 7 of the first byte is its
-                // low bit, bit 0 of the second its high bit. ZenKit ORs both into the low bit.
-                normal_axis: (f >> 7) | ((g & 1) << 1),
+                // The axis is the second byte's low two bits, as all 138215 polygons of Gothic 1's
+                // WORLD.ZEN show: they always name the normal's largest component. ZenKit takes
+                // bit 7 of the first byte, which is never set, for its low bit.
+                normal_axis: g & 0b11,
                 sector_index: c.i16()?,
                 ..PolygonFlags::default()
             }

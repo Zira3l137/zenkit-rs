@@ -87,7 +87,7 @@ fn mesh(version: u16) -> Vec<u8> {
         if g2 {
             polygons.push(0b0010_0100);
         } else {
-            polygons.extend([0b1010_0100, 0b0000_0001]);
+            polygons.extend([0b0010_0100, 0b0000_0010]);
         }
         polygons.extend(7i16.to_le_bytes());
         polygons.push(corners.len() as u8);
@@ -149,7 +149,7 @@ fn gothic1() {
 
     let flags = mesh.polygons[0].flags;
     assert!(flags.is_occluder && flags.is_outdoor);
-    assert_eq!(flags.normal_axis, 0b11);
+    assert_eq!(flags.normal_axis, 2, "the second flag byte holds the axis");
     assert_eq!(mesh.polygon_vertices(&mesh.polygons[0]), [0, 1, 2, 3]);
 }
 
