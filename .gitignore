@@ -2,5 +2,6 @@
 /tests_local
 /blender/target
 /blender/dist
+/blender/wheelhouse
 /blender/zenkit_io/wheels
 __pycache__/
