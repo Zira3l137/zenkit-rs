@@ -58,7 +58,7 @@ impl Mob {
         w.int("hitpoints", self.hit_points);
         w.int("damage", self.damage);
         w.bool("moveable", self.movable);
-        w.bool("takeable", self.takable);
+        w.bit("takeable", self.takable);
         w.bool("focusOverride", self.focus_override);
         w.enumeration("soundMaterial", self.material.raw());
         w.name("visualDestroyed", &self.visual_destroyed);

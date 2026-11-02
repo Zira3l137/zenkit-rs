@@ -723,6 +723,25 @@ fn vobs_built_in_code_read_back() {
     }
 }
 
+/// `takeable` is a one-bit field in the engine, so true is stored with every bit set, as in
+/// ZenKit's Gothic 1 sample save.
+#[test]
+fn takeable_mobs_set_every_bit() {
+    use zenkit_rs_archive::Format;
+
+    let write = |takable| {
+        let mut vobs = Vobs::default();
+        let mob = Mob { takable, ..Mob::default() };
+        let id = vobs.push(Vob { kind: VobKind::Mob(mob), ..Vob::default() });
+        let mut w = ArchiveWriter::new(Format::Binary);
+        vobs.write(&mut w, id, Gothic1);
+        w.finish().unwrap()
+    };
+    let (no, yes) = (write(false), write(true));
+    let differ: Vec<_> = no.iter().zip(&yes).filter(|(a, b)| a != b).collect();
+    assert_eq!(differ, [(&0x00, &0xFF)]);
+}
+
 #[test]
 fn vobs_that_cannot_be_stored_fail() {
     use zenkit_rs_archive::Format;
