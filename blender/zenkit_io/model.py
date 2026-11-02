@@ -326,31 +326,32 @@ def rig_of_armature(armature):
     return Rig(armature, [n[0] for n in nodes], [n[2] for n in nodes], objects)
 
 
-def find_skeleton(checksum, folder):
-    """The model dict of the skeleton with this checksum, looked for next to the meshes, in the
-    models folder and in the game's archives, or `None`.
+def find_skeleton(checksums, folder):
+    """The file name and model dict of the first skeleton whose checksum is one of `checksums`,
+    looked for next to the meshes, in the models folder and in the game's archives, or `None`.
 
     Skeletons that meshes are worn on are .MDH files, which are small, so all of those are tried
     before any .MDL, which carries meshes too and can be large.
     """
-    folders = [f for f in (folder, preferences.folder("anims")) if f is not None]
-    files = [p for f in folders for p in sorted(f.iterdir()) if p.is_file()]
+    folders = [f for f in dict.fromkeys((folder, preferences.folder("anims"))) if f is not None]
+    files = [p for f in folders if f.is_dir() for p in sorted(f.iterdir()) if p.is_file()]
 
     def read(path):
         try:
-            return zenkit_py.read_model(str(path))
+            return path.name, zenkit_py.read_model(str(path))
         except zenkit_py.ZenKitError:
-            return None
+            return path.name, None
 
     def candidates():
         yield from (read(p) for p in files if p.suffix.lower() == ".mdh")
         archives = preferences.archives()
-        yield from (archives.read_model(n) for n in (archives.names(".MDH") if archives else []))
+        names = archives.names(".MDH") if archives else []
+        yield from ((n, archives.read_model(n)) for n in names)
         yield from (read(p) for p in files if p.suffix.lower() == ".mdl")
 
-    for data in candidates():
-        if data is not None and data["checksum"] == checksum and data["nodes"]:
-            return data
+    for name, data in candidates():
+        if data is not None and data["checksum"] in checksums and data["nodes"]:
+            return name, data
     return None
 
 
@@ -361,9 +362,10 @@ def meshes_rig(context, data, folder, scale):
     if active is not None and active.type == "ARMATURE":
         if armature_checksum(active) == data["checksum"]:
             return rig_of_armature(active)
-    skeleton = find_skeleton(data["checksum"], folder)
-    if skeleton is None:
+    found = find_skeleton({data["checksum"]}, folder)
+    if found is None:
         return Rig()
+    skeleton = found[1]
     return Rig(names=[n[0] for n in skeleton["nodes"]], world=rest_world(skeleton["nodes"], scale))
 
 
@@ -752,7 +754,7 @@ class ExportModel(bpy.types.Operator):
         checksum = armature_checksum(armature)
         if (
             Path(path).suffix.upper() == ".MDM"
-            and find_skeleton(checksum, Path(path).parent) is None
+            and find_skeleton({checksum}, Path(path).parent) is None
         ):
             self.report(
                 {"WARNING"},

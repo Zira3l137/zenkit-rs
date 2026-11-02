@@ -892,6 +892,47 @@ assert (made["name"], made["meshes"], made["disable_mesh"]) == ("BIPED", ["BIPED
 assert export.plan(bare).skeleton == "BIPED.MDH"
 print("panels ok")
 
+# A script whose Model line names another model than its file, as Gothic 1's BABE.MDS says BAB.
+# The engine goes by the file, so BABE.MDH and BABE-S_TEST.MAN are found by name; a skeleton under
+# another name still is, by the checksum of the script's mesh, or of its animation if it has none.
+renamed_source = script_source.replace('Model ("BIPED")', 'Model ("BAB")')
+cases = {
+    "by_name": {"BABE.MDH": "BIPED.MDH", "BIPED_BODY.MDM": "BIPED_BODY.MDM"},
+    "by_mesh": {"SKELETON.MDH": "BIPED.MDH", "BIPED_BODY.MDM": "BIPED_BODY.MDM"},
+    "by_animation": {"SKELETON.MDH": "BIPED.MDH"},
+}
+for case, files in cases.items():
+    folder = work / case
+    folder.mkdir()
+    (folder / "BABE.MDS").write_text(renamed_source)
+    for name, source in files.items():
+        shutil.copy(work / source, folder / name)
+    animation_file = "BAB-S_TEST.MAN" if case == "by_animation" else "BABE-S_TEST.MAN"
+    shutil.copy(work / "BIPED-S_TEST.MAN", folder / animation_file)
+
+    bpy.ops.object.select_all(action="SELECT")
+    bpy.ops.object.delete()
+    assert bpy.ops.import_scene.zenkit_script(filepath=str(folder / "BABE.MDS")) == {"FINISHED"}
+    rig = bpy.context.active_object
+    expected = "BAB" if case == "by_animation" else "BABE"
+    assert rig.type == "ARMATURE" and rig.data.zenkit.model == expected, (case, rig.name)
+    assert rig.animation_data.action.zenkit.name == "S_TEST", case
+    skins = [o for o in rig.children if o.name.startswith("ZM_SKIN_")]
+    assert len(skins) == (0 if case == "by_animation" else 1), case
+
+# With nothing to go by, the error says what was looked for.
+lost = work / "lost"
+lost.mkdir()
+(lost / "BABE.MDS").write_text(renamed_source)
+shutil.copy(work / "BIPED-S_TEST.MAN", lost / "BABE-S_TEST.MAN")
+try:
+    bpy.ops.import_scene.zenkit_script(filepath=str(lost / "BABE.MDS"))
+except RuntimeError as error:
+    assert "BABE.MDH" in str(error) and f"checksum {biped_checksum}" in str(error), error
+else:
+    raise AssertionError("a script without its skeleton imported")
+print("misnamed script ok")
+
 # The game's own: without the game, the alligator's skeleton is nowhere, and the import says so.
 # With the installed extension pointed at Gothic II, it comes from the archives, and one of its
 # animations goes out as it came in.

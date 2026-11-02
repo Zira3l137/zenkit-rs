@@ -1,7 +1,10 @@
 """Gothic model scripts (.MDS source, .MSB compiled) to and from Blender.
 
 A model script names a model's skeleton, the meshes it can wear and its animations, each of which
-the engine loads from a file named after the model and the animation: HUMANS-S_RUN.MAN.
+the engine loads from a file named after the model and the animation: HUMANS-S_RUN.MAN. The engine
+names the model after the script's file; the name in its `Model` line usually agrees, but not
+always (Gothic 1's BABE.MDS says BAB), so both are tried. A skeleton found under neither is looked
+for by the checksum its meshes and animations carry.
 Importing one brings in all of that, found next to the script, in the models folder or in the
 game's archives: an armature of the skeleton, the meshes on it and an action per animation.
 
@@ -25,6 +28,7 @@ from .export import stem
 from .model import add_meshes
 from .model import build_skeleton
 from .model import file_collection
+from .model import find_skeleton
 
 
 def folders_for(path):
@@ -53,21 +57,89 @@ def load_animation(name, folders):
     return load(name, folders, zenkit_py.read_animation, lambda a, n: a.read_animation(n))
 
 
+def model_names(info, path):
+    """The names a script's model may go by, the engine's first: the script file's, which the
+    engine names the model and its animation files after, then the one its `Model` line gives."""
+    return list(dict.fromkeys((Path(path).stem.upper(), info["name"].upper())))
+
+
+def script_checksums(info, names, folders):
+    """The checksums of the skeleton a script's meshes and animations were made for: those of the
+    meshes it names, and of the first of its animations found under each of `names`."""
+    meshes = info["meshes"] + ([info["skeleton"]] if info["skeleton"] else [])
+    found = [load_model(stem(name) + ".MDM", folders) for name in dict.fromkeys(meshes)]
+    for model in names:
+        files = (f"{model}-{ani['name']}.MAN".upper() for ani in info["animations"])
+        tried = (load_animation(name, folders) for name in files)
+        found.append(next((data for data in tried if data is not None), None))
+    return {data["checksum"] for data in found if data is not None and data["checksum"]}
+
+
+def find_script_skeleton(info, names, folders, path):
+    """The file name and model dict of a script's skeleton, and the model name it was found under,
+    if it was found by name.
+
+    The engine's names for it are tried first. If none of them has it, as when the script's
+    `Model` line names another model than its file, every skeleton is searched for the checksum
+    the script's meshes and animations carry, and the first that has it is taken.
+    """
+    tried = {}
+    for model in names:
+        for name in skeleton_names(info, model):
+            for kind in (".MDH", ".MDL"):
+                tried.setdefault(name + kind, model)
+    for name, model in tried.items():
+        data = load_model(name, folders)
+        if data is not None and data["nodes"]:
+            return name, data, model
+
+    checksums = script_checksums(info, names, folders)
+    found = find_skeleton(checksums, Path(path).parent) if checksums else None
+    if found is None:
+        looked = f"looked for {', '.join(tried)}"
+        if checksums:
+            listed = ", ".join(str(c) for c in sorted(checksums))
+            looked += f", and for any skeleton with the checksum {listed}"
+        raise LookupError(f"no skeleton was found; {looked}")
+    return found[0], found[1], None
+
+
+def load_animations(info, prefixes, folders, pattern):
+    """The animations whose names match `pattern`, each with its data and the model name its file
+    was found under, trying `prefixes` in turn, and the names of those not found."""
+    loaded, missing = [], []
+    prefixes = list(prefixes)
+    for ani in info["animations"]:
+        if not fnmatch.fnmatchcase(ani["name"].upper(), pattern.upper()):
+            continue
+        for prefix in prefixes:
+            data = load_animation(f"{prefix}-{ani['name']}.MAN".upper(), folders)
+            if data is not None:
+                loaded.append((ani, data, prefix))
+                # The rest are most likely named alike.
+                prefixes.insert(0, prefixes.pop(prefixes.index(prefix)))
+                break
+        else:
+            missing.append(ani["name"])
+    return loaded, missing
+
+
 def import_script(context, path, scale, meshes="FIRST", pattern="*"):
     """Imports a model script with its skeleton, meshes and the animations whose names match
     `pattern`. Gives the armature, the actions and the names of the animations not found."""
     info = zenkit_py.read_script(str(path))
     folders = folders_for(path)
-    model = info["name"].upper()
+    names = model_names(info, path)
     tree = stem(info["skeleton"]) if info["skeleton"] else None
-    tried = [name + kind for name in skeleton_names(info, model) for kind in (".MDH", ".MDL")]
-    found = ((name, load_model(name, folders)) for name in tried)
-    skeleton_file, skeleton = next(((n, d) for n, d in found if d and d["nodes"]), (None, None))
-    if skeleton is None:
-        raise LookupError(f"no skeleton was found; looked for {', '.join(tried)}")
+    skeleton_file, skeleton, named = find_script_skeleton(info, names, folders, path)
+
+    prefixes = (names + [stem(skeleton_file)]) if named is None else ([named] + names)
+    loaded, missing = load_animations(info, dict.fromkeys(prefixes), folders, pattern)
+    # The model is named as its files are: its animations', or its skeleton's.
+    model = loaded[0][2] if loaded else (named or names[0])
 
     collection = file_collection(model, context.collection)
-    rig = build_skeleton(context, info["name"], skeleton, scale, collection)
+    rig = build_skeleton(context, model, skeleton, scale, collection)
     armature = rig.armature
     worn = [] if info["disable_mesh"] else [(skeleton_file, skeleton)]
     if not info["disable_mesh"] and not skeleton["soft_skins"] and not skeleton["attachments"]:
@@ -80,14 +152,8 @@ def import_script(context, path, scale, meshes="FIRST", pattern="*"):
         if data is not None:
             add_meshes(context, path.parent, data, rig, scale, file_collection(name, collection))
 
-    actions, missing = [], []
-    for ani in info["animations"]:
-        if not fnmatch.fnmatchcase(ani["name"].upper(), pattern.upper()):
-            continue
-        data = load_animation(f"{info['name']}-{ani['name']}.MAN".upper(), folders)
-        if data is None:
-            missing.append(ani["name"])
-            continue
+    actions = []
+    for ani, data, _ in loaded:
         action, _ = animation.build_action(armature, data, scale, ani["name"])
         settings = action.zenkit
         settings.layer, settings.next, settings.fps = max(ani["layer"], 1), ani["next"], ani["fps"]
