@@ -1,6 +1,6 @@
 [package]
 name = "zenkit-rs-save"
-description = "Reader for ZenGin save games: metadata, script state, thumbnail and the worlds visited"
+description = "Reader and writer for ZenGin save games: metadata, script state, thumbnail and the worlds visited"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -42,7 +42,7 @@ the files.
 
 ## Writing
 
-Writing is being added format by format. So far these can be written:
+Every format can be written too:
 
 | Format                 | How                                                                    |
 |------------------------|------------------------------------------------------------------------|
@@ -58,6 +58,7 @@ Writing is being added format by format. So far these can be written:
 | `.MDS`, `.MSB`         | `ModelScript::to_mds` and `ModelScript::to_msb`                        |
 | Cutscene libraries     | `CutsceneLibrary::to_bytes`, as `OU.BIN` or `OU.CSL`                   |
 | `.ZEN` worlds          | `World::to_bytes`, or `Vobs::write` for a single VOB                   |
+| Save games             | `SaveGame::write` for the folder, or each file's own `to_bytes`        |
 
 Writers follow the engine where it and ZenKit differ, so that the game reads what they write, and
 where a sample of the game's own files exists, the tests check that rewriting it gives the same

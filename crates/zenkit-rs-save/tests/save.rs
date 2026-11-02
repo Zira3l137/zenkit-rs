@@ -252,6 +252,68 @@ fn opens_a_save_folder() {
 }
 
 #[test]
+fn writes_a_save_folder() {
+    let source = Folder::new("write-source");
+    source.write("SAVEINFO.SAV", sample("G2/SAVEINFO.SAV"));
+    source.write("SAVEDAT.SAV", sample("G2/SAVEDAT.SAV"));
+    source.write("LOG.SAV", sample("G2/LOG.SAV"));
+    source.write("SAVEHDR.SAV", sample("G2/SAVEHDR.SAV"));
+    source.write("NEWWORLD.SAV", tiny_world("IN_NEWWORLD"));
+    source.write("OLDWORLD.SAV", tiny_world("IN_OLDWORLD"));
+    let mut save = SaveGame::open(&source.0).unwrap();
+
+    // A world left over from another save in the target folder must go.
+    let target = Folder::new("write-target");
+    target.write("ADDONWORLD.SAV", tiny_world("STALE"));
+    target.write("notes.txt", "not a world");
+
+    save.info.title = "renamed".into();
+    let mut world = save.current_world().unwrap();
+    let root = world.roots[0];
+    world.vobs[root].name = "CHANGED".into();
+    save.write(&target.0, &[("NEWWORLD\\NEWWORLD.ZEN", &world)]).unwrap();
+
+    let back = SaveGame::open(&target.0).unwrap();
+    assert_eq!(back.info, save.info);
+    assert_eq!(back.data, save.data);
+    assert_eq!(back.statistics, save.statistics);
+    assert_eq!(back.world_file, save.world_file);
+    assert_eq!(back.worlds(), ["NEWWORLD", "OLDWORLD"]);
+    assert_eq!(back.current_world().unwrap(), world);
+    let old = back.world("OLDWORLD").unwrap();
+    assert_eq!(old.vobs[old.roots[0]].name, "IN_OLDWORLD", "copied as it was");
+    assert!(target.0.join("notes.txt").exists());
+
+    // Into its own folder, the worlds it is not given stay.
+    save.write(&source.0, &[]).unwrap();
+    assert_eq!(SaveGame::open(&source.0).unwrap().worlds(), ["NEWWORLD", "OLDWORLD"]);
+
+    let mut gothic1 = world.clone();
+    gothic1.game = Gothic1;
+    let err = save.write(&target.0, &[("NEWWORLD", &gothic1)]).unwrap_err();
+    assert!(err.report().to_string().contains("is for Gothic1"), "{}", err.report());
+}
+
+#[test]
+fn a_new_save_has_no_worlds() {
+    let info = SaveInfo::from_bytes(&sample("G1/SAVEINFO.SAV")).unwrap();
+    let data = SaveData::from_bytes(&sample("G1/SAVEDAT.SAV"), Gothic1).unwrap();
+    let save = SaveGame::new(info, data);
+    assert!(save.worlds().is_empty() && save.thumbnail.is_none());
+
+    let folder = Folder::new("new");
+    save.write(&folder.0, &[]).unwrap();
+    let back = SaveGame::open(&folder.0).unwrap();
+    assert_eq!((back.info, back.data), (save.info, save.data));
+    let mut files: Vec<_> = std::fs::read_dir(&folder.0)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    files.sort();
+    assert_eq!(files, ["SAVEDAT.SAV", "SAVEINFO.SAV"]);
+}
+
+#[test]
 fn a_folder_without_save_data_is_no_save() {
     let folder = Folder::new("missing");
     folder.write("SAVEINFO.SAV", sample("G1/SAVEINFO.SAV"));
@@ -333,6 +395,21 @@ fn zenkit_sample_saves() {
             assert_same(&stats.to_bytes().unwrap(), &original("LOG.SAV"), dir, "LOG");
         }
         assert_same(&thumbnail.to_bytes(), &original("THUMB.SAV"), dir, "THUMB");
+
+        // The whole save, with every world written anew, opens again as it was.
+        let worlds: Vec<_> =
+            worlds.into_iter().map(|(name, world)| (name, world.unwrap())).collect();
+        let given: Vec<_> = worlds.iter().map(|(name, world)| (name.as_str(), world)).collect();
+        let folder = Folder::new(&format!("zenkit-{}", dir.replace('/', "-")));
+        save.write(&folder.0, &given).unwrap();
+        let back = SaveGame::open(&folder.0).unwrap();
+        assert_eq!(
+            (&back.info, &back.data, &back.thumbnail),
+            (&save.info, &save.data, &save.thumbnail)
+        );
+        let back_worlds: Vec<_> =
+            back.all_worlds().into_iter().map(|(n, w)| (n, w.unwrap())).collect();
+        assert!(back_worlds == worlds, "{dir}");
     }
 }
 
