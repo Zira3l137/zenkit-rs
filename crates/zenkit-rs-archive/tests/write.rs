@@ -168,6 +168,26 @@ fn binary_objects_know_their_size() {
     assert_eq!(data.len() - start, size);
 }
 
+/// As in the binary save games: `VobTree\0\0` for a section, `carryVob\0%\0` for a null.
+#[test]
+fn binary_sections_have_an_empty_class() {
+    let mut w = ArchiveWriter::new(Format::Binary);
+    w.begin_object("VobTree", "%", 0);
+    w.null_object("carryVob");
+    w.end_object();
+    let data = w.finish().unwrap();
+
+    let start = body_start(&data, b"END\n\n");
+    assert_eq!(&data[start + 10..start + 18], b"VobTree\0");
+    assert_eq!(data[start + 18], 0);
+    assert!(data.ends_with(b"carryVob\0%\0"));
+
+    let mut archive = Archive::new(&data).unwrap();
+    let section = archive.begin_object().unwrap().unwrap();
+    assert_eq!((section.name, section.class), (&b"VobTree"[..], &b""[..]));
+    assert!(archive.begin_object().unwrap().unwrap().is_null());
+}
+
 #[test]
 fn binsafe_lists_every_key_once() {
     let mut w = ArchiveWriter::new(Format::Binsafe);

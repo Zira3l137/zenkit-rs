@@ -114,10 +114,12 @@ impl ArchiveWriter {
     /// that [`reference`](Self::reference) can point back to it with.
     ///
     /// An object of class `%` only groups the values inside it, like the sections of a world.
-    /// As in the engine, it takes no index and is stored with index 0.
+    /// As in the engine, it takes no index and is stored with index 0. Binary archives store its
+    /// class as empty, which the text encodings spell `%`, as for null objects.
     pub fn begin_object(&mut self, name: &str, class: &str, version: u16) -> u32 {
         if class == "%" {
-            self.object_header(name, b"%", version, 0);
+            let class: &[u8] = if self.format() == Format::Binary { b"" } else { b"%" };
+            self.object_header(name, class, version, 0);
             return 0;
         }
         let index = self.next_index;
