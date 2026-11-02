@@ -255,8 +255,8 @@ impl Mesh {
     /// writes 32-bit vertex indices for Gothic 1 too, as XZEN worlds have them; Gothic 2 always
     /// has them.
     ///
-    /// Lightmaps go into the chunk each game reads: Gothic 1 keeps a texture with every lightmap,
-    /// Gothic 2 lets lightmaps share textures.
+    /// Lightmaps are written as both games' own worlds store them, sharing their textures. The
+    /// older chunk with a texture for every lightmap is only read.
     pub fn write(&self, w: &mut Writer, game: GameVersion, wide_indices: bool) -> Result<()> {
         let name = text::to_latin1(&self.name)
             .filter(|name| !name.iter().any(|b| matches!(b, 0 | b'\r' | b'\n')))
@@ -294,29 +294,16 @@ impl Mesh {
         });
 
         if !self.lightmaps.is_empty() {
-            let lightmap = |w: &mut Writer, l: &Lightmap| {
-                w.vec3(l.origin);
-                l.normals.iter().for_each(|&n| w.vec3(n));
-            };
-            if gothic2 {
-                w.chunk(CHUNK_LIGHTMAPS_SHARED, |w| {
-                    w.u32(self.lightmap_textures.len() as u32);
-                    self.lightmap_textures.iter().for_each(|t| t.write(w));
-                    w.u32(self.lightmaps.len() as u32);
-                    for l in &self.lightmaps {
-                        lightmap(w, l);
-                        w.u32(l.texture as u32);
-                    }
-                });
-            } else {
-                w.chunk(CHUNK_LIGHTMAPS, |w| {
-                    w.u32(self.lightmaps.len() as u32);
-                    for l in &self.lightmaps {
-                        lightmap(w, l);
-                        self.lightmap_textures[l.texture].write(w);
-                    }
-                });
-            }
+            w.chunk(CHUNK_LIGHTMAPS_SHARED, |w| {
+                w.u32(self.lightmap_textures.len() as u32);
+                self.lightmap_textures.iter().for_each(|t| t.write(w));
+                w.u32(self.lightmaps.len() as u32);
+                for l in &self.lightmaps {
+                    w.vec3(l.origin);
+                    l.normals.iter().for_each(|&n| w.vec3(n));
+                    w.u32(l.texture as u32);
+                }
+            });
         }
 
         w.chunk(CHUNK_VERTICES, |w| {

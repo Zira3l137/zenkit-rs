@@ -198,16 +198,16 @@ fn meshes_round_trip_in_both_games() {
     }
 }
 
+/// Gothic 1's own WORLD.ZEN shares lightmap textures as Gothic 2's worlds do.
 #[test]
-fn gothic1_lightmaps_keep_their_own_textures() {
+fn lightmaps_share_their_textures_in_both_games() {
     let mut mesh = Mesh::from_bytes(&mesh(265)).unwrap();
     mesh.lightmaps.push(mesh.lightmaps[0]);
-    let written = mesh.to_bytes(GameVersion::Gothic1).unwrap();
-    let back = Mesh::from_bytes(&written).unwrap();
-    // The shared texture is stored once per lightmap.
-    assert_eq!(back.lightmap_textures.len(), 2);
-    assert_eq!(back.lightmaps[1].texture, 1);
-    assert_eq!(back.lightmap_textures[1], mesh.lightmap_textures[0]);
+    for game in [GameVersion::Gothic1, GameVersion::Gothic2] {
+        let back = Mesh::from_bytes(&mesh.to_bytes(game).unwrap()).unwrap();
+        assert_eq!(back.lightmap_textures, mesh.lightmap_textures, "{game:?}");
+        assert_eq!(back.lightmaps, mesh.lightmaps, "{game:?}");
+    }
 }
 
 #[test]
