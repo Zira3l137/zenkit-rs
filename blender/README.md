@@ -15,7 +15,14 @@ through zenkit-rs, mostly to try the library's readers and writers on real work:
 
 The entries are under File > Import and File > Export, and the image editor's Image menu.
 
-## Building and installing
+## Installing
+
+Download the zip for your system from the [releases](https://github.com/Zira3l137/zenkit-rs/releases), or the
+[nightly](https://github.com/Zira3l137/zenkit-rs/releases/tag/nightly) for the newest state, and install it in Blender with
+Edit > Preferences > Get Extensions > Install from Disk. Releases are built for Windows and Linux;
+on other systems, build it yourself.
+
+## Building
 
 You need Rust and [maturin](https://www.maturin.rs) (`pip install maturin`). Then:
 

@@ -1,13 +1,21 @@
 # zenkit-rs
 
+[![CI](https://github.com/Zira3l137/zenkit-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/Zira3l137/zenkit-rs/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/zenkit-rs.svg)](https://crates.io/crates/zenkit-rs)
+[![docs.rs](https://img.shields.io/docsrs/zenkit-rs)](https://docs.rs/zenkit-rs)
+
 A pure Rust reader and writer for the asset formats of the ZenGin, the engine behind *Gothic* and
 *Gothic II*. It is a port of [ZenKit](https://github.com/GothicKit/ZenKit) and needs no C++
-toolchain.
+toolchain. It also comes as a [Blender extension](#blender) for modders.
 
 ```toml
 [dependencies]
-zenkit = { package = "zenkit-rs", git = "https://github.com/Zira3l137/zenkit-rs" }
+zenkit = { package = "zenkit-rs", version = "0.1" }
 ```
+
+or `cargo add zenkit-rs --rename zenkit`. The package is called `zenkit-rs` because `zenkit` on
+crates.io is an unrelated project; renaming it lets code say `zenkit::`, as the examples here do.
+It needs Rust 1.88 or later. The API is documented on [docs.rs](https://docs.rs/zenkit-rs).
 
 ## Features
 
@@ -119,11 +127,25 @@ new ones. Each prints how to call it when run without arguments:
 cargo run --release --example world -- "C:\Games\Gothic II" NEWWORLD.ZEN
 ```
 
+## Not supported
+
+- Daedalus, the games' script language: neither compiled scripts (`.DAT`) nor running them.
+- The source formats the games compile their assets from: `.ASC`, `.3DS`, `.MMS` and the like.
+  ZenKit does not read them either; the compiled formats above are what the games load.
+- Values the engine stores without ever setting them, like padding and stray flag bits. Files
+  written back read the same as the originals, but are not always the same byte for byte.
+
 ## Blender
 
-`blender/` holds a bare-bones Blender extension, for Blender 4.2 to 5.2, that imports and exports
-textures, meshes and models through these crates. Its [README](blender/README.md) says how to
-build it.
+`blender/` holds an extension for Blender 4.2 to 5.2 that imports and exports textures, meshes,
+models, morph meshes, animations and model scripts through these crates. Download it from the
+[releases](https://github.com/Zira3l137/zenkit-rs/releases): each version has a zip for Windows and one for Linux, and the
+[nightly](https://github.com/Zira3l137/zenkit-rs/releases/tag/nightly) pre-release follows `main`. Install the zip in Blender with
+Edit > Preferences > Get Extensions > Install from Disk. Its [README](blender/README.md) says how
+to use it, and how to build it for other systems.
+
+The releases also carry the extension's Python module, `zenkit_py`, as a wheel for Python 3.11 and
+later, to use the library from Python outside Blender.
 
 ## Testing
 
@@ -150,7 +172,10 @@ as `ou.proprietary.bin`. Both are part of the game, so they cannot ship here.
 | `zenkit-rs-<format>`     | One crate per format, named like its feature                      |
 
 CI runs the tests on Linux and Windows, clippy and rustdoc with warnings as errors, clippy on
-every feature of every crate on its own, and a build on the minimum Rust version, 1.88.
+every feature of every crate on its own, a build on the minimum Rust version, 1.88, and the Blender
+extension's test in Blender 4.2. Pushing a tag like `v0.2.0` publishes that version's release, once
+the tag agrees with the versions in `Cargo.toml`, `blender/Cargo.toml` and the extension's
+manifest; every night `main` changed, the nightly pre-release is built anew.
 
 Code is formatted with `cargo fmt`. Imports are one per line, grouped std, external crates, then
 this crate; stable rustfmt keeps that layout but only nightly enforces it:
