@@ -1,0 +1,141 @@
+# Builds the Blender extension and the zenkit_py wheel for Windows and Linux, and publishes them:
+#
+# - for a tag like v0.2.0, as that version's release, once the tag agrees with every version
+#   number in the repository;
+# - every night that main changed, and when started by hand, as the rolling "nightly"
+#   pre-release, which each new one replaces.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    outputs:
+      kind: ${{ steps.plan.outputs.kind }}
+      label: ${{ steps.plan.outputs.label }}
+      build: ${{ steps.plan.outputs.build }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: plan
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            library=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)
+            module=$(sed -n 's/^version = "\(.*\)"/\1/p' blender/Cargo.toml | head -n 1)
+            extension=$(sed -n 's/^version = "\(.*\)"/\1/p' blender/zenkit_io/blender_manifest.toml)
+            for found in "$library" "$module" "$extension"; do
+              if [[ "$found" != "$version" ]]; then
+                echo "::error::$GITHUB_REF_NAME, but Cargo.toml says $library," \
+                  "blender/Cargo.toml $module and the extension's manifest $extension"
+                exit 1
+              fi
+            done
+            echo "kind=stable" >> "$GITHUB_OUTPUT"
+            echo "label=$version" >> "$GITHUB_OUTPUT"
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          else
+            # A scheduled run of a main that has not changed since the last nightly builds nothing.
+            last=$(git ls-remote --tags origin refs/tags/nightly | cut -f1)
+            build=true
+            if [[ "$GITHUB_EVENT_NAME" == schedule && "$last" == "$GITHUB_SHA" ]]; then
+              build=false
+            fi
+            echo "kind=nightly" >> "$GITHUB_OUTPUT"
+            echo "label=nightly-$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+            echo "build=$build" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: Build (${{ matrix.platform }})
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x64
+            # Built in a manylinux container, so the wheel runs on every Linux Blender supports,
+            # not only on systems as new as the runner.
+            manylinux: "2_28"
+          - os: windows-latest
+            platform: windows-x64
+            manylinux: "off"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: blender
+          manylinux: ${{ matrix.manylinux }}
+          args: --release --locked --out wheelhouse
+      - name: Pack the extension
+        shell: bash
+        run: python blender/build.py --wheel blender/wheelhouse/*.whl --label "${{ needs.plan.outputs.label }}"
+
+      # The extension's own test, in the oldest Blender it supports, before anything is published.
+      - name: Install Blender as a Python module
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq libxi6 libxxf86vm1 libxfixes3 libxrender1 libgl1 libsm6 \
+            libxkbcommon0 libegl1
+          pip install numpy "bpy==4.2.*" blender/wheelhouse/*.whl
+      - name: Test the extension
+        if: runner.os == 'Linux'
+        run: python blender/tests/test_addon.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: |
+            blender/dist/*.zip
+            blender/wheelhouse/*.whl
+          if-no-files-found: error
+
+  publish:
+    name: Publish
+    needs: [plan, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: Publish the release
+        if: needs.plan.outputs.kind == 'stable'
+        run: |
+          gh release create "$GITHUB_REF_NAME" assets/* --verify-tag --generate-notes \
+            --title "zenkit-rs $GITHUB_REF_NAME"
+      - name: Replace the nightly pre-release
+        if: needs.plan.outputs.kind == 'nightly'
+        run: |
+          gh release delete nightly --yes --cleanup-tag || true
+          gh release create nightly assets/* --prerelease --target "$GITHUB_SHA" \
+            --title "Nightly $(date -u +%F)" \
+            --notes "Built from $GITHUB_SHA, the state of main on $(date -u +%F). Install the zip for
+          your system in Blender with Edit > Preferences > Get Extensions > Install from Disk. The
+          wheels are the extension's Python module, zenkit_py, for use outside Blender: pip install
+          the one for your system. Nightlies are untested beyond the extension's own test."
