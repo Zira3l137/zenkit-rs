@@ -10,8 +10,13 @@ use zenkit_rs_core::text;
 use crate::FORMAT;
 use crate::end;
 
-/// How many guilds the attitude table has room for, in both games.
-pub const GUILDS: usize = 42;
+/// How many guilds the attitude table has room for: 42 in Gothic 1, 66 in Gothic 2.
+pub fn guild_count(game: GameVersion) -> usize {
+    match game {
+        GameVersion::Gothic1 => 42,
+        GameVersion::Gothic2 => 66,
+    }
+}
 
 raw_enum! {
     /// Which part of the quest log a topic is in.
@@ -56,8 +61,9 @@ pub struct SaveData {
     pub cutscene_pool: Vec<CutscenePoolItem>,
     /// The values of the scripts' global variables.
     pub symbols: Vec<SymbolState>,
-    /// How each guild feels about each other one, by guild number.
-    pub guild_attitudes: [[u8; GUILDS]; GUILDS],
+    /// How each guild feels about each other one, by guild number: a row for each of the
+    /// [`guild_count`] guilds, each as long.
+    pub guild_attitudes: Vec<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -162,11 +168,9 @@ impl SaveData {
             symbols.push(SymbolState { name, values });
         }
 
-        let raw = r.raw(GUILDS * GUILDS)?;
-        let mut guild_attitudes = [[0; GUILDS]; GUILDS];
-        for (row, bytes) in guild_attitudes.iter_mut().zip(raw.as_chunks::<GUILDS>().0) {
-            *row = *bytes;
-        }
+        let guilds = guild_count(game);
+        let raw = r.raw(guilds * guilds)?;
+        let guild_attitudes = raw[..guilds * guilds].chunks(guilds).map(<[u8]>::to_vec).collect();
 
         Ok(Self {
             day,

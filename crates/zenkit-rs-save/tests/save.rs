@@ -79,7 +79,9 @@ fn gothic2_save_data() {
     // Gothic 2 stores arrays whole.
     assert_eq!(data.symbol("PLAYER_TALENT_RUNES").unwrap().len(), 100);
     assert_eq!(data.symbol("FoundHouseInfo"), Some(&[0; 6][..]));
+    assert_eq!(data.guild_attitudes.len(), 66);
     assert_eq!(data.guild_attitudes[0][8..13], [2, 0, 2, 0, 3]);
+    assert_eq!(data.guild_attitudes[65][60..], [3; 6]);
 }
 
 /// Missions and pooled cutscenes, which no sample has.
@@ -126,7 +128,7 @@ fn missions_and_cutscene_pool() {
             flags: 0,
         }]
     );
-    assert_eq!(data.guild_attitudes, [[0; 42]; 42]);
+    assert_eq!(data.guild_attitudes, vec![vec![0; 42]; 42]);
 }
 
 /// A Gothic 2 save world holding a single VOB. Unpacked VOBs do not say whether physics is

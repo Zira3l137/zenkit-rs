@@ -36,7 +36,6 @@ use zenkit_rs_texture::Texture;
 use zenkit_rs_world::World;
 
 pub use data::CutscenePoolItem;
-pub use data::GUILDS;
 pub use data::InfoState;
 pub use data::LogTopic;
 pub use data::Mission;
@@ -46,6 +45,7 @@ pub use data::SaveData;
 pub use data::SymbolState;
 pub use data::TopicSection;
 pub use data::TopicStatus;
+pub use data::guild_count;
 pub use info::SaveInfo;
 pub use stats::Statistics;
 
