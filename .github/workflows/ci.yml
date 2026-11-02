@@ -74,3 +74,35 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo check --locked --workspace --all-features
+
+  # The Blender extension, which builds on its own, outside the workspace: its Rust side linted,
+  # then its test run in the oldest Blender it supports, Blender's Python module.
+  extension:
+    name: Blender extension
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: blender
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: blender
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Install Blender as a Python module
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq libxi6 libxxf86vm1 libxfixes3 libxrender1 libgl1 libsm6 \
+            libxkbcommon0 libegl1
+          pip install maturin numpy "bpy==4.2.*"
+      - run: maturin build --locked --out wheelhouse
+      - run: pip install wheelhouse/*.whl
+      - run: python tests/test_addon.py
