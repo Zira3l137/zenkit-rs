@@ -389,6 +389,7 @@ dependencies = [
  "zenkit-rs-archive",
  "zenkit-rs-core",
  "zenkit-rs-cutscene",
+ "zenkit-rs-font",
  "zenkit-rs-material",
  "zenkit-rs-mesh",
  "zenkit-rs-model",
@@ -435,6 +436,14 @@ version = "0.1.0"
 dependencies = [
  "tracing",
  "zenkit-rs-archive",
+ "zenkit-rs-core",
+]
+
+[[package]]
+name = "zenkit-rs-font"
+version = "0.1.0"
+dependencies = [
+ "tracing",
  "zenkit-rs-core",
 ]
 

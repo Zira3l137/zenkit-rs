@@ -29,6 +29,7 @@ re-exported as a module of `zenkit`, so `zenkit::mrm` is the `zenkit-rs-mrm` cra
 | `world`        |   yes   | Worlds (`.ZEN`, or saved in a save game): mesh, BSP, way-net, VOBs       |
 | `cutscene`     |   yes   | Cutscene libraries (`OU.BIN`, `OU.CSL`): every line of dialogue          |
 | `save`         |   yes   | Save games: metadata, script state, quest log, thumbnail and worlds      |
+| `font`         |   yes   | Fonts (`.FNT`): where each character is in the font's texture            |
 | `parallel`     |   yes   | Spreads independent work, like reading many files, across all CPU cores  |
 | `mmap`         |         | Memory-maps archives and host files instead of reading them into memory  |
 | `log`          |         | Emits every message as a `log` record too, for applications using `log`  |
@@ -59,6 +60,7 @@ Every format can be written too:
 | Cutscene libraries     | `CutsceneLibrary::to_bytes`, as `OU.BIN` or `OU.CSL`                   |
 | `.ZEN` worlds          | `World::to_bytes`, or `Vobs::write` for a single VOB                   |
 | Save games             | `SaveGame::write` for the folder, or each file's own `to_bytes`        |
+| `.FNT`                 | `Font::to_bytes`                                                       |
 
 Writers follow the engine where it and ZenKit differ, so that the game reads what they write, and
 where a sample of the game's own files exists, the tests check that rewriting it gives the same

@@ -1,0 +1,15 @@
+[package]
+name = "zenkit-rs-font"
+description = "Reader and writer for ZenGin fonts (.FNT), where each character sits in the font's texture"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+zenkit-rs-core.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true
