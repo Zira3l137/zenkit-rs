@@ -15,7 +15,9 @@ zenkit = { package = "zenkit-rs", version = "0.1" }
 
 or `cargo add zenkit-rs --rename zenkit`. The package is called `zenkit-rs` because `zenkit` on
 crates.io is an unrelated project; renaming it lets code say `zenkit::`, as the examples here do.
-It needs Rust 1.88 or later. The API is documented on [docs.rs](https://docs.rs/zenkit-rs).
+It needs Rust 1.88 or later. The API is documented on [docs.rs](https://docs.rs/zenkit-rs), and
+[docs/](docs/README.md) has guides for modders using the Blender extension and for developers
+using or working on the library.
 
 ## Features
 
