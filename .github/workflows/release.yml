@@ -120,6 +120,8 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
+      # Each build's artifact keeps the folders its files came from, relative to blender/, so the
+      # files land in assets/dist and assets/wheelhouse.
       - uses: actions/download-artifact@v4
         with:
           path: assets
@@ -127,13 +129,13 @@ jobs:
       - name: Publish the release
         if: needs.plan.outputs.kind == 'stable'
         run: |
-          gh release create "$GITHUB_REF_NAME" assets/* --verify-tag --generate-notes \
+          gh release create "$GITHUB_REF_NAME" assets/*/* --verify-tag --generate-notes \
             --title "zenkit-rs $GITHUB_REF_NAME"
       - name: Replace the nightly pre-release
         if: needs.plan.outputs.kind == 'nightly'
         run: |
           gh release delete nightly --yes --cleanup-tag || true
-          gh release create nightly assets/* --prerelease --target "$GITHUB_SHA" \
+          gh release create nightly assets/*/* --prerelease --target "$GITHUB_SHA" \
             --title "Nightly $(date -u +%F)" \
             --notes "Built from $GITHUB_SHA, the state of main on $(date -u +%F). Install the zip for
           your system in Blender with Edit > Preferences > Get Extensions > Install from Disk. The
