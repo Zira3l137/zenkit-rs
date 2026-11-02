@@ -1,4 +1,8 @@
+use zenkit_rs_core::Error;
+use zenkit_rs_core::Result;
 use zenkit_rs_core::text;
+
+use crate::FORMAT;
 
 /// The player's progress over time (`LOG.SAV`): rows the engine adds as the game goes on, each
 /// with the game time, level, experience, attributes and talents.
@@ -25,6 +29,26 @@ impl Statistics {
         Self { columns, rows: lines.map(fields).collect() }
     }
 
+    /// Writes the file as the engine does: tab-separated, every line ending in a tab.
+    ///
+    /// Fails if a value has a tab or a line break, or characters beyond Latin-1.
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
+        let mut out = Vec::new();
+        for line in std::iter::once(&self.columns).chain(&self.rows) {
+            for field in line {
+                let field = text::to_line(FORMAT, field)?;
+                if field.contains(&b'\t') {
+                    let reason = format!("{:?} has a tab", text::latin1(&field));
+                    return Err(Error::unwritable(FORMAT, reason));
+                }
+                out.extend(field);
+                out.push(b'\t');
+            }
+            out.push(b'\n');
+        }
+        Ok(out)
+    }
+
     /// One column's values, from the first row to the last, or nothing if there is no such
     /// column.
     pub fn column<'a>(&'a self, name: &str) -> impl Iterator<Item = &'a str> + 'a {
@@ -48,5 +72,14 @@ mod tests {
         assert_eq!(stats.column("guild").collect::<Vec<_>>(), ["Gildenlos", ""]);
         assert_eq!(stats.column("missing").count(), 0);
         assert_eq!(Statistics::from_bytes(b""), Statistics::default());
+    }
+
+    #[test]
+    fn writes_tab_separated_rows() {
+        let data = b"minutes\tlevel\tguild\t\n0\t1\tGildenlos\t\n60\t2\t\t\n";
+        assert_eq!(Statistics::from_bytes(data).to_bytes().unwrap(), data);
+
+        let stats = Statistics { columns: vec!["a\tb".into()], rows: Vec::new() };
+        assert!(stats.to_bytes().is_err());
     }
 }

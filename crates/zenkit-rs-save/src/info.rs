@@ -1,4 +1,7 @@
 use zenkit_rs_archive::Archive;
+use zenkit_rs_archive::ArchiveWriter;
+use zenkit_rs_archive::Format;
+use zenkit_rs_archive::Header;
 use zenkit_rs_core::Asset;
 use zenkit_rs_core::GameVersion;
 use zenkit_rs_core::Result;
@@ -56,6 +59,37 @@ impl SaveInfo {
             end(&mut archive, &object)?;
         }
         Ok(info)
+    }
+}
+
+impl SaveInfo {
+    /// Writes the file as the games do: an ASCII archive, with Gothic 2's three fields only for
+    /// Gothic 2.
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
+        self.to_bytes_with(Header::new(Format::Ascii))
+    }
+
+    /// [`to_bytes`](Self::to_bytes) with this archive header, like the one of the file it was read
+    /// from, which also carries when it was saved and by whom.
+    pub fn to_bytes_with(&self, header: Header) -> Result<Vec<u8>> {
+        let mut w = ArchiveWriter::with_header(header);
+        w.begin_object("%", "oCSavegameInfo", 0);
+        w.name("Title", &self.title);
+        w.name("WorldName", &self.world);
+        w.int("TimeDay", self.day);
+        w.int("TimeHour", self.hour);
+        w.int("TimeMin", self.minute);
+        w.name("SaveDate", &self.save_date);
+        w.int("VersionMajor", self.version_major);
+        w.int("VersionMinor", self.version_minor);
+        w.int("PlayTimeSeconds", self.play_time_seconds);
+        if self.game == GameVersion::Gothic2 {
+            w.int("VersionPoint", self.version_point);
+            w.int("VersionInt", self.version_int);
+            w.name("VersionAppName", &self.version_app_name);
+        }
+        w.end_object();
+        w.finish()
     }
 }
 

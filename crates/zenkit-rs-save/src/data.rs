@@ -1,5 +1,8 @@
 use tracing::warn;
 use zenkit_rs_archive::Archive;
+use zenkit_rs_archive::ArchiveWriter;
+use zenkit_rs_archive::Format;
+use zenkit_rs_archive::Header;
 use zenkit_rs_core::Error;
 use zenkit_rs_core::GameVersion;
 use zenkit_rs_core::Result;
@@ -183,6 +186,99 @@ impl SaveData {
             symbols,
             guild_attitudes,
         })
+    }
+
+    /// Writes the file for `game` as the games do: a BIN_SAFE archive of a save game.
+    pub fn to_bytes(&self, game: GameVersion) -> Result<Vec<u8>> {
+        let header = Header { save_game: true, ..Header::new(Format::Binsafe) };
+        self.to_bytes_with(header, game)
+    }
+
+    /// [`to_bytes`](Self::to_bytes) with this archive header, like the one of the file it was read
+    /// from.
+    ///
+    /// Fails if a Gothic 1 global variable holds other than one value, since Gothic 1 stores one
+    /// for each.
+    pub fn to_bytes_with(&self, header: Header, game: GameVersion) -> Result<Vec<u8>> {
+        let mut w = ArchiveWriter::with_header(header);
+        w.int("day", self.day);
+        w.int("hour", self.hour);
+        w.int("min", self.minute);
+
+        w.int("NumOfEntries", self.infos.len() as i32);
+        for info in &self.infos {
+            w.bool("Told", info.told);
+            w.name("InstName", &info.name);
+        }
+
+        w.int("NumOfEntries", self.missions.len() as i32);
+        for mission in &self.missions {
+            w.name("name", &mission.name);
+            w.int("ID", mission.id);
+            w.bool("Av", mission.available);
+            w.int("NumInList", mission.entries.len() as i32);
+            for entry in &mission.entries {
+                w.int("VobIDL", entry.vob_id);
+                w.int("StatusL", entry.status);
+                w.float("startTimeL", entry.start_time);
+            }
+            w.int("StatusIndex", mission.status_index);
+        }
+
+        w.int("LOGMANAGERTOPICCOUNT", self.log.len() as i32);
+        for topic in &self.log {
+            w.name("TOPICDESCRIPTION", &topic.description);
+            w.enumeration("TOPICSECTION", topic.section.raw());
+            w.enumeration("TOPICSTATUS", topic.status.raw());
+            w.int("LOGTOPICENTRYCOUNT", topic.entries.len() as i32);
+            w.int("LOGMANAGERENTRYCOUNT", topic.entries.len() as i32);
+            for entry in &topic.entries {
+                w.name("ENTRYDESCRIPTION", entry);
+            }
+        }
+
+        w.begin_object("%", "oCCSManager:zCCSManager", 36865);
+        w.int("poolCount", self.cutscene_pool.len() as i32);
+        for item in &self.cutscene_pool {
+            w.begin_object("%", "zCCSPoolItem", 0);
+            w.name("itemName", &item.name);
+            w.enumeration("runBehaviour", item.run_behavior.raw());
+            w.int("runBehaviourValue", item.run_behavior_value);
+            w.int("numPlayed", item.times_played);
+            w.int("deactivated", item.deactivated);
+            w.int("flags", item.flags);
+            w.end_object();
+        }
+        w.end_object();
+
+        w.int("numSymbols", self.symbols.len() as i32);
+        for (i, symbol) in self.symbols.iter().enumerate() {
+            w.name(&format!("symName{i}"), &symbol.name);
+            match game {
+                GameVersion::Gothic1 => match symbol.values[..] {
+                    [value] => w.int(&format!("symValue{i}"), value),
+                    _ => w.fail(format!(
+                        "global variable {:?} has {} values, Gothic 1 stores one",
+                        symbol.name,
+                        symbol.values.len()
+                    )),
+                },
+                GameVersion::Gothic2 => {
+                    w.int(&format!("symName{i}cnt"), symbol.values.len() as i32);
+                    for (j, &value) in symbol.values.iter().enumerate() {
+                        w.int(&format!("symValue{i}_{j}"), value);
+                    }
+                }
+            }
+        }
+
+        let guilds = guild_count(game);
+        let rows = &self.guild_attitudes;
+        if rows.len() != guilds || rows.iter().any(|row| row.len() != guilds) {
+            w.fail(format!("the guild attitudes must be {guilds} rows of {guilds} for {game:?}"));
+        }
+        w.raw("guildTable", &rows.concat());
+        w.finish()
     }
 
     /// The value of a global script variable, by name, ignoring case like the scripts.

@@ -5,6 +5,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use zenkit_rs_archive::Archive;
+use zenkit_rs_archive::Format;
 use zenkit_rs_core::Error;
 use zenkit_rs_core::GameVersion::Gothic1;
 use zenkit_rs_core::GameVersion::Gothic2;
@@ -14,6 +16,7 @@ use zenkit_rs_save::RunBehavior;
 use zenkit_rs_save::SaveData;
 use zenkit_rs_save::SaveGame;
 use zenkit_rs_save::SaveInfo;
+use zenkit_rs_save::Statistics;
 use zenkit_rs_save::TopicSection;
 use zenkit_rs_save::TopicStatus;
 
@@ -84,6 +87,42 @@ fn gothic2_save_data() {
     assert_eq!(data.guild_attitudes[65][60..], [3; 6]);
 }
 
+#[test]
+fn writes_the_save_files_back() {
+    let header = |data: &[u8]| Archive::new(data).unwrap().header().clone();
+    for (dir, game) in [("G1", Gothic1), ("G2", Gothic2)] {
+        let info = sample(&format!("{dir}/SAVEINFO.SAV"));
+        let written = SaveInfo::from_bytes(&info).unwrap().to_bytes_with(header(&info)).unwrap();
+        assert_same(&written, &info, dir, "SAVEINFO");
+
+        // The cut-down samples keep the whole key table of the original, so only reading them
+        // back can tell; ZenKit's complete saves come out byte for byte the same.
+        let data = sample(&format!("{dir}/SAVEDAT.SAV"));
+        let read = SaveData::from_bytes(&data, game).unwrap();
+        let written = read.to_bytes_with(header(&data), game).unwrap();
+        assert_eq!(SaveData::from_bytes(&written, game).unwrap(), read, "{dir}");
+
+        let log = sample(&format!("{dir}/LOG.SAV"));
+        assert_same(&Statistics::from_bytes(&log).to_bytes().unwrap(), &log, dir, "LOG");
+    }
+}
+
+#[test]
+fn save_data_keeps_its_shape() {
+    let mut data = SaveData::from_bytes(&sample("G1/SAVEDAT.SAV"), Gothic1).unwrap();
+    // Without a header of its own, it is written the way the games write it.
+    let written = data.to_bytes(Gothic1).unwrap();
+    let header = Archive::new(&written).unwrap().header().clone();
+    assert!(header.save_game && header.format == Format::Binsafe);
+    assert_eq!(SaveData::from_bytes(&written, Gothic1).unwrap(), data);
+
+    // Gothic 2 has room for more guilds.
+    assert!(data.to_bytes(Gothic2).is_err());
+    data.symbols[0].values.push(1);
+    let err = data.to_bytes(Gothic1).unwrap_err();
+    assert!(err.to_string().contains("Gothic 1 stores one"), "{}", err.report());
+}
+
 /// Missions and pooled cutscenes, which no sample has.
 #[test]
 fn missions_and_cutscene_pool() {
@@ -129,6 +168,9 @@ fn missions_and_cutscene_pool() {
         }]
     );
     assert_eq!(data.guild_attitudes, vec![vec![0; 42]; 42]);
+
+    let written = data.to_bytes(Gothic1).unwrap();
+    assert_eq!(SaveData::from_bytes(&written, Gothic1).unwrap(), data);
 }
 
 /// A Gothic 2 save world holding a single VOB. Unpacked VOBs do not say whether physics is
@@ -279,5 +321,33 @@ fn zenkit_sample_saves() {
 
         let log = String::from_utf8(captured.0.lock().unwrap().clone()).unwrap();
         assert!(!log.contains("unread") && !log.contains("goes on past"), "{dir}: {log}");
+
+        let original = |name: &str| std::fs::read(root.join(dir).join(name)).unwrap();
+        let header = |data: &[u8]| Archive::new(data).unwrap().header().clone();
+        let info = original("SAVEINFO.SAV");
+        assert_same(&save.info.to_bytes_with(header(&info)).unwrap(), &info, dir, "SAVEINFO");
+        let data = original("SAVEDAT.SAV");
+        let written = save.data.to_bytes_with(header(&data), game).unwrap();
+        assert_same(&written, &data, dir, "SAVEDAT");
+        if let Some(stats) = &save.statistics {
+            assert_same(&stats.to_bytes().unwrap(), &original("LOG.SAV"), dir, "LOG");
+        }
+        assert_same(&thumbnail.to_bytes(), &original("THUMB.SAV"), dir, "THUMB");
     }
+}
+
+/// Checks that a file written back is the original, saying where they first differ if not.
+fn assert_same(written: &[u8], original: &[u8], dir: &str, what: &str) {
+    if let Some(at) = written.iter().zip(original).position(|(a, b)| a != b) {
+        let around = |data: &[u8]| {
+            String::from_utf8_lossy(&data[at.saturating_sub(24)..(at + 24).min(data.len())])
+                .into_owned()
+        };
+        panic!(
+            "{dir} {what}: first difference at byte {at}:\n  game    {:?}\n  written {:?}",
+            around(original),
+            around(written)
+        );
+    }
+    assert_eq!(written.len(), original.len(), "{dir} {what}: the lengths differ");
 }
