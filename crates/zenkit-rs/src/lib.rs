@@ -57,3 +57,19 @@ pub use zenkit_rs_texture as texture;
 pub use zenkit_rs_vfs as vfs;
 #[cfg(feature = "world")]
 pub use zenkit_rs_world as world;
+
+// The developer guide's examples, compiled and run as doctests so that they keep up with the API.
+#[cfg(all(
+    doctest,
+    feature = "vfs",
+    feature = "texture",
+    feature = "mrm",
+    feature = "model",
+    feature = "animation",
+    feature = "world",
+    feature = "save",
+    feature = "cutscene",
+    feature = "font"
+))]
+#[doc = include_str!("../../../docs/developers/library.md")]
+struct DeveloperGuide;
