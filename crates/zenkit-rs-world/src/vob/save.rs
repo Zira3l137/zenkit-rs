@@ -8,6 +8,7 @@ use zenkit_rs_core::text;
 use super::Ctx;
 use super::Next;
 use super::VobId;
+use super::WriteCtx;
 use crate::cutscene::CutsceneContext;
 
 /// The state save games store for every VOB.
@@ -32,6 +33,20 @@ impl VobState {
             });
         }
         Ok(state)
+    }
+
+    /// Writes the state, with the rigid body the reader expects when physics is enabled.
+    pub(crate) fn write(&self, w: &mut WriteCtx, physics_enabled: bool) {
+        w.byte("sleepMode", self.sleep_mode);
+        w.float("nextOnTimer", self.next_on_timer);
+        if physics_enabled {
+            let body = self.rigid_body.unwrap_or_default();
+            w.vec3("vel", body.velocity);
+            w.byte("mode", body.mode);
+            w.bool("gravOn", body.gravity_enabled);
+            w.float("gravScale", body.gravity_scale);
+            w.vec3("slideDir", body.slide_direction);
+        }
     }
 }
 
@@ -72,6 +87,14 @@ impl EventManager {
         r.end(&object)?;
         Ok(Some(manager))
     }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        w.begin_object("%", "zCEventManager", 0);
+        w.bool("cleared", self.cleared);
+        w.bool("active", self.active);
+        CutsceneContext::write(self.cutscene.as_deref(), w, "emCutscene");
+        w.end_object();
+    }
 }
 
 /// What drives a VOB in a save game.
@@ -100,6 +123,22 @@ impl Ai {
         };
         r.end(&object)?;
         Ok(Some(ai))
+    }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        match self {
+            Self::Human(ai) => {
+                let version = if w.gothic2() { 36865 } else { 0 };
+                w.begin_object("ai", "oCAIHuman:oCAniCtrl_Human:zCAIPlayer", version);
+                ai.write(w);
+            }
+            Self::Move(ai) => {
+                w.begin_object("ai", "oCAIVobMove", 0);
+                w.vob("vob", ai.vob);
+                w.vob("owner", ai.owner);
+            }
+        }
+        w.end_object();
     }
 }
 
@@ -143,6 +182,24 @@ impl AiHuman {
             change_weapon: r.bool()?,
             action_mode: r.int()?,
         })
+    }
+
+    fn write(&self, w: &mut WriteCtx) {
+        w.int("waterLevel", self.water_level);
+        w.float("floorY", self.floor_y);
+        w.float("waterY", self.water_y);
+        w.float("ceilY", self.ceil_y);
+        w.float("feetY", self.feet_y);
+        w.float("headY", self.head_y);
+        w.float("fallDistY", self.fall_dist_y);
+        w.float("fallStartY", self.fall_start_y);
+        w.vob("aiNpc", self.npc);
+        w.int("walkMode", self.walk_mode);
+        w.int("weaponMode", self.weapon_mode);
+        w.int("wmodeLast", self.weapon_mode_last);
+        w.int("wmodeSelect", self.weapon_mode_select);
+        w.bool("changeWeapon", self.change_weapon);
+        w.int("actionMode", self.action_mode);
     }
 }
 

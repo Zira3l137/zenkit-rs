@@ -173,9 +173,10 @@ impl Vobs {
     /// the counterpart of [`read`](Self::read). Worlds are written with
     /// [`World::to_bytes`](crate::World::to_bytes).
     ///
-    /// VOBs are written packed, as the games' own worlds store them, without the state save games
-    /// keep. A VOB that cannot be stored, like an NPC, which only save games hold, makes
-    /// [`ArchiveWriter::finish`] fail.
+    /// VOBs are written packed, as the games' own worlds store them. A writer whose header is a
+    /// save game's writes them as save games do, with their AI, event manager and state. A VOB
+    /// that cannot be stored, like an NPC outside a save game, makes [`ArchiveWriter::finish`]
+    /// fail.
     pub fn write(&self, w: &mut ArchiveWriter, id: VobId, game: GameVersion) {
         WriteCtx::new(w, self, game).vob("%", Some(id));
     }

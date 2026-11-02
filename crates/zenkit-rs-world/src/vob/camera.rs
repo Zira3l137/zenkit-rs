@@ -143,6 +143,13 @@ impl CutsceneCamera {
         for &frame in self.trajectory.iter().chain(&self.targets) {
             w.vob("%", Some(frame));
         }
+        if w.save && w.gothic2() {
+            let state = self.state.unwrap_or_default();
+            w.bool("paused", state.paused);
+            w.bool("started", state.started);
+            w.bool("gotoTimeMode", state.goto_time_mode);
+            w.float("csTime", state.time);
+        }
     }
 }
 

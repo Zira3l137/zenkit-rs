@@ -149,6 +149,20 @@ impl Trigger {
         w.float("retriggerWaitSec", self.retrigger_delay);
         w.float("damageThreshold", self.damage_threshold);
         w.float("fireDelaySec", self.fire_delay);
+        if w.save {
+            let state = self.state.unwrap_or(TriggerState {
+                next_time_triggerable: 0.0,
+                other_vob: None,
+                count_can_be_activated: self.max_activation_count,
+                is_enabled: self.start_enabled,
+            });
+            w.float("nextTimeTriggerable", state.next_time_triggerable);
+            w.vob("savedOtherVob", state.other_vob);
+            w.int("countCanBeActivated", state.count_can_be_activated);
+            if w.gothic2() {
+                w.bool("isEnabled", state.is_enabled);
+            }
+        }
     }
 }
 
@@ -201,6 +215,11 @@ impl TriggerList {
         for (i, target) in self.targets.iter().take(255).enumerate() {
             w.name(&format!("triggerTarget{i}"), &target.name);
             w.float(&format!("fireDelay{i}"), target.delay);
+        }
+        if w.save {
+            let state = self.state.unwrap_or_default();
+            w.byte("actTarget", state.act_target);
+            w.bool("sendOnTrigger", state.send_on_trigger);
         }
     }
 }
@@ -379,6 +398,19 @@ impl Mover {
             w.raw("keyframes", keys.as_bytes());
         }
 
+        if w.save {
+            let state = self.state.unwrap_or_default();
+            w.vec3("actKeyPosDelta", state.act_key_pos_delta);
+            w.float("actKeyframeF", state.act_keyframe_f);
+            w.int("actKeyframe", state.act_keyframe);
+            w.int("nextKeyframe", state.next_keyframe);
+            w.float("moveSpeedUnit", state.move_speed_unit);
+            w.float("advanceDir", state.advance_dir);
+            w.enumeration("moverState", state.mover_state);
+            w.int("numTriggerEvents", state.trigger_event_count);
+            w.float("stayOpenTimeDest", state.stay_open_time_dest);
+        }
+
         w.name("sfxOpenStart", &self.sfx_open_start);
         w.name("sfxOpenEnd", &self.sfx_open_end);
         w.name("sfxMoving", &self.sfx_moving);
@@ -412,6 +444,9 @@ impl TriggerWorldStart {
     pub(crate) fn write(&self, w: &mut WriteCtx) {
         w.name("triggerTarget", &self.target);
         w.bool("fireOnlyFirstTime", self.fire_once);
+        if w.save && w.gothic2() {
+            w.bool("hasFired", self.has_fired.unwrap_or(false));
+        }
     }
 }
 

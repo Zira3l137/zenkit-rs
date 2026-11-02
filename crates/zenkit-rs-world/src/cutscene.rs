@@ -9,6 +9,7 @@ use crate::vob::Ctx;
 use crate::vob::Next;
 use crate::vob::Shared;
 use crate::vob::VobId;
+use crate::vob::WriteCtx;
 
 /// A cutscene being played: its block, its settings and the VOBs it involves.
 ///
@@ -72,6 +73,40 @@ impl CutsceneContext {
         r.end(&object)?;
         Ok(Some(context))
     }
+
+    /// Writes a cutscene in the field `name`, or null for `None`.
+    ///
+    /// The engine writes a cutscene once and refers to it wherever else it is held, like in the
+    /// cutscene player's list, which reading turns into copies. So a cutscene equal to one
+    /// written before becomes a reference to it.
+    pub(crate) fn write(context: Option<&Self>, w: &mut WriteCtx, name: &str) {
+        let Some(context) = context else {
+            w.null_object(name);
+            return;
+        };
+        if let Some(&(_, index)) = w.cutscenes.iter().find(|(written, _)| written == context) {
+            w.reference(name, index);
+            return;
+        }
+        let index = w.begin_object(name, "zCCSCutsceneContext:zCCutscene:zCCSBlock", 0);
+        w.cutscenes.push((context.clone(), index));
+        context.block.write_fields(w);
+        match &context.props {
+            Some(props) => props.write(w),
+            None => w.null_object("%"),
+        }
+        w.int("numOfRoles", context.role_count);
+        w.int("numOfRoleVobs", context.role_vob_count);
+        w.vob("%", context.npc);
+        w.vob("mainRoleVob", context.main_role);
+        w.bool("isCutscene", context.is_cutscene);
+        w.int("reference", context.reference);
+        w.int("actualBlock", context.actual_block);
+        w.vob("alt_stage", context.alt_stage);
+        w.vob("stage", context.stage);
+        w.bool("wasTriggered", context.was_triggered);
+        w.end_object();
+    }
 }
 
 /// How a cutscene runs.
@@ -117,5 +152,21 @@ impl CutsceneProps {
         };
         r.end(&object)?;
         Ok(Some(props))
+    }
+
+    fn write(&self, w: &mut WriteCtx) {
+        w.begin_object("%", "zCCSProps", 0);
+        w.name("name", &self.name);
+        w.bool("globalCutscene", self.global);
+        w.bool("csLoop", self.looping);
+        w.bool("hasToBeTriggerd", self.has_to_be_triggered);
+        w.float("distance", self.distance);
+        w.float("range", self.range);
+        w.int("numLockedBlocks", self.locked_block_count);
+        w.enumeration("runBehaviour", self.run_behaviour);
+        w.int("runBehaviourValue", self.run_behaviour_value);
+        w.name("StageName", &self.stage_name);
+        w.name("scriptFuncOnStop", &self.script_function_on_stop);
+        w.end_object();
     }
 }

@@ -134,8 +134,8 @@ impl World {
     ///
     /// Fails if a part cannot be stored: a mesh without a BSP tree, a BSP tree whose nodes are
     /// out of order, a way point that is neither free nor the end of a way, a VOB the format has
-    /// no room for, like an NPC, which only save games hold. Save games themselves cannot be
-    /// written yet, so [`state`](Self::state) is left out.
+    /// no room for, like an NPC, which only save games hold. [`state`](Self::state) is left out;
+    /// save games are written by giving [`to_bytes_with`](Self::to_bytes_with) a header for one.
     pub fn to_bytes(&self, format: Format) -> Result<Vec<u8>> {
         self.to_bytes_with(Header::new(format))
     }
@@ -143,7 +143,15 @@ impl World {
     /// [`to_bytes`](Self::to_bytes) with this archive header, for example the one of the file
     /// the world was read from, to write it back the same way. A header whose user is `XZEN`
     /// stores Gothic 1 meshes with 32-bit vertex indices, as such worlds do.
+    ///
+    /// A header with [`save_game`](Header::save_game) set writes the world as save games store
+    /// it: every VOB with its save state, and the [`state`](Self::state), or an empty one if
+    /// there is none. Save games keep no mesh or BSP tree, since the game takes them from the
+    /// world's `.ZEN` file, so those are left out.
     pub fn to_bytes_with(&self, header: Header) -> Result<Vec<u8>> {
+        if header.save_game {
+            return self.save_to_bytes(header);
+        }
         let wide_indices = header.user.as_deref() == Some("XZEN");
         let compiled = !self.bsp.nodes.is_empty();
         if !compiled && !self.mesh.polygons.is_empty() {
@@ -169,6 +177,39 @@ impl World {
 
         w.begin_object("EndMarker", "%", 0);
         w.end_object();
+        w.end_object();
+        w.finish()
+    }
+
+    fn save_to_bytes(&self, header: Header) -> Result<Vec<u8>> {
+        let default = WorldState::default();
+        let state = self.state.as_ref().unwrap_or(&default);
+        let mut w = ArchiveWriter::with_header(header);
+        w.begin_object("%", "oCWorld:zCWorld", 64513);
+        let mut ctx = WriteCtx::new(&mut w, &self.vobs, self.game);
+
+        ctx.begin_object("VobTree", "%", 0);
+        ctx.tree(&self.roots);
+        ctx.end_object();
+
+        if let Some(player) = &state.cutscene_player {
+            ctx.begin_object("CutscenePlayer", "%", 0);
+            player.write(&mut ctx);
+            ctx.end_object();
+        }
+        if let Some(sky) = &state.sky {
+            ctx.begin_object("SkyCtrl", "%", 0);
+            sky.write(&mut ctx);
+            ctx.end_object();
+        }
+
+        ctx.begin_object("WayNet", "%", 0);
+        self.way_net.write(&mut ctx);
+        ctx.end_object();
+
+        ctx.begin_object("EndMarker", "%", 0);
+        ctx.end_object();
+        state.write_npcs(&mut ctx);
         w.end_object();
         w.finish()
     }

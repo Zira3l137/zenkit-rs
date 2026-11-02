@@ -11,6 +11,7 @@ use super::FORMAT;
 use super::Next;
 use super::VobId;
 use super::VobKind;
+use super::WriteCtx;
 
 raw_enum! {
     /// Who an NPC passes a piece of [`News`] on to.
@@ -303,6 +304,169 @@ impl Npc {
         }
         Ok(npc)
     }
+}
+
+impl Npc {
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        let gothic2 = w.gothic2();
+        w.name("npcInstance", &self.instance);
+        w.vec3("modelScale", self.model_scale);
+        w.float("modelFatness", self.model_fatness);
+        w.int("numOverlays", self.overlays.len() as i32);
+        for overlay in &self.overlays {
+            w.name("overlay", overlay);
+        }
+
+        w.int("flags", self.flags);
+        w.int("guild", self.guild);
+        w.int("guildTrue", self.guild_true);
+        w.int("level", self.level);
+        w.int("xp", self.xp);
+        w.int("xpnl", self.xp_next_level);
+        w.int("lp", self.lp);
+
+        w.int("numTalents", self.talents.len() as i32);
+        let version = if gothic2 { 64513 } else { 0 };
+        for talent in &self.talents {
+            match talent {
+                Some(talent) => {
+                    w.begin_object("%", "oCNpcTalent", version);
+                    w.int("talent", talent.talent);
+                    w.int("value", talent.value);
+                    w.int("skill", talent.skill);
+                    w.end_object();
+                }
+                None => w.null_object("%"),
+            }
+        }
+
+        w.int("fightTactic", self.fight_tactic);
+        w.int("fightMode", self.fight_mode);
+        w.bool("wounded", self.wounded);
+        w.bool("mad", self.mad);
+        w.int("madTime", self.mad_time);
+        w.bool("player", self.player);
+        for (i, &attribute) in self.attributes.iter().enumerate() {
+            w.int(&format!("atr{i}"), attribute);
+        }
+        if gothic2 {
+            // Numbered from 1, unlike every other list here.
+            for (i, &chance) in self.hit_chances.iter().enumerate() {
+                w.int(&format!("hc{}", i + 1), chance);
+            }
+        }
+        for (i, &mission) in self.missions.iter().enumerate() {
+            w.int(&format!("mission{i}"), mission);
+        }
+
+        w.name("startAIState", &self.start_ai_state);
+        let count = if gothic2 { 100 } else { 50 };
+        if self.ai_vars.len() != count {
+            w.fail(format!(
+                "NPC {:?} has {} script variables, not {count}",
+                self.instance,
+                self.ai_vars.len()
+            ));
+        }
+        w.raw("scriptVars", &raw_ints(&self.ai_vars));
+        w.name("scriptWp", &self.script_waypoint);
+        w.int("attitude", self.attitude);
+        w.int("tmpAttitude", self.attitude_temp);
+        w.int("nameNr", self.name_nr);
+        let mut spells = self.spells.clone();
+        spells.resize(4, 0);
+        w.raw("spells", &spells);
+
+        w.int("NumOfEntries", self.news.len() as i32);
+        for news in &self.news {
+            w.bool("told", news.told);
+            w.float("spread_time", news.spread_time);
+            w.int("spreadType", news.spread_type.raw() as i32);
+            w.int("news_id", news.news_id);
+            w.bool("gossip", news.gossip);
+            w.bool("guildvictim", news.guild_victim);
+            w.name("witnessName", &news.witness_name);
+            w.name("offenderName", &news.offender_name);
+            w.name("victimName", &news.victim_name);
+        }
+
+        w.vob("carryVob", self.carry_vob);
+        w.vob("enemy", self.enemy);
+        w.bool("moveLock", self.move_lock);
+
+        if gothic2 {
+            w.name("packed", &self.packed.join(";"));
+        } else {
+            if self.packed.len() != 9 {
+                let count = self.packed.len();
+                w.fail(format!("NPC {:?} has {count} packed lists, not 9", self.instance));
+            }
+            for packed in &self.packed {
+                w.name("packed", packed);
+            }
+        }
+
+        w.int("itemCount", self.items.len() as i32);
+        for (i, item) in self.items.iter().enumerate() {
+            w.vob(&format!("item{i}"), Some(item.item));
+            let flags = match w.vobs().get(item.item).map(|vob| &vob.kind) {
+                Some(VobKind::Item(item)) => item.state.map_or(0, |s| s.flags),
+                _ => 0,
+            };
+            // The reader can only tell a short key is there from the item's flags.
+            match (flags & ITEM_HAS_SHORT_KEY != 0, item.short_key) {
+                (true, key) => w.int(&format!("shortKey{i}"), key.unwrap_or(0)),
+                (false, None) => {}
+                (false, Some(_)) => w.fail(format!(
+                    "NPC {:?}'s item {i} has a short key, but not the flag that announces it",
+                    self.instance
+                )),
+            }
+        }
+
+        w.int("numInvSlots", self.slots.len() as i32);
+        for slot in &self.slots {
+            let used = slot.item.is_some();
+            w.bool("used", used);
+            w.name("name", &slot.name);
+            if used {
+                w.vob("vob", slot.item);
+                w.bool("inInv", slot.in_inventory);
+            }
+        }
+
+        for (prefix, state) in [("curState", &self.current_state), ("nextState", &self.next_state)]
+        {
+            w.bool(&format!("{prefix}.valid"), state.valid);
+            w.name(&format!("{prefix}.name"), &state.name);
+            w.int(&format!("{prefix}.prgIndex"), state.index);
+            w.bool(&format!("{prefix}.isRtnState"), state.is_routine);
+        }
+        w.int("lastAIState", self.last_ai_state);
+        w.bool("hasRoutine", self.has_routine);
+        w.bool("rtnChanged", self.routine_changed);
+        w.bool("rtnOverlay", self.routine_overlay);
+        w.int("rtnOverlayCount", self.routine_overlay_count);
+        w.int("walkmode_routine", self.walk_mode_routine);
+        w.bool("weaponmode_routine", self.weapon_mode_routine);
+        w.bool("startNewRoutine", self.start_new_routine);
+        w.int("aiStateDriven", self.ai_state_driven);
+        w.vec3("aiStatePos", self.ai_state_position);
+        w.name("curRoutine", &self.current_routine);
+        w.bool("respawn", self.respawn);
+        w.int("respawnTime", self.respawn_time);
+        w.raw("protection", &raw_ints(&self.protection));
+
+        if gothic2 {
+            w.int("bsInterruptableOverride", self.bs_interruptable_override);
+            w.int("npcType", self.npc_type);
+            w.int("spellMana", self.spell_mana);
+        }
+    }
+}
+
+fn raw_ints(values: &[i32]) -> Vec<u8> {
+    values.iter().flat_map(|v| v.to_le_bytes()).collect()
 }
 
 fn ints(raw: &[u8], count: usize) -> Result<Vec<i32>> {

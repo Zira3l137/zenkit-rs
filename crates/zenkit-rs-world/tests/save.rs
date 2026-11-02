@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use zenkit_rs_archive::Archive;
+use zenkit_rs_archive::ArchiveWriter;
 use zenkit_rs_core::GameVersion;
 use zenkit_rs_core::GameVersion::Gothic1;
 use zenkit_rs_core::GameVersion::Gothic2;
@@ -34,6 +35,33 @@ fn read(game: GameVersion, class: &str) -> (Vobs, VobId) {
     let read = Vobs::read(&mut archive, game).unwrap().expect("a VOB");
     assert!(archive.is_eof(), "{class}");
     read
+}
+
+#[test]
+fn save_vobs_write_back() {
+    let samples = [
+        (Gothic1, "oCNpc"),
+        (Gothic1, "zCMover"),
+        (Gothic2, "oCMobContainer"),
+        (Gothic2, "oCNpc"),
+        (Gothic2, "zCCSCamera"),
+        (Gothic2, "zCCodeMaster"),
+    ];
+    // The samples were cut out of whole saves, so their object indices start one higher and
+    // their key tables are gone; ZenKit's complete saves are compared byte for byte instead.
+    for (game, class) in samples {
+        let dir = if game == Gothic1 { "G1" } else { "G2" };
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join(format!("../../samples/{dir}/SaveVOb/{class}.zen"));
+        let data = std::fs::read(&path).unwrap();
+        let (vobs, id) = read(game, class);
+
+        let mut w = ArchiveWriter::with_header(Archive::new(&data).unwrap().header().clone());
+        vobs.write(&mut w, id, game);
+        let written = w.finish().unwrap();
+        let back = Vobs::read(&mut Archive::new(&written).unwrap(), game).unwrap().unwrap();
+        assert_eq!(back, (vobs, id), "{dir} {class}");
+    }
 }
 
 fn item(vobs: &Vobs, id: VobId) -> (&str, ItemState) {
@@ -245,6 +273,25 @@ fn zenkit_sample_saves() {
 
     let moving = world.vobs.iter().filter(|(_, vob)| matches!(vob.ai, Some(Ai::Move(_)))).count();
     assert_eq!(moving, 3);
+
+    // Written back with their own headers, the worlds read back the same and take as many bytes.
+    // What still differs is bits the engine stores but nothing reads: packed VOB flag bit 7, a
+    // trigger filter bit, a camera alignment out of range, and a few enums and bools holding
+    // uninitialised memory.
+    let saves = [
+        "G1/Save/WORLD",
+        "G1/SaveFast/WORLD",
+        "G2/Save/NEWWORLD",
+        "G2/SaveFast/NEWWORLD",
+        "G2/SaveFast/OLDWORLD",
+    ];
+    for name in saves {
+        let data = std::fs::read(root.join(format!("{name}.SAV"))).unwrap();
+        let world = World::from_bytes(&data).unwrap();
+        let written = world.to_bytes_with(Archive::new(&data).unwrap().header().clone()).unwrap();
+        assert_eq!(written.len(), data.len(), "{name}");
+        assert!(World::from_bytes_as(&written, world.game).unwrap() == world, "{name}");
+    }
 }
 
 /// A packed Gothic 2 VOB's raw data with only the name and event manager flags set.
@@ -313,4 +360,11 @@ fn running_cutscenes() {
     let player = world.state.as_ref().unwrap().cutscene_player.as_ref().unwrap();
     assert_eq!((player.last_process_day, player.last_process_hour), (1, 9));
     assert_eq!(player.playlist, std::slice::from_ref(context), "the reference resolves to a copy");
+
+    // Written back, the copy becomes a reference again.
+    let header = Archive::new(&data).unwrap().header().clone();
+    let written = world.to_bytes_with(header).unwrap();
+    let reference = b"[playContext0 \xA7 0 3]";
+    assert!(written.windows(reference.len()).any(|w| w == reference));
+    assert_eq!(World::from_bytes(&written).unwrap(), world);
 }

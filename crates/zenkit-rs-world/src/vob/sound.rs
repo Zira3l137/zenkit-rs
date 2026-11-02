@@ -105,6 +105,11 @@ impl Sound {
         w.enumeration("sndVolType", self.volume_type.raw());
         w.float("sndRadius", self.radius);
         w.name("sndName", &self.sound_name);
+        if w.save {
+            let state = self.state.unwrap_or_default();
+            w.bool("soundIsRunning", state.is_running);
+            w.bool("soundAllowedToRun", state.allowed_to_run);
+        }
     }
 }
 

@@ -171,6 +171,12 @@ impl Container {
         w.name("keyInstance", &self.key);
         w.name("pickLockStr", &self.pick_string);
         w.name("contains", &self.contents);
+        if w.save {
+            w.int("NumOfEntries", self.items.len() as i32);
+            for &item in &self.items {
+                w.vob("%", Some(item));
+            }
+        }
     }
 }
 

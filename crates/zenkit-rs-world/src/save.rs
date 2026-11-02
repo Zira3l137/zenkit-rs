@@ -11,6 +11,7 @@ use crate::cutscene::CutsceneContext;
 use crate::vob::Ctx;
 use crate::vob::Next;
 use crate::vob::VobId;
+use crate::vob::WriteCtx;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct WorldState {
@@ -49,6 +50,24 @@ impl WorldState {
         }
         Ok(())
     }
+
+    /// Writes the NPCs and spawns, the counterpart of [`read_npcs`](Self::read_npcs).
+    pub(crate) fn write_npcs(&self, w: &mut WriteCtx) {
+        w.int("npcCount", self.npcs.len() as i32);
+        for (i, &npc) in self.npcs.iter().enumerate() {
+            w.vob(&format!("npc{i}"), Some(npc));
+        }
+        w.int("NoOfEntries", self.spawns.len() as i32);
+        for spawn in &self.spawns {
+            w.vob("npc", Some(spawn.npc));
+            w.vec3("spawnPos", spawn.position);
+            w.float("timer", spawn.timer);
+        }
+        w.bool("spawningEnabled", self.spawning_enabled);
+        if w.gothic2() {
+            w.int("spawnFlags", self.spawn_flags);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -80,6 +99,17 @@ impl CutscenePlayer {
         }
         r.end(&object)?;
         Ok(Some(player))
+    }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        w.begin_object("%", "oCCSPlayer:zCCSPlayer", 36865);
+        w.int("lastProcessDay", self.last_process_day);
+        w.int("lastProcessHour", self.last_process_hour);
+        w.int("playListCount", self.playlist.len() as i32);
+        for (i, context) in self.playlist.iter().enumerate() {
+            CutsceneContext::write(Some(context), w, &format!("playContext{i}"));
+        }
+        w.end_object();
     }
 }
 
@@ -123,6 +153,25 @@ impl SkyController {
         }
         r.end(&object)?;
         Ok(Some(sky))
+    }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        w.begin_object("%", "zCSkyControler_Outdoor", 52417);
+        w.float("masterTime", self.master_time);
+        w.float("rainWeight", self.rain_weight);
+        w.float("rainStart", self.rain_start);
+        w.float("rainStop", self.rain_stop);
+        w.float("rainSctTimer", self.rain_sct_timer);
+        w.float("rainSndVol", self.rain_snd_vol);
+        w.float("dayCtr", self.day_ctr);
+        if w.gothic2() {
+            w.float("fadeScale", self.fade_scale);
+            w.bool("renderLightning", self.render_lightning);
+            // The engine's names for these really end in whitespace.
+            w.bool("isRaining\t\t ", self.is_raining);
+            w.int("rainCtr\t\t ", self.rain_ctr);
+        }
+        w.end_object();
     }
 }
 

@@ -55,6 +55,12 @@ impl ZoneMusic {
         w.float("reverbLevel", self.reverb);
         w.float("volumeLevel", self.volume);
         w.bool("loop", self.looping);
+        if w.save {
+            let state = self.state.unwrap_or_default();
+            w.bool("local_enabled", state.local_enabled);
+            w.bool("dayEntranceDone", state.day_entrance_done);
+            w.bool("nightEntranceDone", state.night_entrance_done);
+        }
     }
 }
 

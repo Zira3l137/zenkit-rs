@@ -7,6 +7,8 @@ use zenkit_rs_archive::ArchiveWriter;
 use zenkit_rs_core::GameVersion;
 use zenkit_rs_core::io::Writer;
 
+use crate::cutscene::CutsceneContext;
+
 use super::Decal;
 use super::Visual;
 use super::VisualKind;
@@ -20,9 +22,13 @@ use super::Vobs;
 pub(crate) struct WriteCtx<'a, 'b> {
     w: &'b mut ArchiveWriter,
     pub(crate) game: GameVersion,
+    /// Whether this is a save game, which stores more state for most objects.
+    pub(crate) save: bool,
     vobs: &'a Vobs,
     written: HashMap<VobId, u32>,
     meshes: HashMap<&'a str, u32>,
+    /// The cutscenes written so far, which later equal ones refer to.
+    pub(crate) cutscenes: Vec<(CutsceneContext, u32)>,
 }
 
 impl Deref for WriteCtx<'_, '_> {
@@ -41,10 +47,20 @@ impl DerefMut for WriteCtx<'_, '_> {
 
 impl<'a, 'b> WriteCtx<'a, 'b> {
     pub(crate) fn new(w: &'b mut ArchiveWriter, vobs: &'a Vobs, game: GameVersion) -> Self {
-        if w.header().save_game {
-            w.fail("save games cannot be written yet");
+        let save = w.header().save_game;
+        Self {
+            w,
+            game,
+            save,
+            vobs,
+            written: HashMap::new(),
+            meshes: HashMap::new(),
+            cutscenes: Vec::new(),
         }
-        Self { w, game, vobs, written: HashMap::new(), meshes: HashMap::new() }
+    }
+
+    pub(crate) fn vobs(&self) -> &'a Vobs {
+        self.vobs
     }
 
     pub(crate) fn gothic2(&self) -> bool {
@@ -70,7 +86,11 @@ impl<'a, 'b> WriteCtx<'a, 'b> {
         };
 
         let (class, [g1, g2]) = class(&vob.kind);
-        let version = if self.gothic2() { g2 } else { g1 };
+        let version = match self.gothic2() {
+            true if self.save => save_version(&vob.kind).unwrap_or(g2),
+            true => g2,
+            false => g1,
+        };
         let index = self.begin_object(name, class, version);
         self.written.insert(id, index);
         write_base(self, vob);
@@ -172,14 +192,26 @@ fn class(kind: &VobKind) -> (&'static str, [u16; 2]) {
     }
 }
 
+/// The class versions of Gothic 2's save games where they differ from its worlds', as ZenKit's
+/// sample save shows them. The world versions come from a world made with an older Spacer, and
+/// Gothic 1's agree between the two.
+fn save_version(kind: &VobKind) -> Option<u16> {
+    match kind {
+        VobKind::ParticleEffect(_) | VobKind::Earthquake(_) | VobKind::TriggerWorldStart(_) => {
+            Some(20483)
+        }
+        VobKind::TriggerList(_) => Some(45570),
+        VobKind::TriggerUntouch(_) => Some(33026),
+        VobKind::CutsceneCamera(_) => Some(12289),
+        VobKind::CameraKeyFrame(_) => Some(9218),
+        _ => None,
+    }
+}
+
 fn write_kind(w: &mut WriteCtx, kind: &VobKind) {
     match kind {
-        VobKind::Vob
-        | VobKind::Level
-        | VobKind::Spot
-        | VobKind::StartPoint
-        | VobKind::Stair
-        | VobKind::ScreenEffect(_) => {}
+        VobKind::Vob | VobKind::Level | VobKind::Spot | VobKind::StartPoint | VobKind::Stair => {}
+        VobKind::ScreenEffect(effect) => effect.write(w),
         VobKind::Animate(animate) => animate.write(w),
         VobKind::Item(item) => item.write(w),
         VobKind::LensFlare(flare) => flare.write(w),
@@ -213,9 +245,8 @@ fn write_kind(w: &mut WriteCtx, kind: &VobKind) {
         VobKind::TriggerUntouch(trigger) => trigger.write(w),
         VobKind::CutsceneCamera(camera) => camera.write(w),
         VobKind::CameraKeyFrame(frame) => frame.write(w),
-        VobKind::Npc(_) => {
-            w.fail("NPCs are only stored in save games, which cannot be written yet")
-        }
+        VobKind::Npc(_) if !w.save => w.fail("NPCs are only stored in save games"),
+        VobKind::Npc(npc) => npc.write(w),
     }
 }
 
@@ -239,10 +270,14 @@ fn write_base<'a>(w: &mut WriteCtx<'a, '_>, vob: &'a Vob) {
     let visual_name = vob.visual.as_ref().map_or("", |v| v.name.as_str());
     let visual_object = vob.visual.as_ref().is_some_and(|v| v.kind != VisualKind::Unknown);
     // Bits 4 and 5 announce an AI and an event manager, which only save games store.
+    let ai = vob.ai.as_ref().filter(|_| w.save);
+    let event_manager = vob.event_manager.as_ref().filter(|_| w.save);
     let mut flags = u16::from(!vob.preset_name.is_empty())
         | u16::from(!vob.name.is_empty()) << 1
         | u16::from(!visual_name.is_empty()) << 2
         | u16::from(visual_object) << 3
+        | u16::from(ai.is_some()) << 4
+        | u16::from(event_manager.is_some()) << 5
         | u16::from(vob.physics_enabled) << 6;
     if gothic2 {
         if !(0..32).contains(&vob.bias) {
@@ -275,6 +310,15 @@ fn write_base<'a>(w: &mut WriteCtx<'a, '_>, vob: &'a Vob) {
     if let Some(visual) = vob.visual.as_ref().filter(|_| visual_object) {
         write_visual(w, visual);
     }
+    if let Some(ai) = ai {
+        ai.write(w);
+    }
+    if let Some(event_manager) = event_manager {
+        event_manager.write(w);
+    }
+    if w.save {
+        vob.state.unwrap_or_default().write(w, vob.physics_enabled);
+    }
 }
 
 /// Writes a visual object. VOBs showing the same multi-resolution mesh share one object, as in the
@@ -287,8 +331,13 @@ fn write_visual<'a>(w: &mut WriteCtx<'a, '_>, visual: &'a Visual) {
         return;
     }
     // Gothic II's NEWWORLD.ZEN gives meshes and decals 64513 and models, particle effects and
-    // morph meshes 0. Gothic 1's samples show 0 for every visual they hold.
-    let g2_only = if w.gothic2() { 64513 } else { 0 };
+    // morph meshes 0, and its save games give meshes and decals 53505. Gothic 1's samples show 0
+    // for every visual they hold.
+    let g2_only = match (w.gothic2(), w.save) {
+        (true, false) => 64513,
+        (true, true) => 53505,
+        (false, _) => 0,
+    };
     let (class, version) = match &visual.kind {
         VisualKind::Mesh => ("zCMesh", g2_only),
         VisualKind::MultiResolutionMesh => ("zCProgMeshProto", g2_only),

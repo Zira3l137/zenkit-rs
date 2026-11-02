@@ -57,6 +57,9 @@ impl Animate {
 
     pub(crate) fn write(&self, w: &mut WriteCtx) {
         w.bool("startOn", self.start_on);
+        if w.save {
+            w.bool("isRunning", self.is_running.unwrap_or(self.start_on));
+        }
     }
 }
 
@@ -96,6 +99,23 @@ impl ScreenEffect {
         };
         Ok(Self { state: Some(state) })
     }
+
+    pub(crate) fn write(&self, w: &mut WriteCtx) {
+        let Some(state) = self.state.as_ref().filter(|_| w.save) else {
+            return;
+        };
+        let len = if w.gothic2() { 12 * 4 } else { 5 * 4 };
+        for (key, raw) in
+            [("blend", &state.blend), ("cinema", &state.cinema), ("fovMorph", &state.fov_morph)]
+        {
+            if raw.len() != len {
+                w.fail(format!("a screen effect's {key} takes {len} bytes, not {}", raw.len()));
+            }
+            w.raw(key, raw);
+        }
+        w.vec2("fovSaved", state.fov_saved);
+        w.vec2("fovSaved1st", state.fov_saved_first);
+    }
 }
 
 /// An item lying in the world.
@@ -123,6 +143,11 @@ impl Item {
 
     pub(crate) fn write(&self, w: &mut WriteCtx) {
         w.name("itemInstance", &self.instance);
+        if w.save {
+            let state = self.state.unwrap_or(ItemState { amount: 1, flags: 0 });
+            w.int("amount", state.amount);
+            w.int("flags", state.flags);
+        }
     }
 }
 
@@ -248,6 +273,13 @@ impl CodeMaster {
         w.byte_count("numSlaves", self.slaves.len(), "code master slaves");
         for (i, slave) in self.slaves.iter().take(255).enumerate() {
             w.name(&format!("slaveVobName{i}"), slave);
+        }
+        if w.save && w.gothic2() {
+            let state = self.state.clone().unwrap_or_default();
+            w.byte("numSlavesTriggered", state.triggered_count);
+            for i in 0..self.slaves.len().min(255) {
+                w.vob(&format!("slaveTriggered{i}"), state.triggered.get(i).copied().flatten());
+            }
         }
     }
 }
