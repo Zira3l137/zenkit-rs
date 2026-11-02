@@ -458,17 +458,13 @@ fn zenkit_gothic1_world() {
     assert_eq!(net.points[100].name, "CASTLE_MOVEMENT_STRAIGHT3");
     assert_eq!(net.points[100].direction, Vec3::new(-0.342_115_37, 0.0, 0.939_657_9));
 
+    // Written back, it reads the same and is as long. What still differs is bytes nothing reads:
+    // the mesh date's padding, packed VOB bits 5 and 7, trigger filter bits 6 and 7, and one
+    // mover's uninitialised lerp and speed modes.
     let header = Archive::new(&data).unwrap().header().clone();
     let written = world.to_bytes_with(header).unwrap();
     assert_eq!(World::from_bytes(&written).unwrap(), world);
-    match written.iter().zip(&data).position(|(a, b)| a != b) {
-        None if written.len() == data.len() => eprintln!("WORLD.ZEN rewritten byte for byte"),
-        first => eprintln!(
-            "WORLD.ZEN rewritten as {} bytes of {}, first differing at {first:?}",
-            written.len(),
-            data.len()
-        ),
-    }
+    assert_eq!(written.len(), data.len());
 }
 
 #[test]
