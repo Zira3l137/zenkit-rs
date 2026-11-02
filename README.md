@@ -113,6 +113,7 @@ new ones. Each prints how to call it when run without arguments:
 | `save`         | A save game: the quest log, the player and the worlds            |
 | `pack`         | Packing a folder into a `.VDF` archive, the way mods are shipped |
 | `make_texture` | Turning a PNG into a game texture with mipmaps                   |
+| `font`         | Writing a line of text with one of the game's fonts, as a PNG    |
 
 ```sh
 cargo run --release --example world -- "C:\Games\Gothic II" NEWWORLD.ZEN

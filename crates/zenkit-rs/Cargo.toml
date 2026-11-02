@@ -128,5 +128,9 @@ required-features = ["vfs"]
 name = "make_texture"
 required-features = ["texture"]
 
+[[example]]
+name = "font"
+required-features = ["vfs", "font", "texture"]
+
 [lints]
 workspace = true
