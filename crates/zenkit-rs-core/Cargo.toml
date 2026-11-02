@@ -6,6 +6,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [features]
 # Also emits every message as a `log` record, for applications that log through `log`.
@@ -19,3 +22,7 @@ zerocopy.workspace = true
 
 [lints]
 workspace = true
+
+# docs.rs documents the optional features too.
+[package.metadata.docs.rs]
+all-features = true

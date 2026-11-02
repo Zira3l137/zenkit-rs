@@ -8,6 +8,10 @@ edition = "2024"
 rust-version = "1.88"
 license = "MIT"
 repository = "https://github.com/Zira3l137/zenkit-rs"
+# Every crate's page on crates.io shows the project's README, which leads to the one to depend on.
+readme = "README.md"
+keywords = ["gothic", "zengin", "gamedev", "parser"]
+categories = ["game-development", "parser-implementations"]
 
 [workspace.dependencies]
 bitflags = { version = "2", default-features = false }
