@@ -1,5 +1,6 @@
 use zenkit_rs_core::GameVersion;
 use zenkit_rs_core::Result;
+use zenkit_rs_core::math::Vec2;
 use zenkit_rs_core::math::Vec3;
 use zenkit_rs_core::raw_enum;
 
@@ -56,6 +57,44 @@ impl Animate {
 
     pub(crate) fn write(&self, w: &mut WriteCtx) {
         w.bool("startOn", self.start_on);
+    }
+}
+
+/// Holds the screen effects running in a save game: blending the screen to a colour, the black
+/// cinema bars and changing the field of view.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ScreenEffect {
+    /// Save games only.
+    pub state: Option<ScreenEffectState>,
+}
+
+/// The engine's own structures behind each effect, kept as stored, since what they hold is not
+/// known: 20 bytes each in Gothic 1, 48 in Gothic 2.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ScreenEffectState {
+    pub blend: Vec<u8>,
+    pub cinema: Vec<u8>,
+    pub fov_morph: Vec<u8>,
+    pub fov_saved: Vec2,
+    pub fov_saved_first: Vec2,
+}
+
+impl ScreenEffect {
+    pub(crate) fn read(r: &mut Ctx) -> Result<Self> {
+        if !r.save {
+            return Ok(Self::default());
+        }
+        let len = if r.game == GameVersion::Gothic1 { 5 * 4 } else { 12 * 4 };
+        let mut raw = || r.raw(len).map(|bytes| bytes[..len].to_vec());
+        let (blend, cinema, fov_morph) = (raw()?, raw()?, raw()?);
+        let state = ScreenEffectState {
+            blend,
+            cinema,
+            fov_morph,
+            fov_saved: r.vec2()?,
+            fov_saved_first: r.vec2()?,
+        };
+        Ok(Self { state: Some(state) })
     }
 }
 

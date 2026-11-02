@@ -126,7 +126,7 @@ fn class(kind: &VobKind) -> (&'static str, [u16; 2]) {
         VobKind::Spot => ("zCVobSpot:zCVob", VOB),
         VobKind::StartPoint => ("zCVobStartpoint:zCVob", VOB),
         VobKind::Stair => ("zCVobStair:zCVob", VOB),
-        VobKind::ScreenEffect => ("zCVobScreenFX:zCVob", VOB),
+        VobKind::ScreenEffect(_) => ("zCVobScreenFX:zCVob", VOB),
         VobKind::Animate(_) => ("zCVobAnimate:zCVob", VOB),
         VobKind::Item(_) => ("oCItem:zCVob", [0, 0]),
         VobKind::LensFlare(_) => ("zCVobLensFlare:zCVob", [64704, 193]),
@@ -179,7 +179,7 @@ fn write_kind(w: &mut WriteCtx, kind: &VobKind) {
         | VobKind::Spot
         | VobKind::StartPoint
         | VobKind::Stair
-        | VobKind::ScreenEffect => {}
+        | VobKind::ScreenEffect(_) => {}
         VobKind::Animate(animate) => animate.write(w),
         VobKind::Item(item) => item.write(w),
         VobKind::LensFlare(flare) => flare.write(w),

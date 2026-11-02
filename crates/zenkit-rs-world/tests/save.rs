@@ -65,7 +65,8 @@ fn gothic1_player() {
     assert_eq!(npc.attributes, [340, 340, 0, 0, 70, 90, 0, 0]);
     assert_eq!(npc.hit_chances, [0; 4], "Gothic 1 has none");
     assert_eq!(npc.protection, [0, 40, 40, 1000, 0, 0, 5, 0]);
-    assert_eq!(npc.talents.len(), 8);
+    assert_eq!(npc.talents.len(), 12);
+    assert_eq!(npc.talents.iter().flatten().count(), 8);
     assert_eq!(npc.ai_vars.len(), 50);
     assert_eq!(npc.packed[1], "ITAMARROW:100");
     assert_eq!(npc.packed.len(), 9);
@@ -100,8 +101,11 @@ fn gothic2_player() {
     assert_eq!(npc.attributes, [40, 40, 10, 10, 10, 10, 0, 0]);
     assert_eq!(npc.model_scale, Vec3::ONE);
     assert_eq!(npc.ai_vars.len(), 100);
-    assert_eq!(npc.talents.len(), 4, "null talents are left out");
-    assert_eq!((npc.talents[0].talent, npc.talents[1].talent), (1, 2));
+    assert_eq!(npc.talents.len(), 22, "talents the hero lacks are kept as None");
+    assert_eq!(npc.talents.iter().flatten().count(), 4);
+    assert_eq!(npc.talents[0], None);
+    assert_eq!(npc.talents[2].map(|t| t.talent), Some(2));
+    assert_eq!(npc.spells, [1, 0, 0, 0]);
     assert!(npc.packed[0].starts_with("ITMW_1H_MISC_AXE:1,ITMW_1H_VLK_SWORD:2,"));
 
     let items: Vec<_> = npc.items.iter().map(|i| item(&vobs, i.item).0).collect();

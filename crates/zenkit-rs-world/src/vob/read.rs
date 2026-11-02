@@ -39,6 +39,7 @@ use super::Mover;
 use super::MoverController;
 use super::Npc;
 use super::ParticleEffectController;
+use super::ScreenEffect;
 use super::ShadowType;
 use super::Sound;
 use super::SoundDaytime;
@@ -280,7 +281,7 @@ fn kind_reader(class: &[u8]) -> Option<ReadKind> {
         b"zCVobSpot:zCVob" => |_| Ok(VobKind::Spot),
         b"zCVobStartpoint:zCVob" => |_| Ok(VobKind::StartPoint),
         b"zCVobStair:zCVob" => |_| Ok(VobKind::Stair),
-        b"zCVobScreenFX:zCVob" => read_screen_effect,
+        b"zCVobScreenFX:zCVob" => |r| ScreenEffect::read(r).map(VobKind::ScreenEffect),
         b"zCVobAnimate:zCVob" => |r| Animate::read(r).map(VobKind::Animate),
         b"oCItem:zCVob" => |r| Item::read(r).map(VobKind::Item),
         b"zCVobLensFlare:zCVob" => |r| LensFlare::read(r).map(VobKind::LensFlare),
@@ -441,20 +442,6 @@ fn read_base(r: &mut Ctx) -> Result<Vob> {
     }
 
     Ok(vob)
-}
-
-fn read_screen_effect(r: &mut Ctx) -> Result<VobKind> {
-    if r.save {
-        // The blend, cinema and field of view effects that were running. ZenKit skips them too,
-        // since what they mean is unknown.
-        let count = if r.game == GameVersion::Gothic1 { 5 } else { 12 };
-        for _ in 0..3 {
-            r.raw(count * 4)?;
-        }
-        r.vec2()?;
-        r.vec2()?;
-    }
-    Ok(VobKind::ScreenEffect)
 }
 
 fn read_decal(r: &mut Ctx) -> Result<Decal> {

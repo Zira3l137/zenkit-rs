@@ -60,6 +60,8 @@ pub use misc::MessageFilterAction;
 pub use misc::MoverController;
 pub use misc::MoverMessage;
 pub use misc::ParticleEffectController;
+pub use misc::ScreenEffect;
+pub use misc::ScreenEffectState;
 pub use misc::TouchCollision;
 pub use misc::TouchDamage;
 pub use mob::Container;
@@ -331,7 +333,7 @@ pub enum VobKind {
     /// `zCVobStair`: marks stairs for NPC path finding. Gothic 1 only.
     Stair,
     /// `zCVobScreenFX`: holds the state of screen effects in save games.
-    ScreenEffect,
+    ScreenEffect(ScreenEffect),
     /// `zCVobAnimate`
     Animate(Animate),
     /// `oCItem`

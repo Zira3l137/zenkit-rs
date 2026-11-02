@@ -43,7 +43,8 @@ pub struct Npc {
     pub xp_next_level: i32,
     /// Learning points.
     pub lp: i32,
-    pub talents: Vec<Talent>,
+    /// One entry per talent number; talents the NPC does not have are `None`.
+    pub talents: Vec<Option<Talent>>,
     pub fight_tactic: i32,
     pub fight_mode: i32,
     pub wounded: bool,
@@ -61,6 +62,9 @@ pub struct Npc {
     pub attitude: i32,
     pub attitude_temp: i32,
     pub name_nr: i32,
+    /// The engine's own structure behind the NPC's spells, kept as stored, since what it holds is
+    /// not known: four bytes.
+    pub spells: Vec<u8>,
     pub news: Vec<News>,
     pub carry_vob: Option<VobId>,
     pub enemy: Option<VobId>,
@@ -176,10 +180,15 @@ impl Npc {
         let count = r.int()?;
         for _ in 0..count {
             // Talents the NPC does not have are stored as null objects.
-            if let Next::New(object) = r.begin("a talent")? {
-                npc.talents.push(Talent { talent: r.int()?, value: r.int()?, skill: r.int()? });
-                r.end(&object)?;
-            }
+            let talent = match r.begin("a talent")? {
+                Next::New(object) => {
+                    let talent = Talent { talent: r.int()?, value: r.int()?, skill: r.int()? };
+                    r.end(&object)?;
+                    Some(talent)
+                }
+                _ => None,
+            };
+            npc.talents.push(talent);
         }
 
         npc.fight_tactic = r.int()?;
@@ -207,8 +216,7 @@ impl Npc {
         npc.attitude = r.int()?;
         npc.attitude_temp = r.int()?;
         npc.name_nr = r.int()?;
-        // The spells, which nobody knows how to read.
-        r.raw(4)?;
+        npc.spells = r.raw(4)?[..4].to_vec();
 
         let count = r.int()?;
         for _ in 0..count {
