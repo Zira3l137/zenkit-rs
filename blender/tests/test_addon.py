@@ -3,9 +3,11 @@
     blender --background --python tests/test_addon.py
 
 It uses the installed extension if there is one, and the extension in this folder otherwise.
-The library's sample files come from the repository's samples/ folder.
+Everything it reads comes from the repository's samples/ folder or is made on the spot; it needs no
+game files.
 """
 
+import os
 import shutil
 import struct
 import sys
@@ -933,33 +935,6 @@ else:
     raise AssertionError("a script without its skeleton imported")
 print("misnamed script ok")
 
-# The game's own: without the game, the alligator's skeleton is nowhere, and the import says so.
-# With the installed extension pointed at Gothic II, it comes from the archives, and one of its
-# animations goes out as it came in.
-alligator_man = samples / "G2" / "ALLIGATOR-R_AGRESSIVE.MAN"
-try:
-    bpy.ops.import_scene.zenkit_script(
-        filepath=str(samples / "G2" / "ALLIGATOR.MSB"), pattern="R_AGRESSIVE"
-    )
-except RuntimeError as error:
-    assert "ALLIGATOR.MDH" in str(error), error
-    print("game script skipped: the alligator's skeleton is not in the game's archives")
-else:
-    alligator = bpy.context.active_object
-    assert alligator.name.startswith("ALLIGATOR")
-    assert alligator.animation_data.action.zenkit.name == "R_AGRESSIVE"
-    assert bpy.ops.export_anim.zenkit_animation(filepath=str(work / "ALLIGATOR.MAN")) == {
-        "FINISHED"
-    }
-    theirs = zenkit_py.read_animation(str(alligator_man))
-    ours = zenkit_py.read_animation(str(work / "ALLIGATOR.MAN"))
-    assert ours["checksum"] == theirs["checksum"] and ours["node_indices"] == theirs["node_indices"]
-    shape = (theirs["frame_count"], len(theirs["node_indices"]), 4, 4)
-    theirs = np.frombuffer(theirs["transforms"], "<f4").reshape(shape)
-    ours = np.frombuffer(ours["transforms"], "<f4").reshape(shape)
-    assert np.allclose(ours[..., :3, :3], theirs[..., :3, :3], atol=1e-3)
-    assert np.allclose(ours[..., :3, 3], theirs[..., :3, 3], atol=1e-2)
-    print("game script ok")
 print("script ok")
 
 
@@ -1043,3 +1018,7 @@ assert np.array_equal(reopened, erz_pixels), "the packed texture changed in the 
 print("saved ok")
 
 print("all ok")
+# Blender 4.2's Python module can crash while shutting down after a file was opened; everything has
+# passed by now, so it is left out.
+sys.stdout.flush()
+os._exit(0)
