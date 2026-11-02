@@ -2,6 +2,7 @@
 //! listed together, directories first, and the entries of each subdirectory follow after all of
 //! its siblings.
 
+use std::borrow::Cow;
 use std::io;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
@@ -10,15 +11,19 @@ use time::OffsetDateTime;
 use zenkit_rs_core::Error;
 use zenkit_rs_core::GameVersion;
 use zenkit_rs_core::Result;
+use zenkit_rs_core::ResultExt;
 use zenkit_rs_core::io::Writer;
 use zenkit_rs_core::text;
 
 use crate::disk::ENTRY_DIR;
 use crate::disk::ENTRY_LAST;
 use crate::disk::FLAGS_NORMAL;
+use crate::disk::FLAGS_ZIPPED;
 use crate::disk::SIGNATURE_G1;
 use crate::disk::SIGNATURE_G2;
 use crate::node::Node;
+use crate::par;
+use crate::zipped;
 
 const FORMAT: &str = "VDF archive";
 const HEADER_SIZE: usize = 296;
@@ -39,11 +44,14 @@ pub struct DiskOptions {
     /// The archive's one timestamp, which `Overwrite::Newer` and `Older` compare. `None` takes
     /// the newest of the files written.
     pub time: Option<SystemTime>,
+    /// Whether to compress the files, as Union's archives do, which only games running Union
+    /// can read. Sounds (`.WAV`, `.OGG`) are stored as they are, as Union stores them.
+    pub compressed: bool,
 }
 
 impl DiskOptions {
     pub fn new(game: GameVersion) -> Self {
-        Self { game, comment: "Created with zenkit-rs".into(), time: None }
+        Self { game, comment: "Created with zenkit-rs".into(), time: None, compressed: false }
     }
 }
 
@@ -67,17 +75,29 @@ pub(crate) fn write(dir: &Node, out: &mut impl io::Write, options: &DiskOptions)
         return Err(Error::unwritable(FORMAT, "an archive needs at least one file"));
     }
 
+    let contents = par::try_map(entries.iter().filter(|e| e.node.is_file()).collect(), |entry| {
+        let data = entry.node.try_data().context(|| entry.node.path().to_owned())?;
+        let data = data.unwrap_or_default();
+        let stored = match options.compressed && !is_sound(entry.node.name()) {
+            true => Cow::Owned(zipped::encode(data)),
+            false => Cow::Borrowed(data),
+        };
+        Ok::<_, Error>((data.len(), stored))
+    })?;
+
     let mut offset = HEADER_SIZE + entries.len() * ENTRY_SIZE;
-    let mut files = 0u32;
     let mut newest = UNIX_EPOCH;
-    for entry in entries.iter_mut().filter(|e| e.node.is_file()) {
+    let mut sizes = Vec::with_capacity(contents.len());
+    let files = entries.iter_mut().filter(|e| e.node.is_file());
+    for (entry, (size, stored)) in files.zip(&contents) {
         entry.offset = offset;
-        offset += entry.node.data().map_or(0, <[u8]>::len);
-        files += 1;
+        offset += stored.len();
         newest = newest.max(entry.node.time());
+        sizes.push(*size);
     }
-    let data_size = offset - HEADER_SIZE - entries.len() * ENTRY_SIZE;
-    if u32::try_from(offset).is_err() {
+    // Union's archives give the files' size before compression, as uncompressed ones do.
+    let data_size: usize = sizes.iter().sum();
+    if u32::try_from(offset).is_err() || u32::try_from(data_size).is_err() {
         let reason = format!("{offset} bytes is past the 4 GiB a VDF can address");
         return Err(Error::unwritable(FORMAT, reason));
     }
@@ -91,18 +111,19 @@ pub(crate) fn write(dir: &Node, out: &mut impl io::Write, options: &DiskOptions)
         GameVersion::Gothic2 => SIGNATURE_G2,
     });
     head.u32(entries.len() as u32);
-    head.u32(files);
+    head.u32(contents.len() as u32);
     head.u32(dos_time(options.time.unwrap_or(newest)));
     head.u32(data_size as u32);
     head.u32(HEADER_SIZE as u32);
-    head.u32(FLAGS_NORMAL);
+    head.u32(if options.compressed { FLAGS_ZIPPED } else { FLAGS_NORMAL });
 
+    let mut sizes = sizes.into_iter();
     for entry in &entries {
         let name = latin1(&entry.node.name().to_ascii_uppercase(), NAME_SIZE, entry.node.name())?;
         head.bytes(&name);
         head.bytes(&vec![b' '; NAME_SIZE - name.len()]);
         head.u32(entry.offset as u32);
-        let size = entry.node.data().map_or(0, <[u8]>::len);
+        let size = if entry.node.is_file() { sizes.next().unwrap_or(0) } else { 0 };
         head.u32(size as u32);
         let last = if entry.last { ENTRY_LAST } else { 0 };
         if entry.node.is_dir() {
@@ -115,8 +136,8 @@ pub(crate) fn write(dir: &Node, out: &mut impl io::Write, options: &DiskOptions)
     }
 
     out.write_all(head.as_bytes()).map_err(Error::Output)?;
-    for entry in entries.iter().filter_map(|e| e.node.data()) {
-        out.write_all(entry).map_err(Error::Output)?;
+    for (_, stored) in &contents {
+        out.write_all(stored).map_err(Error::Output)?;
     }
     out.flush().map_err(Error::Output)
 }
@@ -139,6 +160,11 @@ fn flatten<'a>(dir: &'a Node, entries: &mut Vec<Entry<'a>>) {
             flatten(entries[i].node, entries);
         }
     }
+}
+
+fn is_sound(name: &str) -> bool {
+    let name = name.to_ascii_uppercase();
+    name.ends_with(".WAV") || name.ends_with(".OGG")
 }
 
 fn has_files(node: &Node) -> bool {

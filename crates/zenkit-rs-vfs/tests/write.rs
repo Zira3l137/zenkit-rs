@@ -132,3 +132,42 @@ fn reports_failing_outputs() {
     let result = vfs.write_disk(Full, &DiskOptions::new(GameVersion::Gothic2));
     assert!(matches!(result, Err(Error::Output(e)) if e.kind() == std::io::ErrorKind::StorageFull));
 }
+
+#[test]
+fn writes_compressed_archives() {
+    let time = UNIX_EPOCH + Duration::from_secs(1_000_000_000);
+    let pattern: Vec<u8> = (0..25_000u32).map(|i| (i * 7 + i / 256) as u8).collect();
+    let mut vfs = Vfs::new();
+    vfs.mkdir("/SCRIPTS").unwrap().insert(Node::file("STARTUP.D", pattern.clone(), time)).unwrap();
+    vfs.mkdir("/SOUND")
+        .unwrap()
+        .insert(Node::file("THEME.WAV", pattern[..4096].to_vec(), time))
+        .unwrap();
+    vfs.mount(Node::file("EMPTY.TXT", Vec::new(), time), "/", Overwrite::All).unwrap();
+    vfs.mount(Node::file("SAME.BIN", vec![0xAB; 50_000], time), "/", Overwrite::All).unwrap();
+
+    let mut options = DiskOptions::new(GameVersion::Gothic2);
+    options.compressed = true;
+    let mut written = Vec::new();
+    vfs.write_disk(&mut written, &options).unwrap();
+
+    assert_eq!(u32_at(&written, 292), 0xA0);
+    // The archive's size and every catalog entry give the files' size before compression.
+    assert_eq!(u32_at(&written, 284), 25_000 + 4096 + 50_000);
+    assert!(written.len() < 25_000 + 4096 + 50_000);
+    let sound = written.windows(64).position(|w| w == &pattern[..64]).unwrap();
+    assert_eq!(&written[sound..sound + 4096], &pattern[..4096], "sounds are stored as they are");
+
+    let copy = mount(&written);
+    for (a, b) in vfs.files().zip(copy.files()) {
+        assert_eq!((a.path(), a.data(), a.size()), (b.path(), b.data(), b.size()));
+    }
+    assert_eq!(copy.files().count(), 4);
+
+    // Written again uncompressed, it is the archive the files would have made all along.
+    let mut plain = Vec::new();
+    copy.write_disk(&mut plain, &DiskOptions::new(GameVersion::Gothic2)).unwrap();
+    let mut direct = Vec::new();
+    vfs.write_disk(&mut direct, &DiskOptions::new(GameVersion::Gothic2)).unwrap();
+    assert_eq!(plain, direct);
+}

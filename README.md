@@ -16,7 +16,7 @@ re-exported as a module of `zenkit`, so `zenkit::mrm` is the `zenkit-rs-mrm` cra
 
 | Feature        | Default | What it enables                                                          |
 |----------------|:-------:|--------------------------------------------------------------------------|
-| `vfs`          |   yes   | `.VDF` archives: mounting them with host directories, and writing them   |
+| `vfs`          |   yes   | `.VDF` archives, Union's compressed ones too: mounting and writing them  |
 | `archive`      |   yes   | ZenGin archives, the object format behind worlds, saves and more         |
 | `material`     |   yes   | Materials (`zCMaterial`), which compiled meshes and worlds embed         |
 | `texture`      |   yes   | Textures (`.TEX`), converting every pixel format to and from RGBA8       |
