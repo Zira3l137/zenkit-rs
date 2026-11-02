@@ -150,8 +150,10 @@ fn without_index(line: &[u8]) -> &[u8] {
 /// Compares two BIN_SAFE archives value by value. Prints the first few differences with the
 /// objects they are in and the values before them, then how many differ, grouped by name.
 ///
-/// Where one archive has values the other does not, the two are lined up again by looking a
-/// little ahead in each, so that one missing value does not make everything after it differ.
+/// Two values of the same name and type that differ are one changed value. Only where the names
+/// or types part does one archive have values the other lacks; the two are then lined up again by
+/// looking ahead in each, at an object's start where one is near, so that one missing value does
+/// not make everything after it differ.
 fn compare_values(game: &[u8], written: &[u8]) {
     let (ours, theirs) = match (binsafe_values(written), binsafe_values(game)) {
         (Ok(ours), Ok(theirs)) => (ours, theirs),
@@ -175,17 +177,25 @@ fn compare_values(game: &[u8], written: &[u8]) {
             j += 1;
             continue;
         }
-        let skip = (1..=64)
-            .find_map(|d| {
-                if lines_up(i + d, j) {
-                    Some((d, 0))
-                } else if lines_up(i, j + d) {
-                    Some((0, d))
-                } else {
-                    None
-                }
-            })
-            .unwrap_or((1, 1));
+        // Neighbouring objects often repeat the same run of values, so a guess that one side has
+        // values more can line up by chance; a changed value cannot be told from that by looking
+        // ahead, so it is taken first.
+        let changed = match (theirs.get(i), ours.get(j)) {
+            (Some(a), Some(b)) => a.key == b.key && a.bytes[0] == b.bytes[0],
+            _ => false,
+        };
+        let starts_object =
+            |values: &[Value], at: usize| values.get(at).is_some_and(Value::is_object_start);
+        let skip = if changed || lines_up(i + 1, j + 1) {
+            (1, 1)
+        } else {
+            let candidates = (1..=64).flat_map(|d| [(d, 0), (0, d)]);
+            let fits: Vec<_> = candidates.filter(|&(a, b)| lines_up(i + a, j + b)).collect();
+            let at_object = fits
+                .iter()
+                .find(|&&(a, b)| starts_object(&theirs, i + a) && starts_object(&ours, j + b));
+            at_object.or(fits.first()).copied().unwrap_or((1, 1))
+        };
 
         let label = theirs.get(i).or(ours.get(j)).map_or("?", Value::label);
         let label = match skip {
