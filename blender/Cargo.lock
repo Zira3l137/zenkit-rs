@@ -380,7 +380,7 @@ checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 
 [[package]]
 name = "zenkit-py"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "pyo3",
  "zenkit-rs",
@@ -388,7 +388,7 @@ dependencies = [
 
 [[package]]
 name = "zenkit-rs"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "zenkit-rs-animation",
  "zenkit-rs-archive",
@@ -407,7 +407,7 @@ dependencies = [
 
 [[package]]
 name = "zenkit-rs-animation"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "tracing",
  "zenkit-rs-core",
@@ -416,7 +416,7 @@ dependencies = [
 
 [[package]]
 name = "zenkit-rs-archive"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hex",
  "tracing",
@@ -425,7 +425,7 @@ dependencies = [
 
 [[package]]
 name = "zenkit-rs-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "glam",
  "thiserror",
@@ -435,7 +435,7 @@ dependencies = [
 
 [[package]]
 name = "zenkit-rs-cutscene"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "tracing",
  "zenkit-rs-archive",
@@ -444,7 +444,7 @@ dependencies = [
 
 [[package]]
 name = "zenkit-rs-material"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "tracing",
  "zenkit-rs-archive",
@@ -453,7 +453,7 @@ dependencies = [
 
 [[package]]
 name = "zenkit-rs-mesh"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "tracing",
  "zenkit-rs-archive",
@@ -465,7 +465,7 @@ dependencies = [
 
 [[package]]
 name = "zenkit-rs-model"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "crc32fast",
  "tracing",
@@ -476,7 +476,7 @@ dependencies = [
 
 [[package]]
 name = "zenkit-rs-model-script"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bitflags",
  "tracing",
@@ -485,7 +485,7 @@ dependencies = [
 
 [[package]]
 name = "zenkit-rs-morph"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "tracing",
  "zenkit-rs-core",
@@ -495,7 +495,7 @@ dependencies = [
 
 [[package]]
 name = "zenkit-rs-mrm"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "tracing",
  "zenkit-rs-archive",
@@ -506,7 +506,7 @@ dependencies = [
 
 [[package]]
 name = "zenkit-rs-save"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rayon",
  "tracing",
@@ -518,7 +518,7 @@ dependencies = [
 
 [[package]]
 name = "zenkit-rs-texture"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "texpresso",
  "tracing",
@@ -528,7 +528,7 @@ dependencies = [
 
 [[package]]
 name = "zenkit-rs-vfs"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "flate2",
  "memmap2",
@@ -541,7 +541,7 @@ dependencies = [
 
 [[package]]
 name = "zenkit-rs-world"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rayon",
  "tracing",
