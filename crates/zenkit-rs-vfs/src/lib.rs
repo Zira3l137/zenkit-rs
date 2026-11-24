@@ -200,6 +200,15 @@ impl Vfs {
         if dir.is_dir() { Ok(dir) } else { Err(Error::NotADirectory(dir.name.clone())) }
     }
 
+    /// Renames the node at `path` to `to`, in the directory it is in, as
+    /// [`Node::rename`](Node::rename) does.
+    pub fn rename(&mut self, path: &str, to: &str) -> Result<&mut Node> {
+        let path = path.trim_end_matches('/');
+        let (parent, name) = path.rsplit_once('/').unwrap_or(("", path));
+        let parent = self.resolve_mut(parent).ok_or_else(|| Error::NotFound(path.into()))?;
+        parent.rename(name, to)
+    }
+
     pub fn remove(&mut self, path: &str) -> Option<Node> {
         let path = path.trim_end_matches('/');
         let (parent, name) = path.rsplit_once('/').unwrap_or(("", path));
@@ -444,6 +453,18 @@ mod tests {
         assert_eq!(vfs.remove("A/B/").unwrap().name(), "b");
         assert!(vfs.resolve("a/b").is_none());
         assert!(vfs.remove("a/b").is_none());
+    }
+
+    #[test]
+    fn rename_by_path() {
+        let mut vfs = Vfs::new();
+        vfs.mkdir("a/b").unwrap();
+        vfs.mount(Node::file("f", vec![1], at(0)), "a/b", Overwrite::All).unwrap();
+
+        assert_eq!(vfs.rename("A/B/", "c").unwrap().path(), "/a/c");
+        assert_eq!(vfs.resolve("a/c/f").unwrap().path(), "/a/c/f");
+        assert!(vfs.resolve("a/b").is_none());
+        assert!(matches!(vfs.rename("nope/x", "y"), Err(Error::NotFound(_))));
     }
 
     #[test]

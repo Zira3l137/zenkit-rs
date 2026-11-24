@@ -229,6 +229,22 @@ impl Node {
         })
     }
 
+    /// Renames the child `name` to `to`, keeping its contents and, for a directory, everything
+    /// in it. Fails if there is no such child, or if another child is already called `to`; a
+    /// name that differs only in case is no other child, so this changes a name's case too.
+    pub fn rename(&mut self, name: &str, to: &str) -> Result<&mut Node> {
+        let parent = self.path.clone();
+        let children = self.entries_mut().ok_or_else(|| Error::NotADirectory(parent.clone()))?;
+        let key = fold(to);
+        if key != fold(name) && children.contains_key(&key) {
+            return Err(Error::AlreadyExists(to.into()));
+        }
+        let mut node = children.remove(&fold(name)).ok_or_else(|| Error::NotFound(name.into()))?;
+        node.name = to.into();
+        node.place(&parent);
+        Ok(children.entry(key).or_insert(node))
+    }
+
     /// Takes a child out. It keeps its contents, and its paths become relative to it.
     pub fn remove(&mut self, name: &str) -> Option<Node> {
         let mut node = self.entries_mut()?.remove(&fold(name))?;
@@ -325,6 +341,36 @@ mod tests {
 
         assert_eq!(names(&dir), ["a"]);
         assert_eq!(dir.child("A").unwrap().data(), Some(&[2][..]));
+    }
+
+    #[test]
+    fn rename_keeps_contents_and_order() {
+        let mut dir = Node::dir("root", UNIX_EPOCH);
+        let mut sub = Node::dir("Sub", UNIX_EPOCH);
+        sub.insert(Node::file("inner", vec![7], UNIX_EPOCH)).unwrap();
+        dir.insert(sub).unwrap();
+        dir.insert(Node::file("b", vec![1], UNIX_EPOCH)).unwrap();
+
+        dir.rename("SUB", "z").unwrap();
+        assert_eq!(names(&dir), ["b", "z"]);
+        assert_eq!(dir.child("z").unwrap().child("inner").unwrap().path(), "root/z/inner");
+
+        dir.rename("b", "B").unwrap();
+        assert_eq!(names(&dir), ["B", "z"]);
+        assert_eq!(dir.child("b").unwrap().data(), Some(&[1][..]));
+    }
+
+    #[test]
+    fn rename_refuses_missing_and_taken_names() {
+        let mut dir = Node::dir("root", UNIX_EPOCH);
+        dir.insert(Node::file("a", vec![1], UNIX_EPOCH)).unwrap();
+        dir.insert(Node::file("b", vec![2], UNIX_EPOCH)).unwrap();
+
+        assert!(matches!(dir.rename("a", "B"), Err(Error::AlreadyExists(_))));
+        assert!(matches!(dir.rename("x", "y"), Err(Error::NotFound(_))));
+        assert_eq!(dir.child("a").unwrap().data(), Some(&[1][..]), "a failed rename keeps it");
+        let mut file = Node::file("f", vec![], UNIX_EPOCH);
+        assert!(matches!(file.rename("a", "b"), Err(Error::NotADirectory(_))));
     }
 
     #[test]

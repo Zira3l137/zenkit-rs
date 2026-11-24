@@ -60,6 +60,10 @@ pub enum Error {
     #[error("{0:?} is not a directory")]
     NotADirectory(String),
 
+    /// Another node already has the name a node was to take.
+    #[error("{0:?} already exists")]
+    AlreadyExists(String),
+
     /// Says which part of a file, or which file, the inner error happened in.
     #[error("{context}")]
     Context {
