@@ -5,6 +5,7 @@
 //! last entry of every directory carries [`ENTRY_LAST`]. A file entry's `offset` is the absolute
 //! position of its contents in the archive.
 
+use std::borrow::Cow;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
@@ -35,6 +36,8 @@ use super::node::FileData;
 use super::node::Kind;
 use super::node::Node;
 use super::node::Storage;
+#[cfg(not(feature = "mmap"))]
+use crate::host::DiskFile;
 use crate::write::DiskOptions;
 
 const FORMAT: &str = "VDF archive";
@@ -66,7 +69,7 @@ struct Header {
     flags: U32,
 }
 
-#[derive(FromBytes, KnownLayout, Immutable, Unaligned)]
+#[derive(Clone, Copy, FromBytes, KnownLayout, Immutable, Unaligned)]
 #[repr(C)]
 struct Entry {
     name: [u8; 64],
@@ -76,13 +79,85 @@ struct Entry {
     attributes: U32,
 }
 
+/// An archive's bytes: in memory, or in a file on disk that is read only where it is needed.
+pub(super) enum Volume {
+    Memory(Arc<Storage>),
+    #[cfg(not(feature = "mmap"))]
+    Disk(Arc<DiskFile>),
+}
+
+impl Volume {
+    fn len(&self) -> usize {
+        match self {
+            Self::Memory(storage) => storage.len(),
+            #[cfg(not(feature = "mmap"))]
+            Self::Disk(file) => file.len(),
+        }
+    }
+
+    /// Up to `len` bytes at `offset`, fewer where the archive ends.
+    fn read(&self, offset: usize, len: usize) -> Result<Cow<'_, [u8]>> {
+        let end = offset.saturating_add(len).min(self.len());
+        let start = offset.min(end);
+        match self {
+            Self::Memory(storage) => Ok(Cow::Borrowed(&storage[start..end])),
+            #[cfg(not(feature = "mmap"))]
+            Self::Disk(file) => file.read(start, end - start).map(Cow::Owned),
+        }
+    }
+
+    /// The file an entry lists, or `None` if its contents lie outside the archive.
+    fn file(&self, entry: &Entry, zipped: bool) -> Option<FileData> {
+        let (start, size) = (entry.offset.get() as usize, entry.size.get() as usize);
+        let fits = start.checked_add(size).is_some_and(|end| end <= self.len());
+        match self {
+            Self::Memory(storage) => {
+                let stream = zipped.then(|| crate::zipped::scan(storage.get(start..)?, size));
+                match stream.flatten() {
+                    Some(len) => Some(FileData::zipped(Arc::clone(storage), start, start + len, size)),
+                    None => fits.then(|| FileData::new(Arc::clone(storage), start, start + size)),
+                }
+            }
+            // Whether a file of a compressed archive is a stream, and how long, is only known once
+            // it is read, so here it only has to start inside the archive.
+            #[cfg(not(feature = "mmap"))]
+            Self::Disk(file) => (fits || (zipped && start < self.len()))
+                .then(|| FileData::on_disk(Arc::clone(file), start, size, zipped)),
+        }
+    }
+}
+
 struct Catalog<'a> {
-    storage: &'a Arc<Storage>,
-    entries: &'a [Entry],
+    volume: &'a Volume,
+    /// Where the entries start, and those read so far.
+    offset: usize,
+    entries: Cow<'a, [u8]>,
+    /// How many entries fit between `offset` and the end of the archive.
+    capacity: usize,
     time: SystemTime,
     overwrite: Overwrite,
     zipped: bool,
     budget: usize,
+}
+
+impl Catalog<'_> {
+    fn entry(&mut self, index: usize) -> Result<Entry> {
+        let missing = || Error::malformed(FORMAT, format!("catalog entry {index} is missing"));
+        if index >= self.capacity {
+            return Err(missing());
+        }
+        let end = (index + 1) * size_of::<Entry>();
+        if end > self.entries.len() {
+            // Read from disk, the catalog starts out as long as the header says. It is read
+            // further in growing steps, so that a wrong count reads as it does from memory.
+            let have = self.entries.len();
+            let want = end.max(have * 2).min(self.capacity * size_of::<Entry>());
+            let more = self.volume.read(self.offset + have, want - have)?;
+            self.entries.to_mut().extend_from_slice(&more);
+        }
+        let bytes = self.entries.get(end - size_of::<Entry>()..end).ok_or_else(missing)?;
+        Entry::read_from_bytes(bytes).map_err(|_| missing())
+    }
 }
 
 /// What a `.VDF` archive says about itself in its header, read without mounting it.
@@ -177,31 +252,42 @@ fn is_zipped(flags: u32) -> bool {
     }
 }
 
-/// Parses a whole archive into its top-level nodes.
-pub(super) fn parse(storage: Arc<Storage>, overwrite: Overwrite) -> Result<Children> {
-    let mut r = Reader::new(&storage);
-    let header = r.record::<Header>()?;
+/// Parses an archive's catalog into its top-level nodes.
+pub(super) fn parse(volume: &Volume, overwrite: Overwrite) -> Result<Children> {
+    let head = volume.read(0, size_of::<Header>())?;
+    let header = Reader::new(&head).record::<Header>()?;
 
     if ![SIGNATURE_G1, SIGNATURE_G2, SIGNATURE_VDFSTOOL].contains(&&header.signature) {
         let found = header.signature.escape_ascii();
         return Err(Error::malformed(FORMAT, format!("unknown signature \"{found}\"")));
     }
 
-    let zipped = is_zipped(header.flags.get());
-
-    match header.catalog_offset.get() {
-        0 => {}
-        offset => r.seek(offset as usize)?,
-    }
-    let entries = r.records::<Entry>(r.remaining() / size_of::<Entry>())?;
+    let offset = match header.catalog_offset.get() as usize {
+        0 => size_of::<Header>(),
+        offset if offset > volume.len() => {
+            return Err(Error::OutOfBounds { offset, len: volume.len() });
+        }
+        offset => offset,
+    };
+    let capacity = (volume.len() - offset) / size_of::<Entry>();
+    let entries = match volume {
+        Volume::Memory(_) => volume.read(offset, capacity * size_of::<Entry>())?,
+        #[cfg(not(feature = "mmap"))]
+        Volume::Disk(_) => {
+            let listed = (header.entry_count.get() as usize).min(capacity);
+            volume.read(offset, listed * size_of::<Entry>())?
+        }
+    };
 
     let mut catalog = Catalog {
-        storage: &storage,
+        volume,
+        offset,
         entries,
+        capacity,
         time: dos_time(header.timestamp.get()),
         overwrite,
-        zipped,
-        budget: entries.len(),
+        zipped: is_zipped(header.flags.get()),
+        budget: capacity,
     };
 
     let mut root = Children::new();
@@ -221,10 +307,7 @@ fn read_dir(catalog: &mut Catalog, first: usize, depth: usize, out: &mut Childre
             Error::malformed(FORMAT, "catalog references more entries than it has")
         })?;
 
-        let entry = catalog
-            .entries
-            .get(index)
-            .ok_or_else(|| Error::malformed(FORMAT, format!("catalog entry {index} is missing")))?;
+        let entry = catalog.entry(index)?;
 
         let name = decode_name(&entry.name);
         let kind = entry.kind.get();
@@ -234,19 +317,11 @@ fn read_dir(catalog: &mut Catalog, first: usize, depth: usize, out: &mut Childre
             read_dir(catalog, entry.offset.get() as usize, depth + 1, &mut children)?;
             let node = Node::new(name, catalog.time, Kind::Dir(children));
             merge(out, None, node, catalog.overwrite);
-        } else if let Some(data) = catalog.zipped.then(|| zipped_file(catalog, entry)).flatten() {
+        } else if let Some(data) = catalog.volume.file(&entry, catalog.zipped) {
             let node = Node::new(name, catalog.time, Kind::File(data));
             merge(out, None, node, catalog.overwrite);
         } else {
-            let start = entry.offset.get() as usize;
-            let end = start.checked_add(entry.size.get() as usize);
-            if let Some(end) = end.filter(|&end| end <= catalog.storage.len()) {
-                let data = FileData::new(Arc::clone(catalog.storage), start, end);
-                let node = Node::new(name, catalog.time, Kind::File(data));
-                merge(out, None, node, catalog.overwrite);
-            } else {
-                warn!("skipping {name:?}, its contents lie outside the archive");
-            }
+            warn!("skipping {name:?}, its contents lie outside the archive");
         }
 
         if kind & ENTRY_LAST != 0 {
@@ -255,13 +330,6 @@ fn read_dir(catalog: &mut Catalog, first: usize, depth: usize, out: &mut Childre
     }
 
     Ok(())
-}
-
-/// A file of a compressed archive, or `None` if it is stored as it is, as Union stores sounds.
-fn zipped_file(catalog: &Catalog, entry: &Entry) -> Option<FileData> {
-    let (start, size) = (entry.offset.get() as usize, entry.size.get() as usize);
-    let len = crate::zipped::scan(catalog.storage.get(start..)?, size)?;
-    Some(FileData::zipped(Arc::clone(catalog.storage), start, start + len, size))
 }
 
 /// Names are space-padded to 64 bytes.

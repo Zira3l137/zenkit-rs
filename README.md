@@ -47,9 +47,11 @@ re-exported as a module of `zenkit`, so `zenkit::mrm` is the `zenkit-rs-mrm` cra
 `parallel` uses [rayon](https://docs.rs/rayon). Turn it off for targets without threads, such as
 plain `wasm32`; results are the same either way.
 
-`mmap` saves memory and start-up time with large archives, but if another program changes a mapped
-file while it is mounted, the data you are reading changes with it. Leave it off unless you control
-the files.
+Without `mmap`, mounting an archive reads only its catalog, and each file is read the first time
+you ask for it, so a 2 GB archive mounts as quickly as a small one. `mmap` maps archives instead,
+which also spares the copy of each file you read, but if another program changes a mapped file
+while it is mounted, the data you are reading changes with it. Leave it off unless you control the
+files.
 
 ## Writing
 

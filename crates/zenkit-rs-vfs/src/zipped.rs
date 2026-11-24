@@ -8,6 +8,8 @@
 //! `length` is the file's uncompressed size, which the catalog lists too. Each block holds up to
 //! `block size` bytes of the file, compressed on its own.
 
+#[cfg(not(feature = "mmap"))]
+use std::io;
 use std::io::Read;
 use std::io::Write;
 
@@ -29,7 +31,7 @@ pub(crate) fn scan(data: &[u8], size: usize) -> Option<usize> {
     let mut r = Reader::new(data);
     let (length, block_size, count) = (r.u32().ok()?, r.u32().ok()?, r.u32().ok()?);
     let (length, block_size, count) = (length as usize, block_size as usize, count as usize);
-    if length != size || block_size == 0 || count != length.div_ceil(block_size) {
+    if !header_fits(length, block_size, count, size) {
         return None;
     }
     let mut left = length;
@@ -43,6 +45,49 @@ pub(crate) fn scan(data: &[u8], size: usize) -> Option<usize> {
         r.bytes(compressed).ok()?;
     }
     (left == 0).then_some(r.position())
+}
+
+/// Reads the stream for a file of `size` bytes from `r`: what [`scan`] would find at the start of
+/// the same bytes, without knowing in advance how many there are.
+#[cfg(not(feature = "mmap"))]
+pub(crate) fn read(r: &mut impl Read, size: usize) -> io::Result<Option<Vec<u8>>> {
+    let mut stream = Vec::new();
+    let Some([length, block_size, count]) = words(r, &mut stream)? else { return Ok(None) };
+    if !header_fits(length, block_size, count, size) {
+        return Ok(None);
+    }
+    let mut left = length;
+    for _ in 0..count {
+        let Some([block, compressed, _]) = words(r, &mut stream)? else { return Ok(None) };
+        if block > block_size || block > left {
+            return Ok(None);
+        }
+        left -= block;
+        // Taken bit by bit, so that a length past the end of the archive allocates nothing.
+        if r.take(compressed as u64).read_to_end(&mut stream)? != compressed {
+            return Ok(None);
+        }
+    }
+    Ok((left == 0).then_some(stream))
+}
+
+/// Three little-endian words, also appended to `stream`, or `None` at the end of `r`.
+#[cfg(not(feature = "mmap"))]
+fn words(r: &mut impl Read, stream: &mut Vec<u8>) -> io::Result<Option<[usize; 3]>> {
+    let mut bytes = [0; 12];
+    match r.read_exact(&mut bytes) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => return Ok(None),
+        Err(error) => return Err(error),
+    }
+    stream.extend_from_slice(&bytes);
+    let (words, _) = bytes.as_chunks::<4>();
+    let word = |i: usize| u32::from_le_bytes(words[i]) as usize;
+    Ok(Some([word(0), word(1), word(2)]))
+}
+
+fn header_fits(length: usize, block_size: usize, count: usize, size: usize) -> bool {
+    length == size && block_size != 0 && count == length.div_ceil(block_size)
 }
 
 /// Decompresses a stream that [`scan`] accepted.
@@ -113,6 +158,22 @@ mod tests {
         assert_eq!(scan(&stream, 6), None, "the catalog's size must match");
         assert_eq!(scan(&stream[..stream.len() - 1], 5), None);
         assert_eq!(scan(b"OggS\0\x02\0\0\0\0\0\0\0\0", 14), None);
+    }
+
+    #[test]
+    #[cfg(not(feature = "mmap"))]
+    fn reads_what_scan_finds() {
+        let data: Vec<u8> = (0..20_000u32).map(|i| (i * 7 + i / 256) as u8).collect();
+        for data in [&data[..], &data[..1], &[]] {
+            let stream = encode(data);
+            let mut after = stream.clone();
+            after.extend(b"the next file");
+            assert_eq!(read(&mut &after[..], data.len()).unwrap(), Some(stream));
+        }
+        let stream = encode(b"hello");
+        assert_eq!(read(&mut &stream[..], 6).unwrap(), None, "the catalog's size must match");
+        assert_eq!(read(&mut &stream[..stream.len() - 1], 5).unwrap(), None);
+        assert_eq!(read(&mut &b"OggS\0\x02\0\0\0\0\0\0\0\0"[..], 14).unwrap(), None);
     }
 
     #[test]

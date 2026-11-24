@@ -224,8 +224,12 @@ impl Vfs {
 
     /// Mounts a `.VDF` archive into the root.
     ///
-    /// The archive is parsed in full before anything is mounted, so a broken archive leaves the
-    /// tree untouched.
+    /// Only the archive's catalog is read, in full before anything is mounted, so a broken
+    /// catalog leaves the tree untouched. The archive stays open, and each file is read the first
+    /// time it is asked for, so mounting takes as long for a large archive as for a small one, and
+    /// a file that cannot be read fails then, in [`Node::try_data`]. The file can be renamed,
+    /// replaced or deleted meanwhile; what is read is still the archive that was mounted. With the
+    /// `mmap` feature the archive is mapped instead, and must not change at all.
     pub fn mount_disk(&mut self, path: impl AsRef<Path>, overwrite: Overwrite) -> Result<()> {
         self.mount_disks(&[path.as_ref()], overwrite)
     }
@@ -243,8 +247,8 @@ impl Vfs {
         let archives = par::try_map(paths.iter().collect(), |path| -> Result<_> {
             let path = path.as_ref();
             let _span = warn_span!("mount", disk = %path.display()).entered();
-            let storage = host::load_file(path)?;
-            let archive = disk::parse(Arc::new(storage), overwrite)
+            let volume = host::open_volume(path)?;
+            let archive = disk::parse(&volume, overwrite)
                 .context(|| format!("cannot mount {}", path.display()))?;
             debug!("read {} top-level entries", archive.len());
             Ok(archive)
@@ -261,7 +265,8 @@ impl Vfs {
         bytes: impl Into<Box<[u8]>>,
         overwrite: Overwrite,
     ) -> Result<()> {
-        let archive = disk::parse(Arc::new(Storage::Owned(bytes.into())), overwrite)?;
+        let volume = disk::Volume::Memory(Arc::new(Storage::Owned(bytes.into())));
+        let archive = disk::parse(&volume, overwrite)?;
         self.root.merge_children(archive, overwrite);
         Ok(())
     }

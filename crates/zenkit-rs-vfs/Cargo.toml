@@ -14,7 +14,8 @@ categories.workspace = true
 default = ["parallel"]
 # Reads archives, directories and many files at once on rayon's thread pool.
 parallel = ["dep:rayon"]
-# Memory-maps archives and host files instead of reading them into memory.
+# Memory-maps archives and host files, instead of reading archives as their files are asked for
+# and host files into memory.
 mmap = ["dep:memmap2"]
 
 [dependencies]

@@ -217,6 +217,97 @@ fn broken_compressed_files_fail_to_load() {
     assert!(err.report().to_string().contains("compressed file"), "{}", err.report());
 }
 
+/// A folder of its own for a test's files, removed when the test is done with it.
+struct TempDir(PathBuf);
+
+impl TempDir {
+    fn new(name: &str) -> Self {
+        let dir = std::env::temp_dir().join(format!("zenkit-rs-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        Self(dir)
+    }
+
+    fn write(&self, name: &str, bytes: &[u8]) -> PathBuf {
+        let path = self.0.join(name);
+        std::fs::write(&path, bytes).unwrap();
+        path
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+#[test]
+fn reads_the_catalog_past_a_wrong_entry_count() {
+    let mut bytes = std::fs::read(sample("basic.vdf")).unwrap();
+    bytes[272..276].copy_from_slice(&1u32.to_le_bytes());
+    let dir = TempDir::new("entry-count");
+    let mut vfs = Vfs::new();
+    vfs.mount_disk(dir.write("a.vdf", &bytes), Overwrite::Older).unwrap();
+    check(&vfs);
+}
+
+#[test]
+fn broken_compressed_files_on_disk_fail_to_load() {
+    let mut bytes = std::fs::read(sample("basic_zipped.vdf")).unwrap();
+    let catalog = u32::from_le_bytes(bytes[288..292].try_into().unwrap()) as usize;
+    let entry =
+        (0..7).map(|i| catalog + i * 80).find(|&e| bytes[e..].starts_with(b"MIT.MD")).unwrap();
+    let offset = u32::from_le_bytes(bytes[entry + 64..entry + 68].try_into().unwrap()) as usize;
+    bytes[offset + 26..offset + 40].fill(0xFF);
+
+    let dir = TempDir::new("broken-zipped");
+    let mut vfs = Vfs::new();
+    vfs.mount_disk(dir.write("a.vdf", &bytes), Overwrite::Older).unwrap();
+    assert!(matches!(vfs.find("mit.md").unwrap().try_data(), Err(Error::Malformed { .. })));
+    assert_eq!(vfs.find("readme.md").unwrap().data().unwrap().len(), 76, "the others still read");
+}
+
+#[test]
+fn truncated_archives_on_disk_fail_cleanly() {
+    let dir = TempDir::new("truncated");
+    for name in ["basic.vdf", "basic_zipped.vdf"] {
+        let bytes = std::fs::read(sample(name)).unwrap();
+        for len in (0..bytes.len()).step_by(97) {
+            let mut vfs = Vfs::new();
+            if vfs.mount_disk(dir.write(name, &bytes[..len]), Overwrite::Older).is_ok() {
+                for file in vfs.files() {
+                    let _ = file.try_data();
+                }
+            }
+        }
+    }
+}
+
+/// Saving an archive writes it beside the original and renames it over that, while the files
+/// being written are still read from the original.
+#[test]
+fn a_mounted_archive_can_be_saved_over_itself() {
+    let dir = TempDir::new("save-over");
+    for name in ["basic.vdf", "basic_zipped.vdf"] {
+        let path = dir.write(name, &std::fs::read(sample(name)).unwrap());
+        let mut vfs = Vfs::new();
+        vfs.mount_disk(&path, Overwrite::Older).unwrap();
+        let mit = vfs.find("mit.md").unwrap().data().unwrap().to_vec();
+
+        let saving = dir.0.join("saving");
+        let options = DiskInfo::read(&path).unwrap().options();
+        vfs.write_disk(std::fs::File::create(&saving).unwrap(), &options).unwrap();
+        std::fs::rename(&saving, &path).unwrap();
+        check(&vfs);
+        assert_eq!(vfs.find("gpl-3.0.md").unwrap().size(), Some(34915));
+
+        let mut saved = Vfs::new();
+        saved.mount_disk(&path, Overwrite::Older).unwrap();
+        check(&saved);
+        assert_eq!(saved.find("mit.md").unwrap().data().unwrap(), mit, "{name}");
+    }
+}
+
 #[test]
 fn truncated_archives_fail_cleanly() {
     let bytes = std::fs::read(sample("basic.vdf")).unwrap();

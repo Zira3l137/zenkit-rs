@@ -11,6 +11,8 @@ use zenkit_rs_core::Error;
 use zenkit_rs_core::Result;
 use zenkit_rs_core::io::Reader;
 
+#[cfg(not(feature = "mmap"))]
+use crate::host::DiskFile;
 use crate::write::DiskOptions;
 
 /// The bytes a file node points into: either a whole archive, or a single host file.
@@ -32,36 +34,47 @@ impl Deref for Storage {
     }
 }
 
-/// A window into shared storage. Cloning only bumps a reference count, so every file of a mounted
-/// archive shares the archive's single buffer.
+/// A file's contents, or where to find them. Cloning only bumps reference counts, so every file
+/// of a mounted archive shares the archive's single buffer or open file.
 #[derive(Clone)]
 pub(super) struct FileData {
-    storage: Arc<Storage>,
-    start: usize,
-    end: usize,
-    zipped: Option<Zipped>,
+    source: Source,
+    size: usize,
+    /// Whether the stored bytes are a ZippedStream. For a file read from disk it is only known
+    /// once it is read, so this says whether its archive is compressed.
+    zipped: bool,
+    /// The contents once read or decompressed, shared by every clone so that it happens once.
+    /// Bytes in memory that are stored as they are never need it.
+    loaded: Arc<OnceLock<Box<[u8]>>>,
 }
 
-/// A file of a compressed archive, whose window holds a ZippedStream.
 #[derive(Clone)]
-struct Zipped {
-    size: usize,
-    /// The contents once something asks for them, or why they could not be decompressed, shared
-    /// by every clone so the file is decompressed once.
-    contents: Arc<OnceLock<std::result::Result<Box<[u8]>, String>>>,
+enum Source {
+    /// `start..end` of bytes in memory.
+    Memory { storage: Arc<Storage>, start: usize, end: usize },
+    /// At `start` in an archive on disk.
+    #[cfg(not(feature = "mmap"))]
+    Disk { archive: Arc<DiskFile>, start: usize },
 }
 
 impl FileData {
     /// `start..end` must lie within `storage`.
     pub(super) fn new(storage: Arc<Storage>, start: usize, end: usize) -> Self {
         debug_assert!(start <= end && end <= storage.len());
-        Self { storage, start, end, zipped: None }
+        let source = Source::Memory { storage, start, end };
+        Self { source, size: end - start, zipped: false, loaded: Arc::default() }
     }
 
     /// A file of `size` bytes stored compressed in `start..end`, see [`zipped`](crate::zipped).
     pub(super) fn zipped(storage: Arc<Storage>, start: usize, end: usize, size: usize) -> Self {
-        let zipped = Some(Zipped { size, contents: Arc::new(OnceLock::new()) });
-        Self { zipped, ..Self::new(storage, start, end) }
+        Self { size, zipped: true, ..Self::new(storage, start, end) }
+    }
+
+    /// A file of `size` bytes at `start` in `archive`, compressed if the archive is `zipped`.
+    #[cfg(not(feature = "mmap"))]
+    pub(super) fn on_disk(archive: Arc<DiskFile>, start: usize, size: usize, zipped: bool) -> Self {
+        let source = Source::Disk { archive, start };
+        Self { source, size, zipped, loaded: Arc::default() }
     }
 
     pub(super) fn whole(storage: Storage) -> Self {
@@ -70,18 +83,39 @@ impl FileData {
     }
 
     fn bytes(&self) -> Result<&[u8]> {
-        let stored = &self.storage[self.start..self.end];
-        let Some(zipped) = &self.zipped else {
-            return Ok(stored);
-        };
-        let contents = zipped.contents.get_or_init(|| {
-            crate::zipped::decode(stored).map(Vec::into_boxed_slice).map_err(|e| e.to_string())
-        });
-        contents.as_deref().map_err(|reason| Error::malformed("VDF archive", reason.clone()))
+        if let Some(contents) = self.loaded.get() {
+            return Ok(contents);
+        }
+        if let Source::Memory { storage, start, end } = &self.source
+            && !self.zipped
+        {
+            return Ok(&storage[*start..*end]);
+        }
+        // Failures are not kept, so a file that failed to read is tried again the next time.
+        let contents = self.load()?;
+        Ok(self.loaded.get_or_init(|| contents.into_boxed_slice()))
+    }
+
+    fn load(&self) -> Result<Vec<u8>> {
+        match &self.source {
+            Source::Memory { storage, start, end } => crate::zipped::decode(&storage[*start..*end]),
+            #[cfg(not(feature = "mmap"))]
+            Source::Disk { archive, start } => {
+                if self.zipped {
+                    let stream = crate::zipped::read(&mut archive.reader(*start), self.size)
+                        .map_err(Error::io(archive.path()))?;
+                    if let Some(stream) = stream {
+                        return crate::zipped::decode(&stream);
+                    }
+                }
+                // Stored as it is, as compressed archives store sounds.
+                archive.read(*start, self.size)
+            }
+        }
     }
 
     fn len(&self) -> usize {
-        self.zipped.as_ref().map_or(self.end - self.start, |zipped| zipped.size)
+        self.size
     }
 }
 
@@ -162,20 +196,20 @@ impl Node {
 
     /// The contents of a file node, or `None` for a directory.
     ///
-    /// Files of compressed archives are decompressed the first time they are asked for. If that
-    /// fails, this logs a warning and gives no bytes; [`try_data`](Self::try_data) gives the
-    /// error instead.
+    /// Files of an archive mounted from disk are read the first time they are asked for, and
+    /// those of compressed archives decompressed, and then kept. If that fails, this logs a
+    /// warning and gives no bytes; [`try_data`](Self::try_data) gives the error instead.
     pub fn data(&self) -> Option<&[u8]> {
         match self.try_data() {
             Ok(data) => data,
             Err(error) => {
-                warn!("cannot decompress {:?}: {}", self.path, error.report());
+                warn!("cannot read {:?}: {}", self.path, error.report());
                 Some(&[])
             }
         }
     }
 
-    /// [`data`](Self::data), failing if a file of a compressed archive cannot be decompressed.
+    /// [`data`](Self::data), failing if a file cannot be read from its archive or decompressed.
     pub fn try_data(&self) -> Result<Option<&[u8]>> {
         match &self.kind {
             Kind::File(data) => data.bytes().map(Some),
@@ -183,7 +217,7 @@ impl Node {
         }
     }
 
-    /// The size of a file node's contents, without decompressing them, or `None` for a directory.
+    /// The size of a file node's contents, without reading them, or `None` for a directory.
     pub fn size(&self) -> Option<usize> {
         match &self.kind {
             Kind::File(data) => Some(data.len()),
