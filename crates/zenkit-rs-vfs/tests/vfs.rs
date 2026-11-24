@@ -2,6 +2,8 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use zenkit_rs_core::Error;
+use zenkit_rs_core::GameVersion;
+use zenkit_rs_vfs::DiskInfo;
 use zenkit_rs_vfs::Node;
 use zenkit_rs_vfs::Overwrite;
 use zenkit_rs_vfs::Vfs;
@@ -119,6 +121,55 @@ fn rejects_unknown_signature() {
     let err = vfs.mount_disk_bytes(bytes, Overwrite::Older).unwrap_err();
     assert!(matches!(err, Error::Malformed { .. }), "{err}");
     assert_eq!(vfs.root().children().len(), 0);
+}
+
+#[test]
+fn reads_an_archives_header() {
+    let info = DiskInfo::read(sample("basic.vdf")).unwrap();
+    assert_eq!(info.game, Some(GameVersion::Gothic2));
+    assert_eq!(info.comment, "Sample VDF for openzen. Create on 2021-04-27 13:24:59.");
+    assert!(!info.compressed);
+    assert_eq!((info.entry_count, info.file_count), (7, 5));
+
+    let mut vfs = Vfs::new();
+    vfs.mount_disk(sample("basic.vdf"), Overwrite::Older).unwrap();
+    assert_eq!(info.time, vfs.find("readme.md").unwrap().time());
+
+    assert!(DiskInfo::read(sample("basic_zipped.vdf")).unwrap().compressed);
+}
+
+#[test]
+fn header_options_write_the_same_header_back() {
+    for name in ["basic.vdf", "basic_zipped.vdf"] {
+        let original = std::fs::read(sample(name)).unwrap();
+        let info = DiskInfo::from_bytes(&original).unwrap();
+        let mut vfs = Vfs::new();
+        vfs.mount_disk_bytes(original.clone(), Overwrite::Older).unwrap();
+
+        let mut options = info.options();
+        options.time = Some(info.time);
+        let mut written = Vec::new();
+        vfs.write_disk(&mut written, &options).unwrap();
+        assert_eq!(written[..296], original[..296], "{name}");
+    }
+}
+
+#[test]
+fn vdfs_tool_archives_have_no_game() {
+    let mut bytes = std::fs::read(sample("basic.vdf")).unwrap();
+    bytes[256..272].copy_from_slice(b"PSVDSC_V2.00\x1A\x1A\x1A\x1A");
+    let info = DiskInfo::from_bytes(&bytes).unwrap();
+    assert_eq!(info.game, None);
+    assert_eq!(info.options().game, GameVersion::Gothic2);
+}
+
+#[test]
+fn bad_headers_fail_to_read() {
+    let mut bytes = std::fs::read(sample("basic.vdf")).unwrap();
+    assert!(matches!(DiskInfo::from_bytes(&bytes[..295]), Err(Error::UnexpectedEof { .. })));
+    assert!(matches!(DiskInfo::read(sample("missing.vdf")), Err(Error::Io { .. })));
+    bytes[256..272].copy_from_slice(b"NOT_A_VDF_AT_ALL");
+    assert!(matches!(DiskInfo::from_bytes(&bytes), Err(Error::Malformed { .. })));
 }
 
 /// The same files as `basic.vdf`, packed by Union's tools, which compress every file.

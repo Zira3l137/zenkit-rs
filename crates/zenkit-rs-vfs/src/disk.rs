@@ -5,6 +5,9 @@
 //! last entry of every directory carries [`ENTRY_LAST`]. A file entry's `offset` is the absolute
 //! position of its contents in the archive.
 
+use std::fs::File;
+use std::io::Read;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
@@ -15,6 +18,7 @@ use time::PrimitiveDateTime;
 use time::Time;
 use tracing::warn;
 use zenkit_rs_core::Error;
+use zenkit_rs_core::GameVersion;
 use zenkit_rs_core::Result;
 use zenkit_rs_core::io::Reader;
 use zenkit_rs_core::text;
@@ -31,6 +35,7 @@ use super::node::FileData;
 use super::node::Kind;
 use super::node::Node;
 use super::node::Storage;
+use crate::write::DiskOptions;
 
 const FORMAT: &str = "VDF archive";
 
@@ -80,6 +85,98 @@ struct Catalog<'a> {
     budget: usize,
 }
 
+/// What a `.VDF` archive says about itself in its header, read without mounting it.
+///
+/// Mounting merges archives into one tree and keeps none of this, so a tool that opens an archive
+/// and saves it again reads it here first to write the same kind of archive back:
+///
+/// ```no_run
+/// use zenkit_rs_vfs::DiskInfo;
+/// use zenkit_rs_vfs::Overwrite;
+/// use zenkit_rs_vfs::Vfs;
+///
+/// let info = DiskInfo::read("Data/Anims.vdf")?;
+/// let mut vfs = Vfs::new();
+/// vfs.mount_disk("Data/Anims.vdf", Overwrite::All)?;
+/// // ... change the tree ...
+/// vfs.write_disk(Vec::new(), &info.options())?;
+/// # Ok::<(), zenkit_rs_core::Error>(())
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiskInfo {
+    /// The game whose signature the archive has, or `None` for archives made by the community's
+    /// `vdfs` tool, whose signature belongs to neither. Both games read all three.
+    pub game: Option<GameVersion>,
+    /// The free text at the start of the archive, without the padding after it.
+    pub comment: String,
+    /// The archive's one timestamp, which every file mounted from it takes.
+    pub time: SystemTime,
+    /// Whether the files are stored compressed, as in Union's archives.
+    pub compressed: bool,
+    /// How many directories and files the catalog lists.
+    pub entry_count: u32,
+    /// How many of those are files.
+    pub file_count: u32,
+}
+
+impl DiskInfo {
+    /// Reads the header of the archive at `path`, and nothing past it.
+    pub fn read(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
+        let mut header = [0; size_of::<Header>()];
+        File::open(path)
+            .and_then(|mut file| file.read_exact(&mut header))
+            .map_err(Error::io(path))?;
+        Self::from_bytes(&header)
+    }
+
+    /// Reads the header at the start of `data`, which may be the whole archive or just its first
+    /// 296 bytes.
+    pub fn from_bytes(data: &[u8]) -> Result<Self> {
+        let header = Reader::new(data).record::<Header>()?;
+        let game = match &header.signature {
+            SIGNATURE_G1 => Some(GameVersion::Gothic1),
+            SIGNATURE_G2 => Some(GameVersion::Gothic2),
+            SIGNATURE_VDFSTOOL => None,
+            other => {
+                let found = other.escape_ascii();
+                return Err(Error::malformed(FORMAT, format!("unknown signature \"{found}\"")));
+            }
+        };
+        // The original tools pad the comment with 0x1A, the DOS end-of-file mark.
+        let end = header.comment.iter().position(|&b| b == 0x1A || b == 0).unwrap_or(256);
+        Ok(Self {
+            game,
+            comment: text::latin1(&header.comment[..end]),
+            time: dos_time(header.timestamp.get()),
+            compressed: is_zipped(header.flags.get()),
+            entry_count: header.entry_count.get(),
+            file_count: header.file_count.get(),
+        })
+    }
+
+    /// Options that write an archive like this one: the same signature, comment and compression.
+    /// Archives of the `vdfs` tool get Gothic II's signature. The timestamp is left to the
+    /// writer, which takes the newest of the files, so that files added since keep theirs.
+    pub fn options(&self) -> DiskOptions {
+        let mut options = DiskOptions::new(self.game.unwrap_or(GameVersion::Gothic2));
+        options.comment.clone_from(&self.comment);
+        options.compressed = self.compressed;
+        options
+    }
+}
+
+fn is_zipped(flags: u32) -> bool {
+    match flags {
+        FLAGS_NORMAL => false,
+        FLAGS_ZIPPED => true,
+        flags => {
+            warn!("unknown volume flags {flags:#x}, assuming uncompressed");
+            false
+        }
+    }
+}
+
 /// Parses a whole archive into its top-level nodes.
 pub(super) fn parse(storage: Arc<Storage>, overwrite: Overwrite) -> Result<Children> {
     let mut r = Reader::new(&storage);
@@ -90,14 +187,7 @@ pub(super) fn parse(storage: Arc<Storage>, overwrite: Overwrite) -> Result<Child
         return Err(Error::malformed(FORMAT, format!("unknown signature \"{found}\"")));
     }
 
-    let zipped = match header.flags.get() {
-        FLAGS_NORMAL => false,
-        FLAGS_ZIPPED => true,
-        flags => {
-            warn!("unknown volume flags {flags:#x}, assuming uncompressed");
-            false
-        }
-    };
+    let zipped = is_zipped(header.flags.get());
 
     match header.catalog_offset.get() {
         0 => {}

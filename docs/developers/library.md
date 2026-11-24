@@ -197,6 +197,9 @@ Names are stored upper case, as the game's tools store them. The archive's date 
 file's, which makes it win over the game's own archives. `DiskOptions::compressed` writes Union's
 compressed archives, which only games running Union can read.
 
+To change an archive and save it as it was, read its header with `DiskInfo::read` before mounting
+it: `DiskInfo::options` gives back its game, comment and compression.
+
 ## Worlds and VOBs
 
 A [`World`](https://docs.rs/zenkit-rs/latest/zenkit/world/struct.World.html) is its mesh and BSP

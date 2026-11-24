@@ -44,6 +44,7 @@ use crate::node::Storage;
 use crate::node::fold;
 use crate::node::trim_name;
 
+pub use disk::DiskInfo;
 pub use node::Node;
 pub use write::DiskOptions;
 
