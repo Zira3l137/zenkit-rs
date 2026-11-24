@@ -75,25 +75,30 @@ pub(crate) fn write(dir: &Node, out: &mut impl io::Write, options: &DiskOptions)
         return Err(Error::unwritable(FORMAT, "an archive needs at least one file"));
     }
 
-    let contents = par::try_map(entries.iter().filter(|e| e.node.is_file()).collect(), |entry| {
-        let data = entry.node.try_data().context(|| entry.node.path().to_owned())?;
-        let data = data.unwrap_or_default();
-        let stored = match options.compressed && !is_sound(entry.node.name()) {
-            true => Cow::Owned(zipped::encode(data)),
-            false => Cow::Borrowed(data),
-        };
-        Ok::<_, Error>((data.len(), stored))
+    let files: Vec<&Node> = entries.iter().map(|e| e.node).filter(|node| node.is_file()).collect();
+    // The catalog comes first and holds each file's stored size, which for a compressed file is
+    // only known once it is compressed.
+    let compressed = par::try_map(files.clone(), |node| -> Result<Option<Vec<u8>>> {
+        if !options.compressed || is_sound(node.name()) {
+            return Ok(None);
+        }
+        Ok(Some(zipped::encode(&contents(node)?)))
     })?;
+    let stored: Vec<usize> = files
+        .iter()
+        .zip(&compressed)
+        .map(|(node, compressed)| compressed.as_ref().map_or(size(node), Vec::len))
+        .collect();
 
     let mut offset = HEADER_SIZE + entries.len() * ENTRY_SIZE;
     let mut newest = UNIX_EPOCH;
-    let mut sizes = Vec::with_capacity(contents.len());
-    let files = entries.iter_mut().filter(|e| e.node.is_file());
-    for (entry, (size, stored)) in files.zip(&contents) {
+    let mut sizes = Vec::with_capacity(files.len());
+    let file_entries = entries.iter_mut().filter(|e| e.node.is_file());
+    for (entry, stored) in file_entries.zip(&stored) {
         entry.offset = offset;
-        offset += stored.len();
+        offset += stored;
         newest = newest.max(entry.node.time());
-        sizes.push(*size);
+        sizes.push(size(entry.node));
     }
     // Union's archives give the files' size before compression, as uncompressed ones do.
     let data_size: usize = sizes.iter().sum();
@@ -111,7 +116,7 @@ pub(crate) fn write(dir: &Node, out: &mut impl io::Write, options: &DiskOptions)
         GameVersion::Gothic2 => SIGNATURE_G2,
     });
     head.u32(entries.len() as u32);
-    head.u32(contents.len() as u32);
+    head.u32(files.len() as u32);
     head.u32(dos_time(options.time.unwrap_or(newest)));
     head.u32(data_size as u32);
     head.u32(HEADER_SIZE as u32);
@@ -136,10 +141,53 @@ pub(crate) fn write(dir: &Node, out: &mut impl io::Write, options: &DiskOptions)
     }
 
     out.write_all(head.as_bytes()).map_err(Error::Output)?;
-    for (_, stored) in &contents {
-        out.write_all(stored).map_err(Error::Output)?;
+    // A batch at a time, read in parallel, so that an archive's worth of files read from disk is
+    // never in memory at once.
+    let mut batch = Vec::new();
+    let mut batch_size = 0;
+    let files = files.into_iter().zip(compressed.iter().map(Option::as_deref)).zip(stored);
+    for (file, stored) in files {
+        batch.push((file, stored));
+        batch_size += stored;
+        if batch_size >= BATCH_SIZE {
+            write_batch(std::mem::take(&mut batch), out)?;
+            batch_size = 0;
+        }
     }
+    write_batch(batch, out)?;
     out.flush().map_err(Error::Output)
+}
+
+/// How many bytes of files to read before writing them.
+const BATCH_SIZE: usize = if cfg!(test) { 100 } else { 64 << 20 };
+
+type Batch<'a> = Vec<((&'a Node, Option<&'a [u8]>), usize)>;
+
+fn write_batch(batch: Batch, out: &mut impl io::Write) -> Result<()> {
+    let read = par::try_map(batch, |((node, compressed), stored)| {
+        let data = match compressed {
+            Some(compressed) => Cow::Borrowed(compressed),
+            None => contents(node)?,
+        };
+        // The catalog already gave this file its place.
+        if data.len() != stored {
+            let reason = format!("{} changed size while it was written", node.path());
+            return Err(Error::unwritable(FORMAT, reason));
+        }
+        Ok(data)
+    })?;
+    for data in &read {
+        out.write_all(data).map_err(Error::Output)?;
+    }
+    Ok(())
+}
+
+fn contents(node: &Node) -> Result<Cow<'_, [u8]>> {
+    node.contents().context(|| node.path().to_owned())
+}
+
+fn size(node: &Node) -> usize {
+    node.size().unwrap_or(0)
 }
 
 /// Lists the entries of `dir` and, after them, those of its subdirectories. Directories without
@@ -206,8 +254,13 @@ fn dos_time(time: SystemTime) -> u32 {
 mod tests {
     use std::time::Duration;
 
+    use std::sync::Arc;
+
     use super::*;
+    use crate::Overwrite;
     use crate::disk;
+    use crate::disk::Volume;
+    use crate::node::Storage;
 
     #[test]
     fn dos_times_round_trip() {
@@ -219,5 +272,24 @@ mod tests {
             disk::dos_time(dos_time(UNIX_EPOCH)),
             UNIX_EPOCH + Duration::from_secs(315_532_800)
         );
+    }
+
+    #[test]
+    fn writes_many_batches() {
+        let mut root = Node::dir("", UNIX_EPOCH);
+        let files: Vec<Vec<u8>> = (0..12).map(|i| vec![i as u8; 30 + i * 7]).collect();
+        for (i, data) in files.iter().enumerate() {
+            root.insert(Node::file(format!("F{i}.TXT"), data.clone(), UNIX_EPOCH)).unwrap();
+        }
+        for compressed in [false, true] {
+            let options = DiskOptions { compressed, ..DiskOptions::new(GameVersion::Gothic2) };
+            let mut out = Vec::new();
+            write(&root, &mut out, &options).unwrap();
+            let volume = Volume::Memory(Arc::new(Storage::Owned(out.into())));
+            let read = disk::parse(&volume, Overwrite::All).unwrap();
+            for (i, data) in files.iter().enumerate() {
+                assert_eq!(read[&format!("f{i}.txt")].data(), Some(&data[..]), "{compressed}");
+            }
+        }
     }
 }

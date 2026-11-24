@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 use std::fmt;
@@ -94,6 +95,19 @@ impl FileData {
         // Failures are not kept, so a file that failed to read is tried again the next time.
         let contents = self.load()?;
         Ok(self.loaded.get_or_init(|| contents.into_boxed_slice()))
+    }
+
+    /// The contents without keeping them, for reading every file once, as writing an archive does,
+    /// which would otherwise leave a whole archive read from disk in memory.
+    pub(super) fn contents(&self) -> Result<Cow<'_, [u8]>> {
+        match &self.source {
+            Source::Memory { .. } => self.bytes().map(Cow::Borrowed),
+            #[cfg(not(feature = "mmap"))]
+            Source::Disk { .. } => match self.loaded.get() {
+                Some(contents) => Ok(Cow::Borrowed(contents)),
+                None => self.load().map(Cow::Owned),
+            },
+        }
     }
 
     fn load(&self) -> Result<Vec<u8>> {
@@ -214,6 +228,15 @@ impl Node {
         match &self.kind {
             Kind::File(data) => data.bytes().map(Some),
             Kind::Dir(_) => Ok(None),
+        }
+    }
+
+    /// [`try_data`](Self::try_data), without keeping what it reads from disk. Empty for a
+    /// directory.
+    pub(super) fn contents(&self) -> Result<Cow<'_, [u8]>> {
+        match &self.kind {
+            Kind::File(data) => data.contents(),
+            Kind::Dir(_) => Ok(Cow::Borrowed(&[])),
         }
     }
 
