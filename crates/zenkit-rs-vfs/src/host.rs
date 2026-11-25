@@ -124,7 +124,8 @@ impl DiskFile {
             return Err(Error::OutOfBounds { offset: offset.saturating_add(len), len: self.len });
         }
         let mut bytes = vec![0; len];
-        std::io::Read::read_exact(&mut self.at(offset), &mut bytes).map_err(Error::io(&self.path))?;
+        std::io::Read::read_exact(&mut self.at(offset), &mut bytes)
+            .map_err(Error::io(&self.path))?;
         Ok(bytes)
     }
 

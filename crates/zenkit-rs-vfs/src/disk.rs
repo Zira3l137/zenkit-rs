@@ -114,7 +114,9 @@ impl Volume {
             Self::Memory(storage) => {
                 let stream = zipped.then(|| crate::zipped::scan(storage.get(start..)?, size));
                 match stream.flatten() {
-                    Some(len) => Some(FileData::zipped(Arc::clone(storage), start, start + len, size)),
+                    Some(len) => {
+                        Some(FileData::zipped(Arc::clone(storage), start, start + len, size))
+                    }
                     None => fits.then(|| FileData::new(Arc::clone(storage), start, start + size)),
                 }
             }

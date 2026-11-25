@@ -284,8 +284,10 @@ fn truncated_archives_on_disk_fail_cleanly() {
 }
 
 /// Saving an archive writes it beside the original and renames it over that, while the files
-/// being written are still read from the original.
+/// being written are still read from the original. Not with `mmap`: Windows does not replace a
+/// file while it is mapped.
 #[test]
+#[cfg(not(feature = "mmap"))]
 fn a_mounted_archive_can_be_saved_over_itself() {
     let dir = TempDir::new("save-over");
     for name in ["basic.vdf", "basic_zipped.vdf"] {
