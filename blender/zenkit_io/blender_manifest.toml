@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "zenkit_io"
-version = "0.1.2"
+version = "0.1.3"
 name = "ZenKit Import/Export"
 tagline = "Import and export Gothic textures, meshes, models and animations"
 maintainer = "Zira3l137 <raulbairamov2002@gmail.com>"

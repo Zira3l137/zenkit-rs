@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
@@ -38,22 +38,22 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["f
 # Views fixed-layout records straight from the file's bytes, without copying or unsafe code.
 zerocopy = { version = "0.8", default-features = false, features = ["derive"] }
 
-zenkit-rs-animation = { path = "crates/zenkit-rs-animation", version = "0.1.2" }
-zenkit-rs-archive = { path = "crates/zenkit-rs-archive", version = "0.1.2" }
-zenkit-rs-core = { path = "crates/zenkit-rs-core", version = "0.1.2" }
-zenkit-rs-cutscene = { path = "crates/zenkit-rs-cutscene", version = "0.1.2" }
-zenkit-rs-font = { path = "crates/zenkit-rs-font", version = "0.1.2" }
-zenkit-rs-material = { path = "crates/zenkit-rs-material", version = "0.1.2" }
-zenkit-rs-mesh = { path = "crates/zenkit-rs-mesh", version = "0.1.2" }
-zenkit-rs-model = { path = "crates/zenkit-rs-model", version = "0.1.2" }
-zenkit-rs-model-script = { path = "crates/zenkit-rs-model-script", version = "0.1.2" }
-zenkit-rs-morph = { path = "crates/zenkit-rs-morph", version = "0.1.2" }
-zenkit-rs-mrm = { path = "crates/zenkit-rs-mrm", version = "0.1.2" }
-zenkit-rs-save = { path = "crates/zenkit-rs-save", version = "0.1.2", default-features = false }
+zenkit-rs-animation = { path = "crates/zenkit-rs-animation", version = "0.1.3" }
+zenkit-rs-archive = { path = "crates/zenkit-rs-archive", version = "0.1.3" }
+zenkit-rs-core = { path = "crates/zenkit-rs-core", version = "0.1.3" }
+zenkit-rs-cutscene = { path = "crates/zenkit-rs-cutscene", version = "0.1.3" }
+zenkit-rs-font = { path = "crates/zenkit-rs-font", version = "0.1.3" }
+zenkit-rs-material = { path = "crates/zenkit-rs-material", version = "0.1.3" }
+zenkit-rs-mesh = { path = "crates/zenkit-rs-mesh", version = "0.1.3" }
+zenkit-rs-model = { path = "crates/zenkit-rs-model", version = "0.1.3" }
+zenkit-rs-model-script = { path = "crates/zenkit-rs-model-script", version = "0.1.3" }
+zenkit-rs-morph = { path = "crates/zenkit-rs-morph", version = "0.1.3" }
+zenkit-rs-mrm = { path = "crates/zenkit-rs-mrm", version = "0.1.3" }
+zenkit-rs-save = { path = "crates/zenkit-rs-save", version = "0.1.3", default-features = false }
 # Without its default `parallel` feature, so the facade's own `parallel` decides.
-zenkit-rs-texture = { path = "crates/zenkit-rs-texture", version = "0.1.2", default-features = false }
-zenkit-rs-vfs = { path = "crates/zenkit-rs-vfs", version = "0.1.2", default-features = false }
-zenkit-rs-world = { path = "crates/zenkit-rs-world", version = "0.1.2", default-features = false }
+zenkit-rs-texture = { path = "crates/zenkit-rs-texture", version = "0.1.3", default-features = false }
+zenkit-rs-vfs = { path = "crates/zenkit-rs-vfs", version = "0.1.3", default-features = false }
+zenkit-rs-world = { path = "crates/zenkit-rs-world", version = "0.1.3", default-features = false }
 
 [workspace.lints.rust]
 # Only memory-mapping needs unsafe code, and allows it right there.
